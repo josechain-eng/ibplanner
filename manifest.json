@@ -1,0 +1,26 @@
+{
+  "name": "Life & Business Planner 2026",
+  "short_name": "LB Planner",
+  "description": "Personal life and business planning app — tasks, habits, routines, projects, journals and more.",
+  "start_url": "./LifeBusinessPlanner2026.html",
+  "scope": "./",
+  "display": "standalone",
+  "orientation": "portrait-primary",
+  "background_color": "#1a0a2e",
+  "theme_color": "#6B3FA0",
+  "categories": ["productivity", "lifestyle", "business"],
+  "icons": [
+    {
+      "src": "icon-192.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "any maskable"
+    },
+    {
+      "src": "icon-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any maskable"
+    }
+  ]
+}
