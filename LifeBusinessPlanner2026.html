@@ -1704,11 +1704,18 @@ var scheduleAlarms = function scheduleAlarms(entities, type, addToast) {
       // Browser notification
       if ('Notification' in window && Notification.permission === 'granted') {
         try {
-          new Notification("\uD83D\uDD14 " + title, {
-            body: body,
-            requireInteraction: true,
-            tag: 'lbp_alarm_' + Date.now()
-          });
+          navigator.vibrate && navigator.vibrate([400,150,400,150,400]);
+          var _ntag = 'lbp_alarm_' + Date.now();
+          var _nOpts = { body: body, requireInteraction: true, tag: _ntag, icon: './icon-192.png', badge: './icon-192.png', vibrate: [400,150,400,150,400] };
+          if ('serviceWorker' in navigator) {
+            navigator.serviceWorker.ready.then(function(reg) {
+              reg.showNotification("\uD83D\uDD14 " + title, _nOpts);
+            }).catch(function() {
+              if (Notification.permission === 'granted') new Notification("\uD83D\uDD14 " + title, _nOpts);
+            });
+          } else {
+            new Notification("\uD83D\uDD14 " + title, _nOpts);
+          }
           try {
             var _alog = JSON.parse(localStorage.getItem('lbp_alarm_log') || '[]');
             _alog.unshift({ title: title, body: body, time: new Date().toISOString() });
@@ -2004,10 +2011,13 @@ var HomeScreen = function HomeScreen(_ref14) {
     var _t$alarm;
     return /*#__PURE__*/React.createElement("div", {
       className: "task-item",
-      key: t.id
+      key: t.id,
+      onClick: function onClick() { return navigate('tasks'); },
+      style: {cursor:'pointer'}
     }, /*#__PURE__*/React.createElement("div", {
       className: "task-check ".concat(t.status === 'DONE' ? 'done' : ''),
-      onClick: function onClick() {
+      onClick: function onClick(e) {
+        e.stopPropagation();
         return completeTask(t.id);
       },
       style: {
@@ -2135,9 +2145,8 @@ var HomeScreen = function HomeScreen(_ref14) {
     return /*#__PURE__*/React.createElement("div", {
       className: "habit-circle",
       key: h.id,
-      onClick: function onClick() {
-        return toggleHabit(h.id);
-      }
+      onClick: function onClick() { navigate('habits'); },
+      style: {cursor:'pointer'}
     }, /*#__PURE__*/React.createElement("div", {
       className: "habit-ring ".concat(done ? 'done' : ''),
       style: {
@@ -2486,11 +2495,20 @@ var ProjectsScreen = function ProjectsScreen(_ref20) {
       completion: 0,
       category: '',
       tags: [],
+      subtasks: [],
       alarm: defaultAlarm()
     }),
     _useState32 = _slicedToArray(_useState31, 2),
     form = _useState32[0],
     setForm = _useState32[1];
+  var _useStateEI = useState(null),
+    _useStateEI2 = _slicedToArray(_useStateEI, 2),
+    editItem = _useStateEI2[0],
+    setEditItem = _useStateEI2[1];
+  var _useStateNST = useState(''),
+    _useStateNST2 = _slicedToArray(_useStateNST, 2),
+    newSubtask = _useStateNST2[0],
+    setNewSubtask = _useStateNST2[1];
   var allProjects = data.projects || [];
   var displayed = tab === 'All' ? allProjects : allProjects.filter(function (p) {
     return p.status === tab.replace(' ', '_');
@@ -2524,6 +2542,9 @@ var ProjectsScreen = function ProjectsScreen(_ref20) {
       dueDate: '',
       status: 'PLANNING',
       completion: 0,
+      category: '',
+      tags: [],
+      subtasks: [],
       alarm: defaultAlarm()
     });
     setModal(false);
@@ -2716,7 +2737,7 @@ var ProjectsScreen = function ProjectsScreen(_ref20) {
         color: '#4CAF50',
         marginTop: 4
       }
-    }, "\uD83D\uDCB0 Budget: $", Number(p.budget).toLocaleString()), p.status !== 'DONE' && /*#__PURE__*/React.createElement("button", {
+    }, "\uD83D\uDCB0 Budget: $", Number(p.budget).toLocaleString()), (p.subtasks && p.subtasks.length > 0) && /*#__PURE__*/React.createElement("div", {style:{fontSize:11,color:'var(--text-dim)',marginTop:4}}, "\uD83D\uDCCB Subtasks: ", (p.subtasks||[]).filter(function(s){return s.done;}).length, "/", (p.subtasks||[]).length), p.status !== 'DONE' && /*#__PURE__*/React.createElement("button", {
       className: "btn btn-success btn-sm",
       style: {
         marginTop: 8
@@ -2735,7 +2756,7 @@ var ProjectsScreen = function ProjectsScreen(_ref20) {
       return setModal(true);
     }
   }, "+ New Project"))), modal && /*#__PURE__*/React.createElement(Modal, {
-    title: "New Project",
+    title: editItem ? "Edit Project" : "New Project",
     onClose: function onClose() {
       return setModal(false);
     },
@@ -2827,7 +2848,7 @@ var ProjectsScreen = function ProjectsScreen(_ref20) {
         dueDate: e.target.value
       }));
     }
-  })), /*#__PURE__*/React.createElement(CategoryTagInput,{category:form.category||'',tags:Array.isArray(form.tags)?form.tags:[],allCategories:(data.categories||['Personal','Work','Home','Health','Finance','Learning','Creative']),onChange:function(c,t){setForm(function(f){return Object.assign({},f,{category:c,tags:t});});},onAddCategory:function(v){setData(function(d){return Object.assign({},d,{categories:(d.categories||[]).concat([v])});});}}), /*#__PURE__*/React.createElement(AlarmPanel, {
+  })), /*#__PURE__*/React.createElement("hr", {className:"divider"}), /*#__PURE__*/React.createElement("div", {className:"form-group"}, /*#__PURE__*/React.createElement("label", null, "📋 Subtasks"), /*#__PURE__*/React.createElement("div", {style:{display:'flex',gap:6,marginBottom:8}}, /*#__PURE__*/React.createElement("input", {value:newSubtask, onChange:function(e){setNewSubtask(e.target.value);}, onKeyDown:function(e){if(e.key==='Enter'&&newSubtask.trim()){setForm(_objectSpread(_objectSpread({},form),{},{subtasks:[].concat(_toConsumableArray(form.subtasks||[]),[{id:uid(),title:newSubtask.trim(),done:false}])}));setNewSubtask('');}}, placeholder:"Add subtask, press Enter…", style:{flex:1}}), /*#__PURE__*/React.createElement("button", {className:"btn btn-primary btn-sm", onClick:function(){if(newSubtask.trim()){setForm(_objectSpread(_objectSpread({},form),{},{subtasks:[].concat(_toConsumableArray(form.subtasks||[]),[{id:uid(),title:newSubtask.trim(),done:false}])}));setNewSubtask('');}}}, "+")), (form.subtasks||[]).map(function(st){return /*#__PURE__*/React.createElement("div",{key:st.id,style:{display:'flex',alignItems:'center',gap:6,padding:'5px 0',borderBottom:'1px solid var(--border)'}}, /*#__PURE__*/React.createElement("input",{type:"checkbox",checked:st.done||false,onChange:function(){setForm(_objectSpread(_objectSpread({},form),{},{subtasks:(form.subtasks||[]).map(function(x){return x.id===st.id?_objectSpread(_objectSpread({},x),{},{done:!x.done}):x;})}));},style:{width:14,height:14,accentColor:'#9C68D6',flexShrink:0}}), /*#__PURE__*/React.createElement("span",{style:{flex:1,fontSize:13,textDecoration:st.done?'line-through':'none',color:st.done?'var(--text-dim)':'var(--text)'}},st.title), /*#__PURE__*/React.createElement("button",{onClick:function(){setForm(_objectSpread(_objectSpread({},form),{},{subtasks:(form.subtasks||[]).filter(function(x){return x.id!==st.id;})}));},style:{background:'none',border:'none',color:'var(--text-dim)',cursor:'pointer',fontSize:16,padding:'0 4px',lineHeight:1}},"×"));})), /*#__PURE__*/React.createElement(CategoryTagInput,{category:form.category||'',tags:Array.isArray(form.tags)?form.tags:[],allCategories:(data.categories||['Personal','Work','Home','Health','Finance','Learning','Creative']),onChange:function(c,t){setForm(function(f){return Object.assign({},f,{category:c,tags:t});});},onAddCategory:function(v){setData(function(d){return Object.assign({},d,{categories:(d.categories||[]).concat([v])});});}}), /*#__PURE__*/React.createElement(AlarmPanel, {
     alarm: form.alarm,
     onChange: function onChange(a) {
       return setForm(_objectSpread(_objectSpread({}, form), {}, {
@@ -11729,7 +11750,7 @@ var App = function App() {
     label: '💚 Health & Wellness',
     items: [['journal', '📓', 'Journal'], ['habits', '🔄', 'Habit Tracker'], ['workout', '🏋️', 'Workout Planner'], ['recipes', '🍽', 'Recipes & Groceries'], ['medication', '💊', 'Medication Tracker'], ['skin', '✨', 'Skin Tracker']]
   }];
-  var bottomTabs = [['home','home','Home'],['tasks','task','Tasks'],['search','search','Search'],['content','content','Brand'],['journal','book','Journal']];
+  var bottomTabs = [['home','home','Home'],['tasks','task','Tasks'],['search','search','Search'],['projects','business','Projects'],['journal','book','Journal']];
   var renderPage = function renderPage() {
     var props = {
       data: data,

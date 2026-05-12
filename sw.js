@@ -43,3 +43,18 @@ self.addEventListener('fetch', event => {
     })
   );
 });
+
+// Notification click: open or focus the app
+self.addEventListener('notificationclick', event => {
+  event.notification.close();
+  event.waitUntil(
+    clients.matchAll({ type: 'window', includeUncontrolled: true }).then(windowClients => {
+      for (const client of windowClients) {
+        if (client.url.includes('LifeBusinessPlanner') && 'focus' in client) {
+          return client.focus();
+        }
+      }
+      return clients.openWindow('./LifeBusinessPlanner2026.html');
+    })
+  );
+});
