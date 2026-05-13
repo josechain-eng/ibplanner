@@ -20,7 +20,7 @@
 <script>
 (function() {
   // ── Version ──────────────────────────────────────────────────────────────
-  window.LBP_VERSION = '2.4';
+  window.LBP_VERSION = '2.5';
   // ── Cloud Worker URL (set this after deploying your Cloudflare Worker) ──
   window.LBP_WORKER_URL = localStorage.getItem('lbp_worker_url') || '';
   // VAPID public key matching the Worker
@@ -12416,7 +12416,7 @@ var App = function App() {
     var check = function check() {
       try {
         var _now = Date.now(),
-          win = _now - 90000;
+          win = _now - 300000; // 5-minute window — catches alarms if app opened slightly late
         var d = JSON.parse(localStorage.getItem('lbp2026_data') || '{}');
         types.forEach(function (_ref64) {
           var _ref65 = _slicedToArray(_ref64, 3),
@@ -12455,11 +12455,38 @@ var App = function App() {
   }, [fireAlarmOnce]);
 
   // ── Schedule ALL alarms to SW + Cloudflare whenever data changes ──
+  // Also catch missed alarms (cross-device: alarm set on phone, desktop opened after the fact)
   useEffect(function() {
     if (!data) return;
     var _noToast = function(){};
     var _types = ['tasks','goals','projects','journal','routines','habits','medications','householdTasks','workouts','meetings'];
     _types.forEach(function(k){ scheduleAlarms(data[k] || [], k, _noToast); });
+
+    // Missed alarm check: show "(Missed)" notification for any alarm that fired in the last hour
+    // This catches the case where the app was closed when alarm fired (cross-device sync scenario)
+    var nowMs2 = Date.now();
+    var oneHour = 60 * 60 * 1000;
+    _types.forEach(function(k) {
+      (data[k] || []).forEach(function(entity) {
+        var al = entity.alarm;
+        if (!al || !al.enabled || !al.datetime) return;
+        var t = new Date(al.datetime).getTime();
+        var age = nowMs2 - t;
+        if (age <= 0 || age > oneHour) return; // not missed, or too old
+        var missedKey = (entity.id || '') + '_' + al.datetime + '_missed';
+        if (firedRef.current.has(missedKey)) return; // already notified this session
+        firedRef.current.add(missedKey);
+        var entityName = entity.title || entity.name || entity.destination || '';
+        var typeLabel = _ALARM_TYPE_LABELS[k] || k;
+        var notifTitle = entityName || typeLabel + ' Reminder';
+        var notifBody = '(Missed) ' + (entityName ? entityName + ' · ' : '') + typeLabel + ' reminder';
+        if ('serviceWorker' in navigator) {
+          navigator.serviceWorker.ready.then(function(reg) {
+            if (reg.active) reg.active.postMessage({type:'SHOW_NOTIFICATION', title:notifTitle, body:notifBody, tag:'lbp_missed_'+missedKey, vibration:'long'});
+          }).catch(function(){});
+        }
+      });
+    });
   }, [data]);
 
   var navigate = useCallback(function (p) {
