@@ -11963,24 +11963,7 @@ var HubScreen = function HubScreen(_ref61) {
 };
 
 // ─── Alarm Sound & Utilities ────────────────────────────────────
-var playAlarmSound = function playAlarmSound() {
-  try {
-    var ctx = new (window.AudioContext || window.webkitAudioContext)();
-    var gain = ctx.createGain();
-    gain.connect(ctx.destination);
-    [880, 1100, 880, 1100, 660].forEach(function (freq, i) {
-      var osc = ctx.createOscillator();
-      osc.connect(gain);
-      osc.type = 'sine';
-      osc.frequency.value = freq;
-      var t = ctx.currentTime + i * 0.18;
-      gain.gain.setValueAtTime(0.55, t);
-      gain.gain.exponentialRampToValueAtTime(0.001, t + 0.16);
-      osc.start(t);
-      osc.stop(t + 0.16);
-    });
-  } catch (e) {}
-};
+// (playAlarmSound is already defined above with custom bell/alarm/melody sounds)
 
 // ─── MAIN APP ──────────────────────────────────────────
 var INITIAL_DATA = {
@@ -12350,36 +12333,24 @@ var App = function App() {
     }, 800);
     return function(){ clearInterval(_npiv); };
   }, []);
-  var fireAlarmOnce = useCallback(function (title, body, current, total, intervalMin) {
-    playAlarmSound();
-    setActiveAlarm({
-      title: title,
-      body: body,
-      current: current,
-      total: total
-    });
+  var fireAlarmOnce = useCallback(function (title, body, current, total, intervalMin, sound, vibration) {
+    playAlarmSound(sound || 'bell');
+    setActiveAlarm({ title: title, body: body, current: current, total: total });
     addToast({
       id: uid(),
       title: "\uD83D\uDD14 ".concat(title).concat(total > 0 && current > 0 ? " (".concat(current, "/").concat(total, ")") : ''),
-      body: body,
-      isAlarm: true
+      body: body, isAlarm: true
     });
+    var _ntag = 'lbp_' + Date.now();
     if ('Notification' in window && Notification.permission === 'granted') {
+      // Use SW-backed notification so it shows even when page is backgrounded
+      _fireNotification(title, body, _ntag, vibration);
       try {
-        var _ntag = 'lbp_' + Date.now();
-        new Notification("\uD83D\uDD14 " + title, {
-          body: body,
-          tag: _ntag,
-          requireInteraction: true,
-          silent: false
-        });
-        try {
-          var _log = JSON.parse(localStorage.getItem('lbp_alarm_log') || '[]');
-          _log.unshift({ title: title, body: body, time: new Date().toISOString() });
-          if (_log.length > 20) _log = _log.slice(0, 20);
-          localStorage.setItem('lbp_alarm_log', JSON.stringify(_log));
-        } catch(_e2) {}
-      } catch (e) {}
+        var _log = JSON.parse(localStorage.getItem('lbp_alarm_log') || '[]');
+        _log.unshift({ title: title, body: body, time: new Date().toISOString() });
+        if (_log.length > 20) _log = _log.slice(0, 20);
+        localStorage.setItem('lbp_alarm_log', JSON.stringify(_log));
+      } catch(_e2) {}
     } else {
       try {
         var _missed = JSON.parse(localStorage.getItem('lbp_alarm_log') || '[]');
@@ -12417,11 +12388,11 @@ var App = function App() {
               var body = al.label || "Your ".concat(typeName.toLowerCase(), " reminder");
               var rCnt = al.repeatCount || 0;
               var rMin = al.repeatInterval || 5;
-              fireAlarmOnce(title, body, 0, rCnt, rMin);
+              fireAlarmOnce(title, body, 0, rCnt, rMin, al.sound, al.vibration);
               for (var i = 1; i <= rCnt; i++) {
                 (function (idx) {
                   return setTimeout(function () {
-                    return fireAlarmOnce(title, body, idx, rCnt, rMin);
+                    return fireAlarmOnce(title, body, idx, rCnt, rMin, al.sound, al.vibration);
                   }, idx * rMin * 60000);
                 })(i);
               }
@@ -12436,6 +12407,15 @@ var App = function App() {
       return clearInterval(iv);
     };
   }, [fireAlarmOnce]);
+
+  // ── Schedule ALL alarms to SW + Cloudflare whenever data changes ──
+  useEffect(function() {
+    if (!data) return;
+    var _noToast = function(){};
+    var _types = ['tasks','goals','projects','journal','routines','habits','medications','householdTasks','workouts','meetings'];
+    _types.forEach(function(k){ scheduleAlarms(data[k] || [], k, _noToast); });
+  }, [data]);
+
   var navigate = useCallback(function (p) {
     setPage(p);
     setDrawerOpen(false);
