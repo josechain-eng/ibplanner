@@ -20,7 +20,7 @@
 <script>
 (function() {
   // ── Version ──────────────────────────────────────────────────────────────
-  window.LBP_VERSION = '2.2';
+  window.LBP_VERSION = '2.3';
   // ── Cloud Worker URL (set this after deploying your Cloudflare Worker) ──
   window.LBP_WORKER_URL = localStorage.getItem('lbp_worker_url') || '';
   // VAPID public key matching the Worker
@@ -1928,8 +1928,7 @@ var _postAlarmToSW = function(alarmId, triggerAt, title, body, vibration) {
       }
     }).catch(function(){});
   }
-  // Also schedule via Cloudflare Worker (fires even when Chrome is completely closed)
-  if (window._cloudScheduleAlarm) window._cloudScheduleAlarm(alarmId, triggerAt, title, body, vib);
+  // Note: cloud scheduling (_cloudScheduleAlarm) is called by scheduleAlarms, not here
 };
 
 var _fireNotification = function(title, body, tag, vibration) {
@@ -1962,33 +1961,35 @@ var scheduleAlarms = function scheduleAlarms(entities, type, addToast) {
     var alarm = entity.alarm;
     if (!alarm || !alarm.enabled || !alarm.datetime) return;
     var alarmMs = new Date(alarm.datetime).getTime();
-    if (alarmMs < nowMs) return; // past alarm
+    if (isNaN(alarmMs) || alarmMs < nowMs) return; // past or invalid
     var diff = alarmMs - nowMs;
-    if (diff > oneDayMs) return; // only schedule within 24h
     var title = entity.title || entity.name || entity.destination || 'Reminder';
     var body = alarm.label || "Your ".concat(type, " reminder");
     var alarmId = (entity.id || uid()) + '_' + alarmMs;
-    // Persist + send to SW (fires even if tab is backgrounded via SW setTimeout)
-    _postAlarmToSW(alarmId, alarmMs, title, body, alarm.vibration);
-    // Main-thread fallback (works when tab is active)
-    setTimeout(function () {
-      // Remove from pending
-      try {
-        var pending = JSON.parse(localStorage.getItem('lbp_pending_alarms') || '[]');
-        localStorage.setItem('lbp_pending_alarms', JSON.stringify(pending.filter(function(a){ return a.alarmId !== alarmId; })));
-      } catch(_e) {}
-      playAlarmSound(alarm.sound || 'bell');
-      if ('Notification' in window && Notification.permission === 'granted') {
-        _fireNotification(title, body, 'lbp_' + alarmId, alarm.vibration);
+    console.log('[LBP] scheduleAlarms: found alarm "' + title + '" in ' + Math.round(diff/60000) + 'min, cloud=' + (!!window.LBP_WORKER_URL) + ', syncKey=' + (!!localStorage.getItem('lbp_sync_key')));
+    // ── Always register with Cloudflare (fires even weeks away) ──
+    if (window._cloudScheduleAlarm) window._cloudScheduleAlarm(alarmId, alarmMs, title, body, alarm.vibration);
+    // ── SW + local fallback only for alarms within 24h ──
+    if (diff <= oneDayMs) {
+      _postAlarmToSW(alarmId, alarmMs, title, body, alarm.vibration);
+      setTimeout(function () {
         try {
-          var _alog = JSON.parse(localStorage.getItem('lbp_alarm_log') || '[]');
-          _alog.unshift({ title: title, body: body, time: new Date().toISOString() });
-          if (_alog.length > 20) _alog = _alog.slice(0, 20);
-          localStorage.setItem('lbp_alarm_log', JSON.stringify(_alog));
-        } catch(_ae) {}
-      }
-      addToast({ id: uid(), title: title, body: body });
-    }, diff);
+          var pending = JSON.parse(localStorage.getItem('lbp_pending_alarms') || '[]');
+          localStorage.setItem('lbp_pending_alarms', JSON.stringify(pending.filter(function(a){ return a.alarmId !== alarmId; })));
+        } catch(_e) {}
+        playAlarmSound(alarm.sound || 'bell');
+        if ('Notification' in window && Notification.permission === 'granted') {
+          _fireNotification(title, body, 'lbp_' + alarmId, alarm.vibration);
+          try {
+            var _alog = JSON.parse(localStorage.getItem('lbp_alarm_log') || '[]');
+            _alog.unshift({ title: title, body: body, time: new Date().toISOString() });
+            if (_alog.length > 20) _alog = _alog.slice(0, 20);
+            localStorage.setItem('lbp_alarm_log', JSON.stringify(_alog));
+          } catch(_ae) {}
+        }
+        addToast({ id: uid(), title: title, body: body });
+      }, diff);
+    }
   });
 };
 
