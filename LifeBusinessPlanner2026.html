@@ -1754,16 +1754,20 @@ var _postAlarmToSW = function(alarmId, triggerAt, title, body) {
 };
 
 var _fireNotification = function(title, body, tag) {
-  navigator.vibrate && navigator.vibrate([400,150,400,150,400]);
-  var opts = { body: body, requireInteraction: true, tag: tag, vibrate: [400,150,400,150,400] };
+  navigator.vibrate && navigator.vibrate([500,200,500,200,500]);
+  // vibrate removed from opts — it was dropped from the Notifications spec and
+  // silently rejects showNotification() on Android Chrome, preventing OS delivery
+  var opts = { body: body, requireInteraction: true, tag: tag };
   if ('serviceWorker' in navigator) {
     navigator.serviceWorker.ready.then(function(reg) {
-      reg.showNotification("🔔 " + title, opts);
+      return reg.showNotification("🔔 " + title, opts);
     }).catch(function() {
-      new Notification("🔔 " + title, opts);
+      if ('Notification' in window && Notification.permission === 'granted') {
+        try { new Notification("🔔 " + title, opts); } catch(e) {}
+      }
     });
   } else if ('Notification' in window && Notification.permission === 'granted') {
-    new Notification("🔔 " + title, opts);
+    try { new Notification("🔔 " + title, opts); } catch(e) {}
   }
 };
 
@@ -12342,20 +12346,20 @@ var App = function App() {
         className: "badge"
       }, totalOverdue));
     }));
-  }))), (notifPerm === 'denied' || notifPerm === 'default') && /*#__PURE__*/React.createElement("div", {
+  }))), /*#__PURE__*/React.createElement("div", {
   style: { position: 'fixed', top: 12, right: 64, zIndex: 900 }
 },
   /*#__PURE__*/React.createElement("button", {
     onClick: function(){ setNotifPopOpen(function(v){ return !v; }); },
-    title: notifPerm === 'denied' ? 'Notifications blocked' : 'Enable OS notifications',
+    title: notifPerm === 'denied' ? 'Notifications blocked' : notifPerm === 'granted' ? 'Notifications enabled' : 'Enable OS notifications',
     style: {
       width: 28, height: 28, borderRadius: '50%',
-      background: notifPerm === 'denied' ? 'rgba(244,67,54,.85)' : 'rgba(107,63,160,.85)',
+      background: notifPerm === 'denied' ? 'rgba(244,67,54,.85)' : notifPerm === 'granted' ? 'rgba(46,125,50,.85)' : 'rgba(107,63,160,.85)',
       border: 'none', color: 'white', fontWeight: 900, fontSize: 15,
       cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center',
       boxShadow: '0 2px 8px rgba(0,0,0,.4)', lineHeight: 1
     }
-  }, "!"),
+  }, notifPerm === 'granted' ? "\uD83D\uDD14" : "!"),
   notifPopOpen && /*#__PURE__*/React.createElement("div", {
     style: {
       position: 'absolute', top: 34, right: 0, width: 280,
@@ -12381,12 +12385,15 @@ var App = function App() {
       : /*#__PURE__*/React.createElement("div", null,
           /*#__PURE__*/React.createElement("p", { style: { color: '#C3A3E8', margin: '0 0 8px' } }, "Enable OS notifications to receive alarms on your device."),
           /*#__PURE__*/React.createElement("button", {
-            onClick: function() { Notification.requestPermission().then(function(p){ setNotifPerm(p); setNotifPopOpen(false); }); },
+            onClick: function() { Notification.requestPermission().then(function(p){ setNotifPerm(p); if(p==='granted'){ navigator.serviceWorker && navigator.serviceWorker.ready.then(function(reg){ return reg.showNotification("\u2705 Notifications enabled!", {body:"Alarms will now appear here on your phone.",requireInteraction:false,tag:"lbp_test"}); }).catch(function(){}); } setNotifPopOpen(false); }); },
             style: { background: 'rgba(107,63,160,.7)', border: 'none', color: 'white', padding: '6px 14px', borderRadius: 6, cursor: 'pointer', fontSize: 12, width: '100%', marginBottom: 6 }
           }, "Enable OS Notifications"),
           /*#__PURE__*/React.createElement("p", { style: { color: 'var(--text-muted)', margin: 0, fontSize: 11 } },
-            "Tip: serve over HTTPS for full Android notification panel support."
-          )
+            "Tip: serve over HTTPS for full Android notification panel support."          ),
+          notifPerm === 'granted' && /*#__PURE__*/React.createElement("button", {
+            onClick: function() { navigator.serviceWorker && navigator.serviceWorker.ready.then(function(reg){ return reg.showNotification("\uD83D\uDD14 Test Alarm!", {body:"If you see this, notifications are working!",requireInteraction:true,tag:"lbp_test"}); }).then(function(){ setNotifPopOpen(false); }).catch(function(err){ alert("showNotification failed: "+(err&&err.message||err)); }); },
+            style: { background: 'rgba(46,125,50,.8)', border: 'none', color: 'white', padding: '6px 14px', borderRadius: 6, cursor: 'pointer', fontSize: 12, width: '100%', marginTop: 8 }
+          }, "\uD83D\uDD14 Send Test Notification")
         )
   )
 ),
