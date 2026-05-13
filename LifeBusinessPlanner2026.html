@@ -63,22 +63,28 @@
   };
 
   // Register push subscription with the cloud Worker
-  function _registerPush(reg) {
+  function _registerPush(reg, forceNew) {
     var syncKey = localStorage.getItem('lbp_sync_key');
     if (!syncKey || !window.LBP_WORKER_URL || !reg.pushManager) return;
     var key = window.LBP_VAPID_KEY;
-    // Add base64 padding before decoding (required by some browsers)
     var b64 = key.replace(/-/g,'+').replace(/_/g,'/');
     while (b64.length % 4) b64 += '=';
     var appKey = Uint8Array.from(atob(b64), function(c){ return c.charCodeAt(0); });
-    reg.pushManager.getSubscription().then(function(existing) {
-      // Always re-subscribe if no existing, reuse if exists
-      return existing
-        ? Promise.resolve(existing)
-        : reg.pushManager.subscribe({userVisibleOnly: true, applicationServerKey: appKey});
-    }).then(function(sub) {
+
+    var doSubscribe = function() {
+      return reg.pushManager.subscribe({userVisibleOnly: true, applicationServerKey: appKey});
+    };
+
+    var getOrCreate = forceNew
+      ? reg.pushManager.getSubscription().then(function(ex) {
+          return ex ? ex.unsubscribe().then(doSubscribe) : doSubscribe();
+        })
+      : reg.pushManager.getSubscription().then(function(ex) {
+          return ex ? Promise.resolve(ex) : doSubscribe();
+        });
+
+    getOrCreate.then(function(sub) {
       if (!sub) return;
-      // Always POST to Worker — ensures this device is registered even after URL change
       return _workerFetch('/subscribe', {
         method: 'POST',
         headers: {'Content-Type':'application/json'},
@@ -86,7 +92,7 @@
       });
     }).then(function() {
       localStorage.setItem('lbp_push_registered', '1');
-    }).catch(function(err) {
+    }).catch(function() {
       localStorage.removeItem('lbp_push_registered');
     });
   }
@@ -116,7 +122,7 @@
           // Register push subscription for cloud notifications
           if (Notification.permission === 'granted') _registerPush(reg);
           // Re-register when permission is granted later
-          window._registerPush = function() { _registerPush(reg); };
+          window._registerPush = function(_, forceNew) { _registerPush(reg, forceNew); };
         })
         .catch(function(err) { console.warn('SW registration failed:', err); });
     });
@@ -12130,6 +12136,22 @@ var SyncSettingsButton = function SyncSettingsButton(_ref_ssb) {
     fetch(urlDraft + '/vapid-key').then(function(r){ return r.ok ? r.json() : Promise.reject(r.status); }).then(function(){ setConnStatus('✅ Connected'); }).catch(function(){ setConnStatus('❌ Cannot reach Worker'); });
   };
 
+  var testCloudPush = function() {
+    var sk = syncKey;
+    var url = workerUrl;
+    if (!url || !sk) return;
+    setConnStatus('Sending test push…');
+    fetch(url + '/test-push', {
+      method: 'POST',
+      headers: {'Content-Type':'application/json'},
+      body: JSON.stringify({syncKey: sk})
+    }).then(function(r){ return r.json(); }).then(function(d){
+      if (d.sent > 0) setConnStatus('✅ Push sent to ' + d.sent + ' device(s)! Check your notifications.');
+      else if (d.error) setConnStatus('❌ ' + d.error);
+      else setConnStatus('⚠️ ' + d.failed + ' failed, ' + d.sent + ' sent');
+    }).catch(function(){ setConnStatus('❌ Could not reach Worker'); });
+  };
+
   var saveUrl = function() {
     setWorkerUrl(urlDraft);
     setConnStatus('Saved.');
@@ -12223,20 +12245,32 @@ var SyncSettingsButton = function SyncSettingsButton(_ref_ssb) {
           '⚠️ No Worker URL saved yet. Reliable background notifications and cross-device sync require a Cloudflare Worker. See the setup guide.'
         ),
         isConnected && /*#__PURE__*/React.createElement('div', { style:{borderTop:'1px solid rgba(255,255,255,0.1)',paddingTop:12,marginTop:4,display:'flex',alignItems:'center',justifyContent:'space-between',gap:8} },
-          /*#__PURE__*/React.createElement('p', { style:{fontSize:11,color:pushRegistered?'#4ade80':'#fbbf24',margin:0,lineHeight:1.5,flex:1} },
-            pushRegistered
-              ? '✅ This device is registered for push notifications.'
-              : '⚠️ This device is NOT registered. Tap Re-register to fix.'
-          ),
-          /*#__PURE__*/React.createElement('button', {
-            onClick: function() {
-              if (window._registerPush) {
-                window._registerPush();
-                setTimeout(function(){ setPushRegistered(localStorage.getItem('lbp_push_registered')==='1'); }, 2000);
-              }
-            },
-            style:{background:'rgba(107,63,160,0.3)',border:'1px solid var(--purple)',borderRadius:8,padding:'5px 10px',color:'#d8b4fe',cursor:'pointer',fontSize:11,whiteSpace:'nowrap'}
-          }, '🔄 Re-register')
+          /*#__PURE__*/React.createElement('div', { style:{flex:1} },
+            /*#__PURE__*/React.createElement('p', { style:{fontSize:11,color:pushRegistered?'#4ade80':'#fbbf24',margin:'0 0 8px 0',lineHeight:1.5} },
+              pushRegistered
+                ? '✅ This device is registered for push notifications.'
+                : '⚠️ This device is NOT registered. Tap Re-register to fix.'
+            ),
+            /*#__PURE__*/React.createElement('div', { style:{display:'flex',gap:6,flexWrap:'wrap'} },
+              /*#__PURE__*/React.createElement('button', {
+                onClick: function() {
+                  if (window._registerPush) {
+                    window._registerPush(null, true); // forceNew = true
+                    setConnStatus('Re-registering…');
+                    setTimeout(function(){
+                      setPushRegistered(localStorage.getItem('lbp_push_registered')==='1');
+                      setConnStatus(localStorage.getItem('lbp_push_registered')==='1' ? '✅ Registered!' : '❌ Registration failed');
+                    }, 3000);
+                  }
+                },
+                style:{background:'rgba(107,63,160,0.3)',border:'1px solid var(--purple)',borderRadius:8,padding:'5px 10px',color:'#d8b4fe',cursor:'pointer',fontSize:11,whiteSpace:'nowrap'}
+              }, '🔄 Re-register'),
+              pushRegistered && /*#__PURE__*/React.createElement('button', {
+                onClick: testCloudPush,
+                style:{background:'rgba(34,197,94,0.15)',border:'1px solid rgba(34,197,94,0.4)',borderRadius:8,padding:'5px 10px',color:'#4ade80',cursor:'pointer',fontSize:11,whiteSpace:'nowrap'}
+              }, '☁️ Test Cloud Push')
+            )
+          )
         )
       )
     )
