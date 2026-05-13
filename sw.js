@@ -1,60 +1,95 @@
-// Life & Business Planner 2026 — Service Worker
-// Caches the app for full offline use
+// Life Business Planner 2026 — Service Worker
+// Upload this file to the same folder as LifeBusinessPlanner2026.html on GitHub
 
-const CACHE = 'lbp2026-v1';
-const ASSETS = [
-  './LifeBusinessPlanner2026.html',
-  './manifest.json',
-  './icon-192.png',
-  './icon-512.png'
-];
-
-// Install: pre-cache all assets
-self.addEventListener('install', event => {
-  event.waitUntil(
-    caches.open(CACHE).then(cache => cache.addAll(ASSETS))
-  );
+self.addEventListener('install', function(e) {
   self.skipWaiting();
 });
 
-// Activate: remove old caches
-self.addEventListener('activate', event => {
-  event.waitUntil(
-    caches.keys().then(keys =>
-      Promise.all(keys.filter(k => k !== CACHE).map(k => caches.delete(k)))
-    )
-  );
-  return self.clients.claim();
+self.addEventListener('activate', function(e) {
+  e.waitUntil(self.clients.claim());
 });
 
-// Fetch: serve from cache, fall back to network
-self.addEventListener('fetch', event => {
-  event.respondWith(
-    caches.match(event.request).then(cached => {
-      if (cached) return cached;
-      return fetch(event.request).then(response => {
-        // Cache successful responses for future offline use
-        if (response && response.status === 200) {
-          const clone = response.clone();
-          caches.open(CACHE).then(cache => cache.put(event.request, clone));
-        }
-        return response;
-      }).catch(() => caches.match('./LifeBusinessPlanner2026.html'));
-    })
-  );
-});
+var _timers = {};
 
-// Notification click: open or focus the app
-self.addEventListener('notificationclick', event => {
-  event.notification.close();
-  event.waitUntil(
-    clients.matchAll({ type: 'window', includeUncontrolled: true }).then(windowClients => {
-      for (const client of windowClients) {
-        if (client.url.includes('LifeBusinessPlanner') && 'focus' in client) {
-          return client.focus();
+function fireAlarm(alarmId, title, body) {
+  self.registration.showNotification('🔔 ' + title, {
+    body: body,
+    vibrate: [400, 150, 400, 150, 400],
+    tag: 'lbp_' + alarmId,
+    requireInteraction: true,
+    silent: false,
+    data: { alarmId: alarmId }
+  }).catch(function() {});
+  delete _timers[alarmId];
+}
+
+self.addEventListener('message', function(e) {
+  var data = e.data || {};
+
+  // Keepalive: hold a waitUntil open for 25s to prevent SW termination
+  if (data.type === 'KEEPALIVE') {
+    e.waitUntil(new Promise(function(resolve) {
+      setTimeout(resolve, 25000);
+    }));
+    if (e.source) e.source.postMessage({ type: 'KEEPALIVE_ACK' });
+    return;
+  }
+
+  if (data.type === 'SCHEDULE_ALARM') {
+    var alarmId = data.alarmId;
+    if (_timers[alarmId]) clearTimeout(_timers[alarmId]);
+    var delay = data.triggerAt - Date.now();
+    if (delay <= 0) {
+      fireAlarm(alarmId, data.title, data.body);
+    } else if (delay < 86400000) {
+      _timers[alarmId] = setTimeout(function() {
+        fireAlarm(alarmId, data.title, data.body);
+      }, delay);
+    }
+    return;
+  }
+
+  if (data.type === 'CANCEL_ALARM') {
+    if (_timers[data.alarmId]) {
+      clearTimeout(_timers[data.alarmId]);
+      delete _timers[data.alarmId];
+    }
+    return;
+  }
+
+  if (data.type === 'CHECK_MISSED') {
+    var now = Date.now();
+    (data.alarms || []).forEach(function(a) {
+      var age = now - a.triggerAt;
+      if (age >= 0 && age < 600000) {
+        self.registration.showNotification('🔔 ' + a.title, {
+          body: '(Missed) ' + a.body,
+          vibrate: [400, 150, 400, 150, 400],
+          tag: 'lbp_m_' + a.alarmId,
+          requireInteraction: true,
+          silent: false
+        }).catch(function() {});
+      } else if (a.triggerAt > now) {
+        var delay2 = a.triggerAt - now;
+        if (delay2 < 86400000) {
+          if (_timers[a.alarmId]) clearTimeout(_timers[a.alarmId]);
+          (function(id, t, b) {
+            _timers[id] = setTimeout(function() { fireAlarm(id, t, b); }, delay2);
+          })(a.alarmId, a.title, a.body);
         }
       }
-      return clients.openWindow('./LifeBusinessPlanner2026.html');
-    })
+    });
+    return;
+  }
+});
+
+self.addEventListener('notificationclick', function(e) {
+  e.notification.close();
+  e.waitUntil(
+    self.clients.matchAll({ type: 'window', includeUncontrolled: true })
+      .then(function(clients) {
+        if (clients.length > 0) return clients[0].focus();
+        return self.clients.openWindow(self.registration.scope);
+      })
   );
 });

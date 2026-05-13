@@ -19,72 +19,29 @@
 <!-- Service Worker registration (enables offline use + install prompt) -->
 <script>
 (function() {
-  var _swCode = [
-    "self.addEventListener('install',function(e){self.skipWaiting();});",
-    "self.addEventListener('activate',function(e){e.waitUntil(self.clients.claim());});",
-    "var _pending={};",
-    "self.addEventListener('message',function(e){",
-    "  if(!e.data)return;",
-    "  if(e.data.type==='SCHEDULE_ALARM'){",
-    "    var delay=e.data.triggerAt-Date.now();",
-    "    if(delay>0&&delay<86400000){",
-    "      _pending[e.data.alarmId]=setTimeout(function(){",
-    "        delete _pending[e.data.alarmId];",
-    "        self.registration.showNotification('🔔 '+e.data.title,{",
-    "          body:e.data.body,requireInteraction:true,",
-    "          tag:'lbp_'+e.data.alarmId,vibrate:[400,150,400,150,400]",
-    "        });",
-    "      },delay);",
-    "    }",
-    "  }",
-    "  if(e.data.type==='CHECK_MISSED'){",
-    "    var now=Date.now();",
-    "    (e.data.alarms||[]).forEach(function(a){",
-    "      var age=now-a.triggerAt;",
-    "      if(age>0&&age<600000){",
-    "        self.registration.showNotification('🔔 '+a.title,{",
-    "          body:'(Missed) '+a.body,tag:'lbp_m_'+a.alarmId,vibrate:[200,100,200]",
-    "        });",
-    "      }",
-    "    });",
-    "  }",
-    "  if(e.data.type==='CANCEL_ALARM'&&_pending[e.data.alarmId]){",
-    "    clearTimeout(_pending[e.data.alarmId]);",
-    "    delete _pending[e.data.alarmId];",
-    "  }",
-    "});",
-    "self.addEventListener('notificationclick',function(e){",
-    "  e.notification.close();",
-    "  e.waitUntil(self.clients.matchAll({type:'window'}).then(function(c){",
-    "    if(c.length>0)return c[0].focus();",
-    "    return self.clients.openWindow(self.registration.scope);",
-    "  }));",
-    "});"
-  ].join('\n');
-
   if ('serviceWorker' in navigator) {
     window.addEventListener('load', function() {
-      var blob = new Blob([_swCode], {type: 'text/javascript'});
-      var blobUrl = URL.createObjectURL(blob);
-      var scope = location.pathname.replace(/[^\/]*$/, '') || '/';
-      navigator.serviceWorker.register(blobUrl, {scope: scope})
+      navigator.serviceWorker.register('./sw.js')
         .then(function(reg) {
-          console.log('SW registered (inline):', reg.scope);
+          console.log('SW registered:', reg.scope);
           window._swReg = reg;
-          // Check for missed alarms on registration
+          // Check for missed alarms on SW registration
           try {
             var pending = JSON.parse(localStorage.getItem('lbp_pending_alarms') || '[]');
-            if (pending.length > 0 && reg.active) {
-              reg.active.postMessage({type: 'CHECK_MISSED', alarms: pending});
+            if (pending.length > 0) {
+              navigator.serviceWorker.ready.then(function(r) {
+                if (r.active) r.active.postMessage({type: 'CHECK_MISSED', alarms: pending});
+              });
             }
           } catch(_e) {}
+          // Keepalive: ping SW every 20s so it stays alive while app is open
+          setInterval(function() {
+            navigator.serviceWorker.ready.then(function(r) {
+              if (r.active) r.active.postMessage({type: 'KEEPALIVE'});
+            }).catch(function(){});
+          }, 20000);
         })
-        .catch(function(err) {
-          // Blob URL failed (scope restriction) — try file-based SW
-          navigator.serviceWorker.register('./sw.js')
-            .then(function(reg) { console.log('SW registered (file):', reg.scope); window._swReg = reg; })
-            .catch(function(e2) { console.warn('SW unavailable:', e2); });
-        });
+        .catch(function(err) { console.warn('SW registration failed:', err); });
     });
   }
 })();
