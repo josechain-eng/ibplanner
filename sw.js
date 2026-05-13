@@ -6,11 +6,9 @@ self.addEventListener('activate', function(e) { e.waitUntil(self.clients.claim()
 var _timers = {};
 
 function showAlarm(title, body, tag, vibration) {
-  // vibrate IS supported in SW showNotification on Android Chrome (push API spec)
   var vPattern = vibration === 'verylong'
     ? [1200, 300, 1200, 300, 1500]
-    : [600, 150, 600, 150, 1000];  // default 'long'
-
+    : [600, 150, 600, 150, 1000];
   return self.registration.showNotification('🔔 ' + title, {
     body: body,
     tag: tag || 'lbp_alarm',
@@ -48,6 +46,12 @@ function scheduleOne(alarmId, triggerAt, title, body, vibration) {
 
 self.addEventListener('message', function(e) {
   var d = e.data || {};
+
+  // ── Page asks SW to show a notification (reliable from background) ──
+  if (d.type === 'SHOW_NOTIFICATION') {
+    e.waitUntil(showAlarm(d.title, d.body, d.tag, d.vibration));
+    return;
+  }
 
   if (d.type === 'KEEPALIVE') {
     e.waitUntil(new Promise(function(r) { setTimeout(r, 25000); }));

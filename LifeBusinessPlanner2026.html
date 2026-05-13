@@ -67,20 +67,28 @@
     var syncKey = localStorage.getItem('lbp_sync_key');
     if (!syncKey || !window.LBP_WORKER_URL || !reg.pushManager) return;
     var key = window.LBP_VAPID_KEY;
-    var appKey = Uint8Array.from(atob(key.replace(/-/g,'+').replace(/_/g,'/')), function(c){ return c.charCodeAt(0); });
+    // Add base64 padding before decoding (required by some browsers)
+    var b64 = key.replace(/-/g,'+').replace(/_/g,'/');
+    while (b64.length % 4) b64 += '=';
+    var appKey = Uint8Array.from(atob(b64), function(c){ return c.charCodeAt(0); });
     reg.pushManager.getSubscription().then(function(existing) {
-      var subPromise = existing
+      // Always re-subscribe if no existing, reuse if exists
+      return existing
         ? Promise.resolve(existing)
         : reg.pushManager.subscribe({userVisibleOnly: true, applicationServerKey: appKey});
-      return subPromise;
     }).then(function(sub) {
       if (!sub) return;
+      // Always POST to Worker — ensures this device is registered even after URL change
       return _workerFetch('/subscribe', {
         method: 'POST',
         headers: {'Content-Type':'application/json'},
         body: JSON.stringify({syncKey: syncKey, subscription: sub.toJSON()})
       });
-    }).catch(function() {});
+    }).then(function() {
+      localStorage.setItem('lbp_push_registered', '1');
+    }).catch(function(err) {
+      localStorage.removeItem('lbp_push_registered');
+    });
   }
 
   if ('serviceWorker' in navigator) {
@@ -1909,20 +1917,24 @@ var _postAlarmToSW = function(alarmId, triggerAt, title, body, vibration) {
 };
 
 var _fireNotification = function(title, body, tag, vibration) {
-  // Page-side vibrate (works when app is in foreground/background)
+  // Page-side vibrate (works when page is active)
   var vPat = (vibration === 'verylong') ? [1200,300,1200,300,1500] : [600,150,600,150,1000];
   navigator.vibrate && navigator.vibrate(vPat);
-  var opts = { body: body, requireInteraction: true, tag: tag };
   if ('serviceWorker' in navigator) {
     navigator.serviceWorker.ready.then(function(reg) {
-      return reg.showNotification("🔔 " + title, opts);
+      if (reg.active) {
+        // Tell the SW to show the notification — reliable even when page is backgrounded
+        reg.active.postMessage({type:'SHOW_NOTIFICATION', title:title, body:body, tag:tag, vibration:vibration});
+      } else {
+        return reg.showNotification("🔔 " + title, {body:body, requireInteraction:true, tag:tag});
+      }
     }).catch(function() {
       if ('Notification' in window && Notification.permission === 'granted') {
-        try { new Notification("🔔 " + title, opts); } catch(e) {}
+        try { new Notification("🔔 " + title, {body:body, requireInteraction:true, tag:tag}); } catch(e) {}
       }
     });
   } else if ('Notification' in window && Notification.permission === 'granted') {
-    try { new Notification("🔔 " + title, opts); } catch(e) {}
+    try { new Notification("🔔 " + title, {body:body, requireInteraction:true, tag:tag}); } catch(e) {}
   }
 };
 
@@ -1977,7 +1989,7 @@ document.addEventListener('visibilitychange', function() {
           if (!reg.active) return;
           _pend.forEach(function(a) {
             if (a.triggerAt > _now) {
-              reg.active.postMessage({type:'SCHEDULE_ALARM', alarmId:a.alarmId, triggerAt:a.triggerAt, title:a.title, body:a.body});
+              reg.active.postMessage({type:'SCHEDULE_ALARM', alarmId:a.alarmId, triggerAt:a.triggerAt, title:a.title, body:a.body, vibration:a.vibration||'long'});
             }
           });
         }).catch(function(){});
@@ -12109,6 +12121,7 @@ var SyncSettingsButton = function SyncSettingsButton(_ref_ssb) {
   var _useState_ssb5 = useState(''), _useState_ssb6 = _slicedToArray(_useState_ssb5, 2), keyDraft = _useState_ssb6[0], setKeyDraft = _useState_ssb6[1];
   var _useState_ssb7 = useState(''), _useState_ssb8 = _slicedToArray(_useState_ssb7, 2), copyMsg = _useState_ssb8[0], setCopyMsg = _useState_ssb8[1];
   var _useState_ssb9 = useState(''), _useState_ssb10 = _slicedToArray(_useState_ssb9, 2), connStatus = _useState_ssb10[0], setConnStatus = _useState_ssb10[1];
+  var _useState_ssb11 = useState(localStorage.getItem('lbp_push_registered') === '1'), _useState_ssb12 = _slicedToArray(_useState_ssb11, 2), pushRegistered = _useState_ssb12[0], setPushRegistered = _useState_ssb12[1];
   var isConnected = !!workerUrl;
 
   var testConnection = function() {
@@ -12209,8 +12222,21 @@ var SyncSettingsButton = function SyncSettingsButton(_ref_ssb) {
         !isConnected && /*#__PURE__*/React.createElement('p', { style:{fontSize:11,color:'var(--text-muted)',margin:0,lineHeight:1.5} },
           '⚠️ No Worker URL saved yet. Reliable background notifications and cross-device sync require a Cloudflare Worker. See the setup guide.'
         ),
-        isConnected && /*#__PURE__*/React.createElement('p', { style:{fontSize:11,color:'#4ade80',margin:0,lineHeight:1.5} },
-          '✅ Worker connected. Push notifications and data sync are active.'
+        isConnected && /*#__PURE__*/React.createElement('div', { style:{borderTop:'1px solid rgba(255,255,255,0.1)',paddingTop:12,marginTop:4,display:'flex',alignItems:'center',justifyContent:'space-between',gap:8} },
+          /*#__PURE__*/React.createElement('p', { style:{fontSize:11,color:pushRegistered?'#4ade80':'#fbbf24',margin:0,lineHeight:1.5,flex:1} },
+            pushRegistered
+              ? '✅ This device is registered for push notifications.'
+              : '⚠️ This device is NOT registered. Tap Re-register to fix.'
+          ),
+          /*#__PURE__*/React.createElement('button', {
+            onClick: function() {
+              if (window._registerPush) {
+                window._registerPush();
+                setTimeout(function(){ setPushRegistered(localStorage.getItem('lbp_push_registered')==='1'); }, 2000);
+              }
+            },
+            style:{background:'rgba(107,63,160,0.3)',border:'1px solid var(--purple)',borderRadius:8,padding:'5px 10px',color:'#d8b4fe',cursor:'pointer',fontSize:11,whiteSpace:'nowrap'}
+          }, '🔄 Re-register')
         )
       )
     )
