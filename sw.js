@@ -5,12 +5,18 @@ self.addEventListener('activate', function(e) { e.waitUntil(self.clients.claim()
 
 var _timers = {};
 
-function showAlarm(title, body, tag) {
+function showAlarm(title, body, tag, vibration) {
+  // vibrate IS supported in SW showNotification on Android Chrome (push API spec)
+  var vPattern = vibration === 'verylong'
+    ? [1200, 300, 1200, 300, 1500]
+    : [600, 150, 600, 150, 1000];  // default 'long'
+
   return self.registration.showNotification('🔔 ' + title, {
     body: body,
     tag: tag || 'lbp_alarm',
     requireInteraction: true,
-    data: { tag: tag }
+    vibrate: vPattern,
+    data: { tag: tag, vibration: vibration }
   }).catch(function() {});
 }
 
@@ -18,18 +24,23 @@ function showAlarm(title, body, tag) {
 self.addEventListener('push', function(e) {
   var data = {};
   try { data = e.data ? e.data.json() : {}; } catch(_) {}
-  e.waitUntil(showAlarm(data.title || 'Reminder', data.body || '', 'lbp_push_' + (data.alarmId || Date.now())));
+  e.waitUntil(showAlarm(
+    data.title || 'Reminder',
+    data.body || '',
+    'lbp_push_' + (data.alarmId || Date.now()),
+    data.vibration || 'long'
+  ));
 });
 
 // ── SW-side setTimeout alarms (backup for when app is open) ────
-function scheduleOne(alarmId, triggerAt, title, body) {
+function scheduleOne(alarmId, triggerAt, title, body, vibration) {
   if (_timers[alarmId]) clearTimeout(_timers[alarmId]);
   var delay = triggerAt - Date.now();
   if (delay <= 0) {
-    showAlarm(title, body, 'lbp_' + alarmId);
+    showAlarm(title, body, 'lbp_' + alarmId, vibration);
   } else if (delay < 86400000) {
     _timers[alarmId] = setTimeout(function() {
-      showAlarm(title, body, 'lbp_' + alarmId);
+      showAlarm(title, body, 'lbp_' + alarmId, vibration);
       delete _timers[alarmId];
     }, delay);
   }
@@ -43,12 +54,15 @@ self.addEventListener('message', function(e) {
     var now = Date.now();
     (d.alarms || []).forEach(function(a) {
       if (a.triggerAt > now && !_timers[a.alarmId])
-        scheduleOne(a.alarmId, a.triggerAt, a.title, a.body);
+        scheduleOne(a.alarmId, a.triggerAt, a.title, a.body, a.vibration);
     });
     if (e.source) e.source.postMessage({ type: 'KEEPALIVE_ACK' });
     return;
   }
-  if (d.type === 'SCHEDULE_ALARM') { scheduleOne(d.alarmId, d.triggerAt, d.title, d.body); return; }
+  if (d.type === 'SCHEDULE_ALARM') {
+    scheduleOne(d.alarmId, d.triggerAt, d.title, d.body, d.vibration);
+    return;
+  }
   if (d.type === 'CANCEL_ALARM') {
     if (_timers[d.alarmId]) { clearTimeout(_timers[d.alarmId]); delete _timers[d.alarmId]; }
     return;
@@ -57,8 +71,8 @@ self.addEventListener('message', function(e) {
     var now2 = Date.now();
     (d.alarms || []).forEach(function(a) {
       var age = now2 - a.triggerAt;
-      if (age >= 0 && age < 3600000) showAlarm(a.title, '(Missed) ' + a.body, 'lbp_m_' + a.alarmId);
-      else if (a.triggerAt > now2) scheduleOne(a.alarmId, a.triggerAt, a.title, a.body);
+      if (age >= 0 && age < 3600000) showAlarm(a.title, '(Missed) ' + a.body, 'lbp_m_' + a.alarmId, a.vibration);
+      else if (a.triggerAt > now2) scheduleOne(a.alarmId, a.triggerAt, a.title, a.body, a.vibration);
     });
     return;
   }
