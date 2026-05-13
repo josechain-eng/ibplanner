@@ -34,10 +34,14 @@
               });
             }
           } catch(_e) {}
-          // Keepalive: ping SW every 20s so it stays alive while app is open
+          // Keepalive: ping SW every 20s AND carry pending alarms so SW
+          // can reschedule any that were lost when Android killed the SW
           setInterval(function() {
             navigator.serviceWorker.ready.then(function(r) {
-              if (r.active) r.active.postMessage({type: 'KEEPALIVE'});
+              if (!r.active) return;
+              var _pa = [];
+              try { _pa = JSON.parse(localStorage.getItem('lbp_pending_alarms') || '[]'); } catch(_e) {}
+              r.active.postMessage({type: 'KEEPALIVE', alarms: _pa});
             }).catch(function(){});
           }, 20000);
         })
@@ -1811,15 +1815,30 @@ var scheduleAlarms = function scheduleAlarms(entities, type, addToast) {
 
 // Catch-up: when page becomes visible, check missed alarms
 document.addEventListener('visibilitychange', function() {
-  if (document.visibilityState !== 'visible') return;
   try {
-    var pending = JSON.parse(localStorage.getItem('lbp_pending_alarms') || '[]');
-    var now = Date.now();
-    var missed = pending.filter(function(a) { return a.triggerAt <= now && (now - a.triggerAt) < 3600000; });
-    if (missed.length > 0 && 'serviceWorker' in navigator) {
-      navigator.serviceWorker.ready.then(function(reg) {
-        if (reg.active) reg.active.postMessage({type:'CHECK_MISSED', alarms:missed});
-      }).catch(function(){});
+    var _pend = JSON.parse(localStorage.getItem('lbp_pending_alarms') || '[]');
+    var _now = Date.now();
+    if (document.visibilityState === 'hidden') {
+      // App going to background: immediately push all future alarms to SW
+      // so they are scheduled before Android can kill the SW
+      if (_pend.length > 0 && 'serviceWorker' in navigator) {
+        navigator.serviceWorker.ready.then(function(reg) {
+          if (!reg.active) return;
+          _pend.forEach(function(a) {
+            if (a.triggerAt > _now) {
+              reg.active.postMessage({type:'SCHEDULE_ALARM', alarmId:a.alarmId, triggerAt:a.triggerAt, title:a.title, body:a.body});
+            }
+          });
+        }).catch(function(){});
+      }
+    } else {
+      // App becoming visible: fire any missed alarms and clean up
+      var _missed = _pend.filter(function(a) { return a.triggerAt <= _now && (_now - a.triggerAt) < 3600000; });
+      if (_missed.length > 0 && 'serviceWorker' in navigator) {
+        navigator.serviceWorker.ready.then(function(reg) {
+          if (reg.active) reg.active.postMessage({type:'CHECK_MISSED', alarms:_missed});
+        }).catch(function(){});
+      }
     }
   } catch(_e) {}
 });

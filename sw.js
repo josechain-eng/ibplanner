@@ -1,5 +1,4 @@
 // Life Business Planner 2026 — Service Worker
-// Upload this file to the SAME folder as LifeBusinessPlanner2026.html on GitHub
 
 self.addEventListener('install', function(e) {
   self.skipWaiting();
@@ -12,9 +11,6 @@ self.addEventListener('activate', function(e) {
 var _timers = {};
 
 function fireAlarm(alarmId, title, body) {
-  // NOTE: vibrate is intentionally omitted — it was dropped from the Notifications
-  // spec and causes showNotification() to silently reject on Android Chrome.
-  // OS-level vibration is controlled by the Android notification channel for Chrome.
   self.registration.showNotification('🔔 ' + title, {
     body: body,
     tag: 'lbp_' + alarmId,
@@ -24,29 +20,39 @@ function fireAlarm(alarmId, title, body) {
   delete _timers[alarmId];
 }
 
+function scheduleOne(alarmId, triggerAt, title, body) {
+  if (_timers[alarmId]) clearTimeout(_timers[alarmId]);
+  var delay = triggerAt - Date.now();
+  if (delay <= 0) {
+    fireAlarm(alarmId, title, body);
+  } else if (delay < 86400000) {
+    _timers[alarmId] = setTimeout(function() {
+      fireAlarm(alarmId, title, body);
+    }, delay);
+  }
+}
+
 self.addEventListener('message', function(e) {
   var data = e.data || {};
 
-  // Keepalive: hold a waitUntil open for 25s to prevent SW termination
   if (data.type === 'KEEPALIVE') {
+    // Extend SW lifetime for 25s so Android can't kill it between pings
     e.waitUntil(new Promise(function(resolve) {
       setTimeout(resolve, 25000);
     }));
+    // Re-schedule any alarms that were lost when SW was previously killed
+    var now = Date.now();
+    (data.alarms || []).forEach(function(a) {
+      if (a.triggerAt > now && !_timers[a.alarmId]) {
+        scheduleOne(a.alarmId, a.triggerAt, a.title, a.body);
+      }
+    });
     if (e.source) e.source.postMessage({ type: 'KEEPALIVE_ACK' });
     return;
   }
 
   if (data.type === 'SCHEDULE_ALARM') {
-    var alarmId = data.alarmId;
-    if (_timers[alarmId]) clearTimeout(_timers[alarmId]);
-    var delay = data.triggerAt - Date.now();
-    if (delay <= 0) {
-      fireAlarm(alarmId, data.title, data.body);
-    } else if (delay < 86400000) {
-      _timers[alarmId] = setTimeout(function() {
-        fireAlarm(alarmId, data.title, data.body);
-      }, delay);
-    }
+    scheduleOne(data.alarmId, data.triggerAt, data.title, data.body);
     return;
   }
 
@@ -59,23 +65,17 @@ self.addEventListener('message', function(e) {
   }
 
   if (data.type === 'CHECK_MISSED') {
-    var now = Date.now();
+    var now2 = Date.now();
     (data.alarms || []).forEach(function(a) {
-      var age = now - a.triggerAt;
-      if (age >= 0 && age < 600000) {
+      var age = now2 - a.triggerAt;
+      if (age >= 0 && age < 3600000) {
         self.registration.showNotification('🔔 ' + a.title, {
           body: '(Missed) ' + a.body,
           tag: 'lbp_m_' + a.alarmId,
           requireInteraction: true
         }).catch(function() {});
-      } else if (a.triggerAt > now) {
-        var delay2 = a.triggerAt - now;
-        if (delay2 < 86400000) {
-          if (_timers[a.alarmId]) clearTimeout(_timers[a.alarmId]);
-          (function(id, t, b) {
-            _timers[id] = setTimeout(function() { fireAlarm(id, t, b); }, delay2);
-          })(a.alarmId, a.title, a.body);
-        }
+      } else if (a.triggerAt > now2) {
+        scheduleOne(a.alarmId, a.triggerAt, a.title, a.body);
       }
     });
     return;
