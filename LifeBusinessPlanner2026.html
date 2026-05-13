@@ -19,6 +19,8 @@
 <!-- Service Worker registration (enables offline use + install prompt) -->
 <script>
 (function() {
+  // ── Version ──────────────────────────────────────────────────────────────
+  window.LBP_VERSION = '2.2';
   // ── Cloud Worker URL (set this after deploying your Cloudflare Worker) ──
   window.LBP_WORKER_URL = localStorage.getItem('lbp_worker_url') || '';
   // VAPID public key matching the Worker
@@ -47,12 +49,20 @@
   // Post an alarm to the cloud (fires even when Chrome is dead)
   window._cloudScheduleAlarm = function(alarmId, triggerAt, title, body, vibration) {
     var syncKey = localStorage.getItem('lbp_sync_key');
-    if (!syncKey || !window.LBP_WORKER_URL) return;
+    if (!syncKey || !window.LBP_WORKER_URL) {
+      console.warn('[LBP] _cloudScheduleAlarm skipped — missing syncKey or workerUrl', {syncKey: !!syncKey, workerUrl: !!window.LBP_WORKER_URL});
+      return;
+    }
+    console.log('[LBP] Scheduling alarm in cloud:', alarmId, 'at', new Date(triggerAt).toLocaleString(), 'title:', title);
     _workerFetch('/alarm', {
       method: 'POST',
       headers: {'Content-Type':'application/json'},
       body: JSON.stringify({syncKey: syncKey, alarmId: alarmId, triggerAt: triggerAt, title: title, body: body, vibration: vibration || 'long'})
-    });
+    }).then(function(r) {
+      if (!r) console.warn('[LBP] Cloud alarm: network error or worker URL missing');
+      else if (r.ok) console.log('[LBP] Cloud alarm stored OK, status:', r.status);
+      else console.warn('[LBP] Cloud alarm store failed, HTTP status:', r.status);
+    }).catch(function(e) { console.error('[LBP] Cloud alarm store error:', e); });
   };
 
   // Cancel a cloud alarm
@@ -12135,6 +12145,28 @@ var SyncSettingsButton = function SyncSettingsButton(_ref_ssb) {
     }).catch(function(){ setConnStatus('❌ Could not reach Worker'); });
   };
 
+  var checkCloudAlarms = function() {
+    var sk = syncKey;
+    var url = workerUrl;
+    if (!url || !sk) return;
+    setConnStatus('Checking cloud alarms…');
+    fetch(url + '/list-alarms?key=' + encodeURIComponent(sk))
+      .then(function(r){ return r.json(); })
+      .then(function(d){
+        var subs = d.subscriptionCount || 0;
+        if (d.alarmCount === 0) {
+          setConnStatus('📋 0 alarms in cloud (' + subs + ' device(s) registered). Set an alarm within 24h and save — then check again.');
+        } else {
+          var list = (d.alarms || []).slice(0, 3).map(function(a){
+            var t = new Date(a.triggerAt);
+            return '"' + a.title + '" @ ' + t.toLocaleDateString() + ' ' + t.toLocaleTimeString([], {hour:'2-digit',minute:'2-digit'});
+          }).join(' | ');
+          setConnStatus('📋 ' + d.alarmCount + ' alarm(s) stored. ' + subs + ' device(s). → ' + list);
+        }
+      })
+      .catch(function(){ setConnStatus('❌ Could not reach Worker'); });
+  };
+
   var saveUrl = function() {
     setWorkerUrl(urlDraft);
     setConnStatus('Saved.');
@@ -12251,8 +12283,15 @@ var SyncSettingsButton = function SyncSettingsButton(_ref_ssb) {
               pushRegistered && /*#__PURE__*/React.createElement('button', {
                 onClick: testCloudPush,
                 style:{background:'rgba(34,197,94,0.15)',border:'1px solid rgba(34,197,94,0.4)',borderRadius:8,padding:'5px 10px',color:'#4ade80',cursor:'pointer',fontSize:11,whiteSpace:'nowrap'}
-              }, '☁️ Test Cloud Push')
+              }, '☁️ Test Cloud Push'),
+              /*#__PURE__*/React.createElement('button', {
+                onClick: checkCloudAlarms,
+                style:{background:'rgba(59,130,246,0.15)',border:'1px solid rgba(59,130,246,0.4)',borderRadius:8,padding:'5px 10px',color:'#60a5fa',cursor:'pointer',fontSize:11,whiteSpace:'nowrap'}
+              }, '🔍 Check Alarms')
             )
+          ),
+          /*#__PURE__*/React.createElement('div', { style:{marginTop:10, fontSize:10, color:'rgba(255,255,255,0.25)', textAlign:'right'} },
+            'v' + (window.LBP_VERSION || '?')
           )
         )
       )
