@@ -20,7 +20,7 @@
 <script>
 (function() {
   // ── Version ──────────────────────────────────────────────────────────────
-  window.LBP_VERSION = '2.3';
+  window.LBP_VERSION = '2.4';
   // ── Cloud Worker URL (set this after deploying your Cloudflare Worker) ──
   window.LBP_WORKER_URL = localStorage.getItem('lbp_worker_url') || '';
   // VAPID public key matching the Worker
@@ -1954,17 +1954,23 @@ var _fireNotification = function(title, body, tag, vibration) {
 };
 
 // Helper: schedule alarms for entities
+var _ALARM_TYPE_LABELS = {tasks:'Task', goals:'Goal', projects:'Project', journal:'Journal entry', routines:'Routine', habits:'Habit', medications:'Medication', householdTasks:'Household task', workouts:'Workout', meetings:'Meeting'};
 var scheduleAlarms = function scheduleAlarms(entities, type, addToast) {
   var nowMs = Date.now();
   var oneDayMs = 24 * 60 * 60 * 1000;
+  var typeLabel = _ALARM_TYPE_LABELS[type] || type;
   entities.forEach(function (entity) {
     var alarm = entity.alarm;
     if (!alarm || !alarm.enabled || !alarm.datetime) return;
     var alarmMs = new Date(alarm.datetime).getTime();
     if (isNaN(alarmMs) || alarmMs < nowMs) return; // past or invalid
     var diff = alarmMs - nowMs;
-    var title = entity.title || entity.name || entity.destination || 'Reminder';
-    var body = alarm.label || "Your ".concat(type, " reminder");
+    var entityName = entity.title || entity.name || entity.destination || '';
+    var title = entityName || (typeLabel + ' Reminder');
+    // Body always shows entity name + type so it's clear in the notification panel
+    var body = alarm.label
+      ? (entityName ? entityName + ' · ' + alarm.label : alarm.label)
+      : (entityName ? entityName + ' · ' + typeLabel + ' reminder' : typeLabel + ' reminder');
     var alarmId = (entity.id || uid()) + '_' + alarmMs;
     console.log('[LBP] scheduleAlarms: found alarm "' + title + '" in ' + Math.round(diff/60000) + 'min, cloud=' + (!!window.LBP_WORKER_URL) + ', syncKey=' + (!!localStorage.getItem('lbp_sync_key')));
     // ── Always register with Cloudflare (fires even weeks away) ──

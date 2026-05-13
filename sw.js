@@ -14,7 +14,14 @@ function showAlarm(title, body, tag, vibration) {
     tag: tag || 'lbp_alarm',
     requireInteraction: true,
     vibrate: vPattern,
-    data: { tag: tag, vibration: vibration }
+    silent: false,
+    data: { tag: tag, vibration: vibration },
+    // Adding actions signals to Android that this is interactive/important,
+    // which increases the chance of a heads-up (banner) notification
+    actions: [
+      { action: 'open', title: '▶ Open App' },
+      { action: 'dismiss', title: '✓ Dismiss' }
+    ]
   }).catch(function() {});
 }
 
@@ -82,8 +89,11 @@ self.addEventListener('message', function(e) {
   }
 });
 
+// ── Handle notification action buttons ─────────────────────────
 self.addEventListener('notificationclick', function(e) {
   e.notification.close();
+  if (e.action === 'dismiss') return; // just close
+  // 'open' action or tap on notification body — focus or open app
   e.waitUntil(
     self.clients.matchAll({ type: 'window', includeUncontrolled: true }).then(function(cs) {
       if (cs.length) return cs[0].focus();
