@@ -18,13 +18,76 @@
 
 <!-- Service Worker registration (enables offline use + install prompt) -->
 <script>
+(function() {
+  var _swCode = [
+    "self.addEventListener('install',function(e){self.skipWaiting();});",
+    "self.addEventListener('activate',function(e){e.waitUntil(self.clients.claim());});",
+    "var _pending={};",
+    "self.addEventListener('message',function(e){",
+    "  if(!e.data)return;",
+    "  if(e.data.type==='SCHEDULE_ALARM'){",
+    "    var delay=e.data.triggerAt-Date.now();",
+    "    if(delay>0&&delay<86400000){",
+    "      _pending[e.data.alarmId]=setTimeout(function(){",
+    "        delete _pending[e.data.alarmId];",
+    "        self.registration.showNotification('🔔 '+e.data.title,{",
+    "          body:e.data.body,requireInteraction:true,",
+    "          tag:'lbp_'+e.data.alarmId,vibrate:[400,150,400,150,400]",
+    "        });",
+    "      },delay);",
+    "    }",
+    "  }",
+    "  if(e.data.type==='CHECK_MISSED'){",
+    "    var now=Date.now();",
+    "    (e.data.alarms||[]).forEach(function(a){",
+    "      var age=now-a.triggerAt;",
+    "      if(age>0&&age<600000){",
+    "        self.registration.showNotification('🔔 '+a.title,{",
+    "          body:'(Missed) '+a.body,tag:'lbp_m_'+a.alarmId,vibrate:[200,100,200]",
+    "        });",
+    "      }",
+    "    });",
+    "  }",
+    "  if(e.data.type==='CANCEL_ALARM'&&_pending[e.data.alarmId]){",
+    "    clearTimeout(_pending[e.data.alarmId]);",
+    "    delete _pending[e.data.alarmId];",
+    "  }",
+    "});",
+    "self.addEventListener('notificationclick',function(e){",
+    "  e.notification.close();",
+    "  e.waitUntil(self.clients.matchAll({type:'window'}).then(function(c){",
+    "    if(c.length>0)return c[0].focus();",
+    "    return self.clients.openWindow(self.registration.scope);",
+    "  }));",
+    "});"
+  ].join('\n');
+
   if ('serviceWorker' in navigator) {
     window.addEventListener('load', function() {
-      navigator.serviceWorker.register('./sw.js')
-        .then(function(reg) { console.log('SW registered:', reg.scope); })
-        .catch(function(err) { console.warn('SW failed:', err); });
+      var blob = new Blob([_swCode], {type: 'text/javascript'});
+      var blobUrl = URL.createObjectURL(blob);
+      var scope = location.pathname.replace(/[^\/]*$/, '') || '/';
+      navigator.serviceWorker.register(blobUrl, {scope: scope})
+        .then(function(reg) {
+          console.log('SW registered (inline):', reg.scope);
+          window._swReg = reg;
+          // Check for missed alarms on registration
+          try {
+            var pending = JSON.parse(localStorage.getItem('lbp_pending_alarms') || '[]');
+            if (pending.length > 0 && reg.active) {
+              reg.active.postMessage({type: 'CHECK_MISSED', alarms: pending});
+            }
+          } catch(_e) {}
+        })
+        .catch(function(err) {
+          // Blob URL failed (scope restriction) — try file-based SW
+          navigator.serviceWorker.register('./sw.js')
+            .then(function(reg) { console.log('SW registered (file):', reg.scope); window._swReg = reg; })
+            .catch(function(e2) { console.warn('SW unavailable:', e2); });
+        });
     });
   }
+})();
 </script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/react/18.2.0/umd/react.production.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/react-dom/18.2.0/umd/react-dom.production.min.js"></script>
@@ -1716,6 +1779,37 @@ var playAlarmSound = function playAlarmSound(sound) {
   } catch(e) {}
 };
 
+// Helper: send alarm to SW for background delivery
+var _postAlarmToSW = function(alarmId, triggerAt, title, body) {
+  try {
+    var pending = JSON.parse(localStorage.getItem('lbp_pending_alarms') || '[]');
+    pending = pending.filter(function(a) { return a.alarmId !== alarmId; });
+    pending.push({alarmId: alarmId, triggerAt: triggerAt, title: title, body: body});
+    localStorage.setItem('lbp_pending_alarms', JSON.stringify(pending));
+  } catch(_e) {}
+  if ('serviceWorker' in navigator) {
+    navigator.serviceWorker.ready.then(function(reg) {
+      if (reg.active) {
+        reg.active.postMessage({type:'SCHEDULE_ALARM', alarmId:alarmId, triggerAt:triggerAt, title:title, body:body});
+      }
+    }).catch(function(){});
+  }
+};
+
+var _fireNotification = function(title, body, tag) {
+  navigator.vibrate && navigator.vibrate([400,150,400,150,400]);
+  var opts = { body: body, requireInteraction: true, tag: tag, vibrate: [400,150,400,150,400] };
+  if ('serviceWorker' in navigator) {
+    navigator.serviceWorker.ready.then(function(reg) {
+      reg.showNotification("🔔 " + title, opts);
+    }).catch(function() {
+      new Notification("🔔 " + title, opts);
+    });
+  } else if ('Notification' in window && Notification.permission === 'granted') {
+    new Notification("🔔 " + title, opts);
+  }
+};
+
 // Helper: schedule alarms for entities
 var scheduleAlarms = function scheduleAlarms(entities, type, addToast) {
   var nowMs = Date.now();
@@ -1729,48 +1823,45 @@ var scheduleAlarms = function scheduleAlarms(entities, type, addToast) {
     if (diff > oneDayMs) return; // only schedule within 24h
     var title = entity.title || entity.name || entity.destination || 'Reminder';
     var body = alarm.label || "Your ".concat(type, " reminder");
+    var alarmId = (entity.id || uid()) + '_' + alarmMs;
+    // Persist + send to SW (fires even if tab is backgrounded via SW setTimeout)
+    _postAlarmToSW(alarmId, alarmMs, title, body);
+    // Main-thread fallback (works when tab is active)
     setTimeout(function () {
-      // Play custom sound
+      // Remove from pending
+      try {
+        var pending = JSON.parse(localStorage.getItem('lbp_pending_alarms') || '[]');
+        localStorage.setItem('lbp_pending_alarms', JSON.stringify(pending.filter(function(a){ return a.alarmId !== alarmId; })));
+      } catch(_e) {}
       playAlarmSound(alarm.sound || 'bell');
-      // Browser notification
       if ('Notification' in window && Notification.permission === 'granted') {
+        _fireNotification(title, body, 'lbp_' + alarmId);
         try {
-          navigator.vibrate && navigator.vibrate([400,150,400,150,400]);
-          var _ntag = 'lbp_alarm_' + Date.now();
-          var _nOpts = { body: body, requireInteraction: true, tag: _ntag, icon: './icon-192.png', badge: './icon-192.png', vibrate: [400,150,400,150,400] };
-          if ('serviceWorker' in navigator) {
-            navigator.serviceWorker.ready.then(function(reg) {
-              reg.showNotification("\uD83D\uDD14 " + title, _nOpts);
-            }).catch(function() {
-              if (Notification.permission === 'granted') new Notification("\uD83D\uDD14 " + title, _nOpts);
-            });
-          } else {
-            new Notification("\uD83D\uDD14 " + title, _nOpts);
-          }
-          try {
-            var _alog = JSON.parse(localStorage.getItem('lbp_alarm_log') || '[]');
-            _alog.unshift({ title: title, body: body, time: new Date().toISOString() });
-            if (_alog.length > 20) _alog = _alog.slice(0, 20);
-            localStorage.setItem('lbp_alarm_log', JSON.stringify(_alog));
-          } catch(_ae) {}
-        } catch (_unused6) {}
-      } else {
-        try {
-          var _amissd = JSON.parse(localStorage.getItem('lbp_alarm_log') || '[]');
-          _amissd.unshift({ title: title, body: body, time: new Date().toISOString(), missed: true });
-          if (_amissd.length > 20) _amissd = _amissd.slice(0, 20);
-          localStorage.setItem('lbp_alarm_log', JSON.stringify(_amissd));
-        } catch(_ae2) {}
+          var _alog = JSON.parse(localStorage.getItem('lbp_alarm_log') || '[]');
+          _alog.unshift({ title: title, body: body, time: new Date().toISOString() });
+          if (_alog.length > 20) _alog = _alog.slice(0, 20);
+          localStorage.setItem('lbp_alarm_log', JSON.stringify(_alog));
+        } catch(_ae) {}
       }
-      // In-app toast
-      addToast({
-        id: uid(),
-        title: title,
-        body: body
-      });
+      addToast({ id: uid(), title: title, body: body });
     }, diff);
   });
 };
+
+// Catch-up: when page becomes visible, check missed alarms
+document.addEventListener('visibilitychange', function() {
+  if (document.visibilityState !== 'visible') return;
+  try {
+    var pending = JSON.parse(localStorage.getItem('lbp_pending_alarms') || '[]');
+    var now = Date.now();
+    var missed = pending.filter(function(a) { return a.triggerAt <= now && (now - a.triggerAt) < 3600000; });
+    if (missed.length > 0 && 'serviceWorker' in navigator) {
+      navigator.serviceWorker.ready.then(function(reg) {
+        if (reg.active) reg.active.postMessage({type:'CHECK_MISSED', alarms:missed});
+      }).catch(function(){});
+    }
+  } catch(_e) {}
+});
 
 // ─── HOME SCREEN ───────────────────────────────────────
 var HomeScreen = function HomeScreen(_ref14) {
@@ -4834,7 +4925,8 @@ var JournalScreen = function JournalScreen(_ref31) {
       category: '',
       tags: [],
       alarm: defaultAlarm(),
-      links: []
+      links: [],
+      entryType: 'journal'
     }),
     _useState74 = _slicedToArray(_useState73, 2),
     form = _useState74[0],
@@ -4843,6 +4935,7 @@ var JournalScreen = function JournalScreen(_ref31) {
     _useState76 = _slicedToArray(_useState75, 2),
     viewEntry = _useState76[0],
     setViewEntry = _useState76[1];
+  var _useStateEE = useState(null), _useStateEE2 = _slicedToArray(_useStateEE, 2), editEntry = _useStateEE2[0], setEditEntry = _useStateEE2[1];
   var entries = _toConsumableArray(data.journal || []).sort(function (a, b) {
     return b.date.localeCompare(a.date);
   });
@@ -4868,23 +4961,35 @@ var JournalScreen = function JournalScreen(_ref31) {
       mood: 'GOOD',
       attachments: [],
       alarm: defaultAlarm(),
-      links: []
+      links: [],
+      entryType: 'journal'
     });
     setMood('GOOD');
   };
   var save = function save() {
-    setData(function (d) {
-      return _objectSpread(_objectSpread({}, d), {}, {
-        journal: [].concat(_toConsumableArray(d.journal || []), [_objectSpread(_objectSpread({}, form), {}, {
-          mood: mood,
-          id: uid(),
-          date: today(),
-          month: new Date().getMonth() + 1,
-          year: new Date().getFullYear(),
-          createdAt: now()
-        })])
+    if (editEntry) {
+      setData(function (d) {
+        return _objectSpread(_objectSpread({}, d), {}, {
+          journal: d.journal.map(function(je) {
+            return je.id === editEntry.id ? _objectSpread(_objectSpread({}, je), form, {}, { mood: mood }) : je;
+          })
+        });
       });
-    });
+    } else {
+      setData(function (d) {
+        return _objectSpread(_objectSpread({}, d), {}, {
+          journal: [].concat(_toConsumableArray(d.journal || []), [_objectSpread(_objectSpread({}, form), {}, {
+            mood: mood,
+            id: uid(),
+            date: today(),
+            month: new Date().getMonth() + 1,
+            year: new Date().getFullYear(),
+            createdAt: now()
+          })])
+        });
+      });
+    }
+    setEditEntry(null);
     resetForm();
     setModal(false);
   };
@@ -4964,7 +5069,16 @@ var JournalScreen = function JournalScreen(_ref31) {
         fontSize: 12,
         color: 'var(--text-dim)'
       }
-    }, "\uD83D\uDCCE", e.attachments.length), /*#__PURE__*/React.createElement("button", {
+    }, "\uD83D\uDCCE", e.attachments.length), /*#__PURE__*/React.createElement("span", {style:{fontSize:10,padding:"2px 7px",borderRadius:8,background:e.entryType==="note"?"var(--surface2)":"rgba(107,63,160,0.3)",color:"var(--text-dim)",flexShrink:0}}, e.entryType==="note"?"📝 Note":"📓 Journal"), /*#__PURE__*/React.createElement("button", {
+      className: "btn btn-secondary btn-sm btn-icon", style:{fontSize:12},
+      onClick: function onClick(ev) {
+        ev.stopPropagation();
+        setEditEntry(e);
+        setForm({title:e.title||'',content:e.content||'',gratitude:e.gratitude||'',topWins:e.topWins||'',challenges:e.challenges||'',tomorrowFocus:e.tomorrowFocus||'',affirmations:e.affirmations||'',mood:e.mood||'GOOD',attachments:e.attachments||[],category:e.category||'',tags:e.tags||[],alarm:e.alarm||defaultAlarm(),links:e.links||[],entryType:e.entryType||'journal'});
+        setMood(e.mood||'GOOD');
+        setModal(true);
+      }
+    }, "\u270F\uFE0F"), /*#__PURE__*/React.createElement("button", {
       className: "btn btn-danger btn-sm btn-icon",
       onClick: function onClick(ev) {
         ev.stopPropagation();
@@ -5112,15 +5226,15 @@ var JournalScreen = function JournalScreen(_ref31) {
       }
     });
   }))), modal && /*#__PURE__*/React.createElement(Modal, {
-    title: "Today's Journal Entry \uD83D\uDCDD",
+    title: editEntry ? ("\u270F\uFE0F Edit " + (editEntry.entryType === "note" ? "Note" : "Journal Entry")) : (form.entryType === "note" ? "\uD83D\uDCDD New Note" : "\uD83D\uDCD3 Today's Entry"),
     onClose: function onClose() {
-      resetForm();
+      resetForm(); setEditEntry(null);
       setModal(false);
     },
     footer: /*#__PURE__*/React.createElement(React.Fragment, null, /*#__PURE__*/React.createElement("button", {
       className: "btn btn-secondary",
       onClick: function onClick() {
-        resetForm();
+        resetForm(); setEditEntry(null);
         setModal(false);
       }
     }, "Cancel"), /*#__PURE__*/React.createElement("button", {
@@ -5138,94 +5252,7 @@ var JournalScreen = function JournalScreen(_ref31) {
       display: 'block',
       marginBottom: 8
     }
-  }, "How are you feeling today?"), /*#__PURE__*/React.createElement("div", {
-    className: "mood-row"
-  }, moods.map(function (_ref36) {
-    var _ref37 = _slicedToArray(_ref36, 2),
-      m = _ref37[0],
-      e = _ref37[1];
-    return /*#__PURE__*/React.createElement("div", {
-      key: m,
-      className: "mood-btn ".concat(mood === m ? 'active' : ''),
-      onClick: function onClick() {
-        return setMood(m);
-      }
-    }, e);
-  }))), /*#__PURE__*/React.createElement("div", {
-    className: "form-group"
-  }, /*#__PURE__*/React.createElement("label", null, "Entry Title"), /*#__PURE__*/React.createElement("input", {
-    value: form.title,
-    onChange: function onChange(e) {
-      return setForm(_objectSpread(_objectSpread({}, form), {}, {
-        title: e.target.value
-      }));
-    },
-    placeholder: "What's on your mind today?"
-  })), /*#__PURE__*/React.createElement("div", {
-    className: "form-group"
-  }, /*#__PURE__*/React.createElement("label", null, "How was your day? \u270D\uFE0F"), /*#__PURE__*/React.createElement(RichTextEditor, {
-    value: form.content,
-    onChange: function onChange(v) {
-      return setForm(_objectSpread(_objectSpread({}, form), {}, {
-        content: v
-      }));
-    },
-    placeholder: "Write freely \u2014 use lists, checklists, bold text\u2026",
-    minHeight: 130
-  })), /*#__PURE__*/React.createElement("div", {
-    className: "form-group"
-  }, /*#__PURE__*/React.createElement("label", null, "\uD83D\uDE4F Gratitude \u2014 3 things you're grateful for"), /*#__PURE__*/React.createElement(RichTextEditor, {
-    value: form.gratitude,
-    onChange: function onChange(v) {
-      return setForm(_objectSpread(_objectSpread({}, form), {}, {
-        gratitude: v
-      }));
-    },
-    placeholder: "I'm grateful for\u2026",
-    minHeight: 80
-  })), /*#__PURE__*/React.createElement("div", {
-    className: "form-group"
-  }, /*#__PURE__*/React.createElement("label", null, "\uD83C\uDFC6 Today's Top Wins"), /*#__PURE__*/React.createElement(RichTextEditor, {
-    value: form.topWins,
-    onChange: function onChange(v) {
-      return setForm(_objectSpread(_objectSpread({}, form), {}, {
-        topWins: v
-      }));
-    },
-    placeholder: "What did you accomplish today?",
-    minHeight: 80
-  })), /*#__PURE__*/React.createElement("div", {
-    className: "form-group"
-  }, /*#__PURE__*/React.createElement("label", null, "\uD83D\uDCAA Challenges Faced"), /*#__PURE__*/React.createElement(RichTextEditor, {
-    value: form.challenges,
-    onChange: function onChange(v) {
-      return setForm(_objectSpread(_objectSpread({}, form), {}, {
-        challenges: v
-      }));
-    },
-    placeholder: "What was difficult? How did you handle it?",
-    minHeight: 70
-  })), /*#__PURE__*/React.createElement("div", {
-    className: "form-group"
-  }, /*#__PURE__*/React.createElement("label", null, "\uD83C\uDFAF Tomorrow's Focus"), /*#__PURE__*/React.createElement("input", {
-    value: form.tomorrowFocus,
-    onChange: function onChange(e) {
-      return setForm(_objectSpread(_objectSpread({}, form), {}, {
-        tomorrowFocus: e.target.value
-      }));
-    }
-  })), /*#__PURE__*/React.createElement("div", {
-    className: "form-group"
-  }, /*#__PURE__*/React.createElement("label", null, "\u2728 Affirmations"), /*#__PURE__*/React.createElement("input", {
-    value: form.affirmations,
-    onChange: function onChange(e) {
-      return setForm(_objectSpread(_objectSpread({}, form), {}, {
-        affirmations: e.target.value
-      }));
-    }
-  })), /*#__PURE__*/React.createElement("hr", {
-    className: "divider"
-  }), /*#__PURE__*/React.createElement(MediaAttachments, {
+  }, "How are you feeling today?")), /*#__PURE__*/React.createElement("div", {style:{display:"flex",gap:6,marginBottom:12}}, ["journal","note"].map(function(t){return /*#__PURE__*/React.createElement("div", {key:t, onClick:function(){setForm(_objectSpread(_objectSpread({},form),{},{entryType:t}));}, style:{flex:1,textAlign:"center",padding:"8px 0",borderRadius:10,cursor:"pointer",fontWeight:700,fontSize:13,background:form.entryType===t?"var(--purple)":"var(--surface)",color:form.entryType===t?"#fff":"var(--text-dim)",border:"1px solid "+(form.entryType===t?"var(--purple)":"var(--border)")}}, t==="journal"?"📓 Journal Entry":"📝 Note");})), form.entryType !== "note" && /*#__PURE__*/React.createElement("div", {style:{marginBottom:14}}, /*#__PURE__*/React.createElement("label", {style:{fontSize:12,color:"var(--text-dim)",display:"block",marginBottom:8}}, "How are you feeling today?"), /*#__PURE__*/React.createElement("div", {className:"mood-row"}, moods.map(function(_ref36){var _ref37=_slicedToArray(_ref36,2),m=_ref37[0],e=_ref37[1];return /*#__PURE__*/React.createElement("div", {key:m,className:"mood-btn ".concat(mood===m?"active":""),onClick:function onClick(){return setMood(m);}},e);}))), /*#__PURE__*/React.createElement("div", {className:"form-group"}, /*#__PURE__*/React.createElement("label", null, "Entry Title"), /*#__PURE__*/React.createElement("input", {value:form.title,onChange:function onChange(e){return setForm(_objectSpread(_objectSpread({},form),{},{title:e.target.value}));},placeholder:"What's on your mind today?"})), /*#__PURE__*/React.createElement("div", {className:"form-group"}, /*#__PURE__*/React.createElement("label", null, form.entryType==="note"?"📝 Note":"How was your day? ✍️"), /*#__PURE__*/React.createElement(RichTextEditor, {value:form.content,onChange:function onChange(v){return setForm(_objectSpread(_objectSpread({},form),{},{content:v}));},placeholder:form.entryType==="note"?"Write your note…":"Write freely — use lists, checklists, bold text…",minHeight:form.entryType==="note"?200:130})), form.entryType !== "note" && /*#__PURE__*/React.createElement(React.Fragment, null, /*#__PURE__*/React.createElement("div", {className:"form-group"}, /*#__PURE__*/React.createElement("label", null, "🙏 Gratitude — 3 things you're grateful for"), /*#__PURE__*/React.createElement(RichTextEditor, {value:form.gratitude,onChange:function onChange(v){return setForm(_objectSpread(_objectSpread({},form),{},{gratitude:v}));},placeholder:"I'm grateful for…",minHeight:80})), /*#__PURE__*/React.createElement("div", {className:"form-group"}, /*#__PURE__*/React.createElement("label", null, "🏆 Today's Top Wins"), /*#__PURE__*/React.createElement(RichTextEditor, {value:form.topWins,onChange:function onChange(v){return setForm(_objectSpread(_objectSpread({},form),{},{topWins:v}));},placeholder:"What did you accomplish today?",minHeight:80})), /*#__PURE__*/React.createElement("div", {className:"form-group"}, /*#__PURE__*/React.createElement("label", null, "💪 Challenges Faced"), /*#__PURE__*/React.createElement(RichTextEditor, {value:form.challenges,onChange:function onChange(v){return setForm(_objectSpread(_objectSpread({},form),{},{challenges:v}));},placeholder:"What was difficult? How did you handle it?",minHeight:70})), /*#__PURE__*/React.createElement("div", {className:"form-group"}, /*#__PURE__*/React.createElement("label", null, "🎯 Tomorrow's Focus"), /*#__PURE__*/React.createElement("input", {value:form.tomorrowFocus,onChange:function onChange(e){return setForm(_objectSpread(_objectSpread({},form),{},{tomorrowFocus:e.target.value}));}})), /*#__PURE__*/React.createElement("div", {className:"form-group"}, /*#__PURE__*/React.createElement("label", null, "✨ Affirmations"), /*#__PURE__*/React.createElement("input", {value:form.affirmations,onChange:function onChange(e){return setForm(_objectSpread(_objectSpread({},form),{},{affirmations:e.target.value}));}}))), /*#__PURE__*/React.createElement("hr", {className:"divider"}), /*#__PURE__*/React.createElement(MediaAttachments, {
     attachments: form.attachments,
     onChange: function onChange(a) {
       return setForm(_objectSpread(_objectSpread({}, form), {}, {
@@ -5234,7 +5261,7 @@ var JournalScreen = function JournalScreen(_ref31) {
     }
   }), /*#__PURE__*/React.createElement("hr", {
     className: "divider"
-  }), /*#__PURE__*/React.createElement(CategoryTagInput,{category:form.category||'',tags:Array.isArray(form.tags)?form.tags:[],allCategories:(data.categories||['Personal','Work','Home','Health','Finance','Learning','Creative']),onChange:function(c,t){setForm(function(f){return Object.assign({},f,{category:c,tags:t});});},onAddCategory:function(v){setData(function(d){return Object.assign({},d,{categories:(d.categories||[]).concat([v])});});}}), /*#__PURE__*/React.createElement("hr", {className:"divider"}), /*#__PURE__*/React.createElement("div", {style:{paddingBottom:8}},
+  }), /*#__PURE__*/React.createElement(CategoryTagInput,{category:form.category||'',tags:Array.isArray(form.tags)?form.tags:[],allCategories:(data.categories||['Personal','Work','Home','Health','Finance','Learning','Creative']),onChange:function(c,t){setForm(function(f){return Object.assign({},f,{category:c,tags:t});});},onAddCategory:function(v){setData(function(d){return Object.assign({},d,{categories:(d.categories||[]).concat([v])});});}}), /*#__PURE__*/React.createElement("hr", {className:"divider"}), ((data.tasks||[]).length>0||(data.projects||[]).length>0||(data.meetings||[]).length>0||(data.goals||[]).length>0||(data.habits||[]).length>0) ? /*#__PURE__*/React.createElement("div", {style:{paddingBottom:8}},
     /*#__PURE__*/React.createElement("div", {style:{fontSize:12,fontWeight:700,color:"var(--text-dim)",marginBottom:10}}, "🔗 Link this entry to…"),
     [['task','Tasks','title',data.tasks||[]],['project','Projects','name',data.projects||[]],['meeting','Meetings','title',data.meetings||[]],['goal','Goals','title',data.goals||[]],['habit','Habits','name',data.habits||[]]].map(function(row){
       var itype=row[0], ilabel=row[1], ikey=row[2], items=row[3];
@@ -5256,7 +5283,7 @@ var JournalScreen = function JournalScreen(_ref31) {
         )
       );
     })
-  ), /*#__PURE__*/React.createElement(AlarmPanel, {
+  ) : /*#__PURE__*/React.createElement("div", {style:{fontSize:12,color:"var(--text-muted)",fontStyle:"italic",textAlign:"center",padding:"8px 0",borderTop:"1px solid var(--border)",marginTop:4}}, "🔗 Link to tasks, goals, habits or meetings — create some first!"), /*#__PURE__*/React.createElement(AlarmPanel, {
     alarm: form.alarm,
     onChange: function onChange(a) {
       return setForm(_objectSpread(_objectSpread({}, form), {}, {
