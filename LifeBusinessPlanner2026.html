@@ -2657,6 +2657,10 @@ var HomeScreen = function HomeScreen(_ref14) {
         className: "btn btn-secondary btn-sm",
         onClick: function() { window._lbpPendingEdit = { type: 'tasks', id: viewTask.id }; setViewTask(null); navigate('tasks'); }
       }, "\u270F\uFE0F Edit"),
+      /*#__PURE__*/React.createElement("button", {
+        className: "btn btn-danger btn-sm",
+        onClick: function() { setData(function(d){ return Object.assign({}, d, {tasks: (d.tasks||[]).filter(function(t){ return t.id !== viewTask.id; })}); }); setViewTask(null); }
+      }, "🗑️ Delete"),
       /*#__PURE__*/React.createElement("button", {className:"btn btn-secondary", onClick:function(){setViewTask(null);}}, "Close")
     )
   }, /*#__PURE__*/React.createElement("div", {style:{padding:"8px 0"}},
@@ -2681,6 +2685,10 @@ var HomeScreen = function HomeScreen(_ref14) {
         className: "btn btn-secondary btn-sm",
         onClick: function() { window._lbpPendingEdit = { type: 'journal', id: viewJournalEntry.id }; setViewJournalEntry(null); navigate('journal'); }
       }, "\u270F\uFE0F Edit"),
+      /*#__PURE__*/React.createElement("button", {
+        className: "btn btn-danger btn-sm",
+        onClick: function() { setData(function(d){ return Object.assign({}, d, {journal: (d.journal||[]).filter(function(e){ return e.id !== viewJournalEntry.id; })}); }); setViewJournalEntry(null); }
+      }, "🗑️ Delete"),
       /*#__PURE__*/React.createElement("button", {className:"btn btn-secondary", onClick:function(){setViewJournalEntry(null);}}, "Close")
     )
   }, /*#__PURE__*/React.createElement("div", {style:{padding:"8px 0"}},
