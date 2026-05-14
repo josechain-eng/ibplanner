@@ -20,7 +20,22 @@
 <script>
 (function() {
   // ── Version ──────────────────────────────────────────────────────────────
-  window.LBP_VERSION = '2.5';
+  window.LBP_VERSION = '2.6';
+
+  // ── PWA Install prompt ───────────────────────────────────────────────────
+  window._installPrompt = null;
+  window._canInstall = false;
+  window.addEventListener('beforeinstallprompt', function(e) {
+    e.preventDefault();
+    window._installPrompt = e;
+    window._canInstall = true;
+    window.dispatchEvent(new Event('lbp_can_install'));
+  });
+  window.addEventListener('appinstalled', function() {
+    window._installPrompt = null;
+    window._canInstall = false;
+    window.dispatchEvent(new Event('lbp_installed'));
+  });
   // ── Cloud Worker URL (set this after deploying your Cloudflare Worker) ──
   window.LBP_WORKER_URL = localStorage.getItem('lbp_worker_url') || '';
   // VAPID public key matching the Worker
@@ -12365,6 +12380,18 @@ var App = function App() {
   var _npS = useState(typeof Notification !== 'undefined' ? Notification.permission : 'unsupported'),
     _npS2 = _slicedToArray(_npS, 2), notifPerm = _npS2[0], setNotifPerm = _npS2[1];
   var _npPop = useState(false), _npPop2 = _slicedToArray(_npPop, 2), notifPopOpen = _npPop2[0], setNotifPopOpen = _npPop2[1];
+  // PWA install state
+  var _ciS = useState(!!window._canInstall), _ciS2 = _slicedToArray(_ciS, 2), canInstall = _ciS2[0], setCanInstall = _ciS2[1];
+  useEffect(function() {
+    var onCanInstall = function() { setCanInstall(true); };
+    var onInstalled = function() { setCanInstall(false); };
+    window.addEventListener('lbp_can_install', onCanInstall);
+    window.addEventListener('lbp_installed', onInstalled);
+    return function() {
+      window.removeEventListener('lbp_can_install', onCanInstall);
+      window.removeEventListener('lbp_installed', onInstalled);
+    };
+  }, []);
   var _usml1 = useState([]), _usml2 = _slicedToArray(_usml1, 2),
     missedAlarms = _usml2[0], setMissedAlarms = _usml2[1];
   var _usml3 = useState(false), _usml4 = _slicedToArray(_usml3, 2),
@@ -12800,12 +12827,28 @@ var App = function App() {
             onClick: function() { Notification.requestPermission().then(function(p){ setNotifPerm(p); if(p==='granted'){ navigator.serviceWorker && navigator.serviceWorker.ready.then(function(reg){ return reg.showNotification("\u2705 Notifications enabled!", {body:"Alarms will now appear here on your phone.",requireInteraction:false,tag:"lbp_test"}); }).catch(function(){}); } setNotifPopOpen(false); }); },
             style: { background: 'rgba(107,63,160,.7)', border: 'none', color: 'white', padding: '6px 14px', borderRadius: 6, cursor: 'pointer', fontSize: 12, width: '100%', marginBottom: 6 }
           }, "Enable OS Notifications"),
-          /*#__PURE__*/React.createElement("p", { style: { color: 'var(--text-muted)', margin: 0, fontSize: 11 } },
-            "Tip: serve over HTTPS for full Android notification panel support."          ),
           notifPerm === 'granted' && /*#__PURE__*/React.createElement("button", {
-            onClick: function() { navigator.serviceWorker && navigator.serviceWorker.ready.then(function(reg){ return reg.showNotification("\uD83D\uDD14 Test Alarm!", {body:"If you see this, notifications are working!",requireInteraction:true,tag:"lbp_test"}); }).then(function(){ setNotifPopOpen(false); }).catch(function(err){ alert("showNotification failed: "+(err&&err.message||err)); }); },
+            onClick: function() { navigator.serviceWorker && navigator.serviceWorker.ready.then(function(reg){ return reg.showNotification("\uD83D\uDD14 Test Alarm!", {body:"If you see this, notifications are working!",requireInteraction:true,tag:"lbp_test",actions:[{action:'open',title:'\u25B6 Open App'},{action:'dismiss',title:'\u2713 Dismiss'}]}); }).then(function(){ setNotifPopOpen(false); }).catch(function(err){ alert("showNotification failed: "+(err&&err.message||err)); }); },
             style: { background: 'rgba(46,125,50,.8)', border: 'none', color: 'white', padding: '6px 14px', borderRadius: 6, cursor: 'pointer', fontSize: 12, width: '100%', marginTop: 8 }
-          }, "\uD83D\uDD14 Send Test Notification")
+          }, "\uD83D\uDD14 Send Test Notification"),
+          canInstall && /*#__PURE__*/React.createElement("div", { style:{marginTop:10, padding:'8px 10px', background:'rgba(107,63,160,0.2)', borderRadius:8, border:'1px solid rgba(107,63,160,0.4)'} },
+            /*#__PURE__*/React.createElement("p", { style:{color:'#d8b4fe', margin:'0 0 6px', fontSize:11, fontWeight:600} }, "\uD83D\uDCF2 Want pop-up notifications when in other apps?"),
+            /*#__PURE__*/React.createElement("p", { style:{color:'var(--text-muted)', margin:'0 0 8px', fontSize:10, lineHeight:1.4} }, "Install the app to your home screen. Installed apps get full heads-up banners from Android, just like native apps."),
+            /*#__PURE__*/React.createElement("button", {
+              onClick: function() {
+                if (window._installPrompt) {
+                  window._installPrompt.prompt();
+                  window._installPrompt.userChoice.then(function(r) {
+                    if (r.outcome === 'accepted') { setCanInstall(false); setNotifPopOpen(false); }
+                  });
+                }
+              },
+              style:{background:'var(--purple)', border:'none', color:'#fff', padding:'7px 14px', borderRadius:7, cursor:'pointer', fontSize:12, width:'100%', fontWeight:600}
+            }, "\uD83D\uDCF2 Install App to Home Screen")
+          ),
+          !canInstall && notifPerm === 'granted' && /*#__PURE__*/React.createElement("p", { style:{color:'var(--text-muted)', margin:'8px 0 0', fontSize:10, lineHeight:1.4} },
+            "\uD83D\uDCA1 For pop-up banners when in other apps: long-press any Chrome notification \u2192 Settings \u2192 set importance to Urgent."
+          )
         )
   )
 ),
