@@ -20,7 +20,7 @@
 <script>
 (function() {
   // ── Version ──────────────────────────────────────────────────────────────
-  window.LBP_VERSION = '2.9';
+  window.LBP_VERSION = '3.0';
 
   // ── PWA Install prompt ───────────────────────────────────────────────────
   window._installPrompt = null;
@@ -2193,6 +2193,14 @@ var HomeScreen = function HomeScreen(_ref14) {
     _useStateHVJ2 = _slicedToArray(_useStateHVJ, 2),
     viewJournalEntry = _useStateHVJ2[0],
     setViewJournalEntry = _useStateHVJ2[1];
+  var _useStateHVP = useState(null),
+    _useStateHVP2 = _slicedToArray(_useStateHVP, 2),
+    viewProject = _useStateHVP2[0],
+    setViewProject = _useStateHVP2[1];
+  var _useStateHAI = useState(null), _useStateHAI2 = _slicedToArray(_useStateHAI, 2), alarmEditItem = _useStateHAI2[0], setAlarmEditItem = _useStateHAI2[1];
+  var _useStateHAT = useState('tasks'), _useStateHAT2 = _slicedToArray(_useStateHAT, 2), alarmEditType = _useStateHAT2[0], setAlarmEditType = _useStateHAT2[1];
+  var _useStateHAF = useState(defaultAlarm()), _useStateHAF2 = _slicedToArray(_useStateHAF, 2), alarmForm = _useStateHAF2[0], setAlarmForm = _useStateHAF2[1];
+  var _swipe = useRef({ x: null, y: null, did: false });
 
   return /*#__PURE__*/React.createElement("div", null, /*#__PURE__*/React.createElement("div", {
     style: {
@@ -2373,7 +2381,17 @@ var HomeScreen = function HomeScreen(_ref14) {
     return /*#__PURE__*/React.createElement("div", {
       className: "task-item",
       key: t.id,
-      onClick: function onClick() { return setViewTask(t); },
+      onClick: function() { if (_swipe.current.did) { _swipe.current.did = false; return; } setViewTask(t); },
+      onTouchStart: function(e) { _swipe.current = { x: e.touches[0].clientX, y: e.touches[0].clientY, did: false }; },
+      onTouchEnd: function(e) {
+        var dx = e.changedTouches[0].clientX - _swipe.current.x;
+        var dy = e.changedTouches[0].clientY - _swipe.current.y;
+        if (Math.abs(dx) > 60 && Math.abs(dx) > Math.abs(dy) * 1.5) {
+          _swipe.current.did = true;
+          if (dx < 0) { window._lbpPendingEdit = { type: 'tasks', id: t.id }; navigate('tasks'); }
+          else { setAlarmEditType('tasks'); setAlarmEditItem(t); setAlarmForm(Object.assign({}, t.alarm || defaultAlarm())); }
+        }
+      },
       style: {cursor:'pointer'}
     }, /*#__PURE__*/React.createElement("div", {
       className: "task-check ".concat(t.status === 'DONE' ? 'done' : ''),
@@ -2444,9 +2462,7 @@ var HomeScreen = function HomeScreen(_ref14) {
     var c = p.status === 'IN_PROGRESS' ? '#4CAF50' : p.status === 'CLIENT_REVIEW' ? '#FF9800' : '#9C27B0';
     return /*#__PURE__*/React.createElement("div", {
       key: p.id,
-      onClick: function onClick() {
-        return navigate('projects');
-      },
+      onClick: function(){ setViewProject(p); },
       style: {
         minWidth: 180,
         background: "".concat(c, "15"),
@@ -2533,7 +2549,17 @@ var HomeScreen = function HomeScreen(_ref14) {
       var _jMoji = (_jMoodMap.find(function(m){return m[0]===je.mood;})||['','\uD83D\uDE42'])[1];
       return /*#__PURE__*/React.createElement("div", {
         key: je.id,
-        onClick: function(){ setViewJournalEntry(je); },
+        onClick: function(){ if (_swipe.current.did) { _swipe.current.did = false; return; } setViewJournalEntry(je); },
+        onTouchStart: function(e) { _swipe.current = { x: e.touches[0].clientX, y: e.touches[0].clientY, did: false }; },
+        onTouchEnd: function(e) {
+          var dx = e.changedTouches[0].clientX - _swipe.current.x;
+          var dy = e.changedTouches[0].clientY - _swipe.current.y;
+          if (Math.abs(dx) > 60 && Math.abs(dx) > Math.abs(dy) * 1.5) {
+            _swipe.current.did = true;
+            if (dx < 0) { window._lbpPendingEdit = { type: 'journal', id: je.id }; navigate('journal'); }
+            else { setAlarmEditType('journal'); setAlarmEditItem(je); setAlarmForm(Object.assign({}, je.alarm || defaultAlarm())); }
+          }
+        },
         style:{display:"flex",alignItems:"center",gap:8,padding:"8px 12px",background:"var(--surface)",borderRadius:10,marginBottom:6,cursor:"pointer"}
       },
         /*#__PURE__*/React.createElement("span", {style:{fontSize:18,flexShrink:0}}, _jMoji),
@@ -2627,6 +2653,10 @@ var HomeScreen = function HomeScreen(_ref14) {
         className: "btn btn-primary btn-sm",
         onClick: function() { completeTask(viewTask.id); setViewTask(null); }
       }, "\u2705 Mark Done"),
+      /*#__PURE__*/React.createElement("button", {
+        className: "btn btn-secondary btn-sm",
+        onClick: function() { window._lbpPendingEdit = { type: 'tasks', id: viewTask.id }; setViewTask(null); navigate('tasks'); }
+      }, "\u270F\uFE0F Edit"),
       /*#__PURE__*/React.createElement("button", {className:"btn btn-secondary", onClick:function(){setViewTask(null);}}, "Close")
     )
   }, /*#__PURE__*/React.createElement("div", {style:{padding:"8px 0"}},
@@ -2646,7 +2676,13 @@ var HomeScreen = function HomeScreen(_ref14) {
   viewJournalEntry && /*#__PURE__*/React.createElement(Modal, {
     title: "\uD83D\uDCD3 " + (viewJournalEntry.date || "Journal"),
     onClose: function() { setViewJournalEntry(null); },
-    footer: /*#__PURE__*/React.createElement("button", {className:"btn btn-secondary", onClick:function(){setViewJournalEntry(null);}}, "Close")
+    footer: /*#__PURE__*/React.createElement(React.Fragment, null,
+      /*#__PURE__*/React.createElement("button", {
+        className: "btn btn-secondary btn-sm",
+        onClick: function() { window._lbpPendingEdit = { type: 'journal', id: viewJournalEntry.id }; setViewJournalEntry(null); navigate('journal'); }
+      }, "\u270F\uFE0F Edit"),
+      /*#__PURE__*/React.createElement("button", {className:"btn btn-secondary", onClick:function(){setViewJournalEntry(null);}}, "Close")
+    )
   }, /*#__PURE__*/React.createElement("div", {style:{padding:"8px 0"}},
     viewJournalEntry.title && /*#__PURE__*/React.createElement("div",{style:{fontSize:15,fontWeight:700,marginBottom:8}}, viewJournalEntry.title),
     /*#__PURE__*/React.createElement("div",{style:{display:"flex",gap:8,alignItems:"center",marginBottom:12}},
@@ -2658,7 +2694,48 @@ var HomeScreen = function HomeScreen(_ref14) {
     viewJournalEntry.content && /*#__PURE__*/React.createElement("div",{style:{fontSize:13,lineHeight:1.6,marginBottom:8}}, /*#__PURE__*/React.createElement(RichContent,{html:viewJournalEntry.content})),
     viewJournalEntry.gratitude && /*#__PURE__*/React.createElement("div",{style:{background:"rgba(76,175,80,.1)",border:"1px solid rgba(76,175,80,.2)",borderRadius:8,padding:"8px 12px",fontSize:13}},
       "\uD83D\uDE4F ", /*#__PURE__*/React.createElement("strong",null,"Grateful: "), viewJournalEntry.gratitude)
-  ))));
+  )),
+  viewProject && /*#__PURE__*/React.createElement(Modal, {
+    title: "\uD83D\uDCC1 " + (viewProject.name || "Project"),
+    onClose: function() { setViewProject(null); },
+    footer: /*#__PURE__*/React.createElement(React.Fragment, null,
+      /*#__PURE__*/React.createElement("button", {
+        className: "btn btn-secondary btn-sm",
+        onClick: function() { window._lbpPendingEdit = { type: 'projects', id: viewProject.id }; setViewProject(null); navigate('projects'); }
+      }, "\u270F\uFE0F Edit"),
+      /*#__PURE__*/React.createElement("button", {className:"btn btn-secondary", onClick:function(){setViewProject(null);}}, "Close")
+    )
+  }, /*#__PURE__*/React.createElement("div", {style:{padding:"8px 0"}},
+    /*#__PURE__*/React.createElement("div", {style:{display:"flex",gap:8,alignItems:"center",marginBottom:12,flexWrap:"wrap"}},
+      /*#__PURE__*/React.createElement(Chip, {label: viewProject.status ? viewProject.status.replace(/_/g,' ') : '',
+        color: ({"IN_PROGRESS":"#4CAF50","CLIENT_REVIEW":"#FF9800","DONE":"#2196F3","PLANNING":"#9C27B0","ON_HOLD":"#795548"})[viewProject.status]||'#6B3FA0'}),
+      viewProject.dueDate && /*#__PURE__*/React.createElement("span",{style:{fontSize:12,color:"var(--text-dim)"}}, "\uD83D\uDCC5 ", viewProject.dueDate),
+      viewProject.budget && /*#__PURE__*/React.createElement("span",{style:{fontSize:12,color:"var(--text-dim)"}}, "\uD83D\uDCB0 $", viewProject.budget)
+    ),
+    /*#__PURE__*/React.createElement(Progress, {value: viewProject.completion || 0, color: '#4CAF50'}),
+    /*#__PURE__*/React.createElement("div", {style:{fontSize:11,color:"var(--text-dim)",marginTop:2,marginBottom:10}}, (viewProject.completion||0) + "% complete"),
+    viewProject.description && /*#__PURE__*/React.createElement("div", {style:{fontSize:13,lineHeight:1.6}}, /*#__PURE__*/React.createElement(RichContent,{html:viewProject.description}))
+  )),
+  alarmEditItem && /*#__PURE__*/React.createElement(Modal, {
+    title: "\uD83D\uDD14 Edit Alarm — " + (alarmEditItem.title || alarmEditItem.name || 'Alarm'),
+    onClose: function() { setAlarmEditItem(null); },
+    footer: /*#__PURE__*/React.createElement(React.Fragment, null,
+      /*#__PURE__*/React.createElement("button", {
+        className: "btn btn-primary",
+        onClick: function() {
+          setData(function(d) {
+            var _upd = (d[alarmEditType]||[]).map(function(it) { return it.id === alarmEditItem.id ? Object.assign({}, it, {alarm: alarmForm}) : it; });
+            return Object.assign({}, d, {[alarmEditType]: _upd});
+          });
+          setAlarmEditItem(null);
+        }
+      }, "\uD83D\uDCBE Save"),
+      /*#__PURE__*/React.createElement("button", {className:"btn btn-secondary", onClick:function(){setAlarmEditItem(null);}}, "Cancel")
+    )
+  }, /*#__PURE__*/React.createElement("div", {style:{padding:"8px 0"}},
+    /*#__PURE__*/React.createElement(AlarmPanel, {alarm:alarmForm, onChange:setAlarmForm, label: alarmEditItem.title||alarmEditItem.name||''})
+  ))
+  ));
 };
 
 // ─── GOALS ─────────────────────────────────────────────
@@ -2993,6 +3070,14 @@ var ProjectsScreen = function ProjectsScreen(_ref20) {
     _useStateNST2 = _slicedToArray(_useStateNST, 2),
     newSubtask = _useStateNST2[0],
     setNewSubtask = _useStateNST2[1];
+  useEffect(function() {
+    var pe = window._lbpPendingEdit;
+    if (pe && pe.type === 'projects') {
+      window._lbpPendingEdit = null;
+      var _item = (data.projects||[]).find(function(p){ return p.id === pe.id; });
+      if (_item) { setEditItem(_item); setForm(Object.assign({}, _item)); setModal(true); }
+    }
+  }, []);
   var _useStateVLT = useState(null),
     _useStateVLT2 = _slicedToArray(_useStateVLT, 2),
     viewLinkedTask = _useStateVLT2[0],
@@ -3460,6 +3545,14 @@ var TasksScreen = function TasksScreen(_ref21) {
     editItem = _useState38[0],
     setEditItem = _useState38[1];
   var _useStateTCP = useState(false), _useStateTCPArr = _slicedToArray(_useStateTCP, 2), compact = _useStateTCPArr[0], setCompact = _useStateTCPArr[1];
+  useEffect(function() {
+    var pe = window._lbpPendingEdit;
+    if (pe && pe.type === 'tasks') {
+      window._lbpPendingEdit = null;
+      var _item = (data.tasks||[]).find(function(t){ return t.id === pe.id; });
+      if (_item) { setEditItem(_item); setForm(Object.assign({}, _item)); setModal(true); }
+    }
+  }, []);
   var _useState39 = useState({
       title: '',
       description: '',
@@ -5261,6 +5354,19 @@ var JournalScreen = function JournalScreen(_ref31) {
     setViewEntry = _useState76[1];
   var _useStateEE = useState(null), _useStateEE2 = _slicedToArray(_useStateEE, 2), editEntry = _useStateEE2[0], setEditEntry = _useStateEE2[1];
   var _useStateJCP = useState(false), _useStateJCPArr = _slicedToArray(_useStateJCP, 2), compact = _useStateJCPArr[0], setCompact = _useStateJCPArr[1];
+  useEffect(function() {
+    var pe = window._lbpPendingEdit;
+    if (pe && pe.type === 'journal') {
+      window._lbpPendingEdit = null;
+      var _e = (data.journal||[]).find(function(j){ return j.id === pe.id; });
+      if (_e) {
+        setEditEntry(_e);
+        setForm({title:_e.title||'',content:_e.content||'',gratitude:_e.gratitude||'',topWins:_e.topWins||'',challenges:_e.challenges||'',tomorrowFocus:_e.tomorrowFocus||'',affirmations:_e.affirmations||'',mood:_e.mood||'GOOD',attachments:_e.attachments||[],category:_e.category||'',tags:_e.tags||[],alarm:_e.alarm||defaultAlarm(),links:_e.links||[],entryType:_e.entryType||'journal'});
+        setMood(_e.mood||'GOOD');
+        setModal(true);
+      }
+    }
+  }, []);
   var entries = _toConsumableArray(data.journal || []).sort(function (a, b) {
     return b.date.localeCompare(a.date);
   });
@@ -12398,20 +12504,14 @@ var SyncSettingsButton = function SyncSettingsButton(_ref_ssb) {
     navigator.clipboard && navigator.clipboard.writeText(syncKey).then(function(){ setCopyMsg('Copied!'); setTimeout(function(){ setCopyMsg(''); }, 1500); });
   };
 
-  return /*#__PURE__*/React.createElement(React.Fragment, null,
-    /*#__PURE__*/React.createElement('button', {
-      onClick: function(){ setOpen(true); setUrlDraft(workerUrl); setKeyDraft(''); setConnStatus(''); },
-      title: 'Cloud Sync Settings',
-      style: {
-        position:'fixed', top:12, right:110, zIndex:9999,
-        background: isConnected ? 'rgba(34,197,94,0.15)' : 'rgba(255,255,255,0.08)',
-        border: '1px solid ' + (isConnected ? 'rgba(34,197,94,0.5)' : 'rgba(255,255,255,0.2)'),
-        borderRadius: 20, padding: '4px 10px', cursor:'pointer',
-        color: isConnected ? '#4ade80' : '#9ca3af', fontSize:18, lineHeight:1
-      }
-    }, isConnected ? '☁️' : '🔌'),
+  useEffect(function() {
+    var _openSync = function() { setOpen(true); setUrlDraft(workerUrl); setKeyDraft(''); setConnStatus(''); };
+    window.addEventListener('lbp_open_sync', _openSync);
+    return function() { window.removeEventListener('lbp_open_sync', _openSync); };
+  }, [workerUrl]);
 
-    open && /*#__PURE__*/React.createElement('div', {
+  return open && /*#__PURE__*/React.createElement(React.Fragment, null,
+    /*#__PURE__*/React.createElement('div', {
       style: { position:'fixed', inset:0, background:'rgba(0,0,0,0.7)', zIndex:10000, display:'flex', alignItems:'center', justifyContent:'center', padding:16 },
       onClick: function(e){ if(e.target === e.currentTarget) setOpen(false); }
     },
@@ -12569,6 +12669,7 @@ var App = function App() {
   // Cloud sync state
   var _wuS = useState(localStorage.getItem('lbp_worker_url') || ''),
     _wuS2 = _slicedToArray(_wuS, 2), workerUrl = _wuS2[0], setWorkerUrl = _wuS2[1];
+  var isConnected = !!workerUrl;
   var syncKey = (function() {
     var k = localStorage.getItem('lbp_sync_key');
     if (!k) { k = 'lbp_' + Math.random().toString(36).slice(2,10) + Math.random().toString(36).slice(2,10); localStorage.setItem('lbp_sync_key', k); }
@@ -13008,29 +13109,33 @@ var App = function App() {
         className: "badge"
       }, totalOverdue));
     }));
-  }))), /*#__PURE__*/React.createElement(SyncSettingsButton, {workerUrl: workerUrl, setWorkerUrl: setWorkerUrl, syncKey: syncKey}),
-/*#__PURE__*/React.createElement("div", {
-  style: { position: 'fixed', top: 12, right: 64, zIndex: 900 }
-},
-  /*#__PURE__*/React.createElement("button", {
-    onClick: function(){ setNotifPopOpen(function(v){ return !v; }); },
-    title: notifPerm === 'denied' ? 'Notifications blocked' : notifPerm === 'granted' ? 'Notifications enabled' : 'Enable OS notifications',
-    style: {
-      width: 28, height: 28, borderRadius: '50%',
-      background: notifPerm === 'denied' ? 'rgba(244,67,54,.85)' : notifPerm === 'granted' ? 'rgba(46,125,50,.85)' : 'rgba(107,63,160,.85)',
-      border: 'none', color: 'white', fontWeight: 900, fontSize: 15,
-      cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center',
-      boxShadow: '0 2px 8px rgba(0,0,0,.4)', lineHeight: 1
-    }
-  }, notifPerm === 'granted' ? "\uD83D\uDD14" : "!"),
-  notifPopOpen && /*#__PURE__*/React.createElement("div", {
-    style: {
-      position: 'absolute', top: 34, right: 0, width: 280,
-      background: 'var(--surface)', border: '1px solid var(--border)',
-      borderRadius: 10, padding: '12px 14px', boxShadow: '0 4px 20px rgba(0,0,0,.5)',
-      fontSize: 12, color: 'var(--text)', zIndex: 901
-    }
+  }),
+  /*#__PURE__*/React.createElement("div", {className:"nav-section", style:{marginTop:8}}, "\u2699\uFE0F Settings"),
+  /*#__PURE__*/React.createElement("div", {
+    className: "nav-item",
+    onClick: function() { setDrawerOpen(false); window.dispatchEvent(new Event('lbp_open_sync')); }
   },
+    /*#__PURE__*/React.createElement("span", {style:{fontSize:16}}, isConnected ? "\u2601\uFE0F" : "\uD83D\uDD0C"),
+    /*#__PURE__*/React.createElement("span", null, " Cloud & Sync"),
+    isConnected && /*#__PURE__*/React.createElement("span", {style:{width:7,height:7,borderRadius:'50%',background:'#4ade80',display:'inline-block',marginLeft:'auto',flexShrink:0}})
+  ),
+  /*#__PURE__*/React.createElement("div", {
+    className: "nav-item",
+    onClick: function() { setDrawerOpen(false); setNotifPopOpen(true); }
+  },
+    /*#__PURE__*/React.createElement("span", {style:{fontSize:16}}, notifPerm === 'granted' ? "\uD83D\uDD14" : "\uD83D\uDD15"),
+    /*#__PURE__*/React.createElement("span", null, " Notifications"),
+    notifPerm !== 'granted' && /*#__PURE__*/React.createElement("span", {className:"badge", style:{marginLeft:'auto'}}, "!")
+  )
+  ))), /*#__PURE__*/React.createElement(SyncSettingsButton, {workerUrl: workerUrl, setWorkerUrl: setWorkerUrl, syncKey: syncKey}),
+notifPopOpen && /*#__PURE__*/React.createElement("div", {
+  style: {
+    position: 'fixed', top: 60, right: 16, width: 290, zIndex: 9999,
+    background: 'var(--surface)', border: '1px solid var(--border)',
+    borderRadius: 10, padding: '12px 14px', boxShadow: '0 8px 40px rgba(0,0,0,.6)',
+    fontSize: 12, color: 'var(--text)'
+  }
+},
     /*#__PURE__*/React.createElement("div", { style: { display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 } },
       /*#__PURE__*/React.createElement("strong", null, "\uD83D\uDD14 Notifications"),
       /*#__PURE__*/React.createElement("button", {
@@ -13074,8 +13179,7 @@ var App = function App() {
             "\uD83D\uDCA1 For pop-up banners when in other apps: long-press any Chrome notification \u2192 Settings \u2192 set importance to Urgent."
           )
         )
-  )
-),
+  ),
 showMissed && missedAlarms.length > 0 && /*#__PURE__*/React.createElement("div", {
     style: {
       background: 'rgba(201,168,76,.12)', border: '1px solid rgba(201,168,76,.3)',
@@ -13120,7 +13224,7 @@ activeAlarm && /*#__PURE__*/React.createElement("div", {
     onClick: function onClick() {
       return setActiveAlarm(null);
     }
-  }, "\u2713 Dismiss"))));
+  }, "\u2713 Dismiss")));
 };
 ReactDOM.createRoot(document.getElementById('root')).render(/*#__PURE__*/React.createElement(App, null));
 </script>
