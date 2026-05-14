@@ -20,7 +20,7 @@
 <script>
 (function() {
   // ── Version ──────────────────────────────────────────────────────────────
-  window.LBP_VERSION = '2.7';
+  window.LBP_VERSION = '2.8';
 
   // ── PWA Install prompt ───────────────────────────────────────────────────
   window._installPrompt = null;
@@ -168,15 +168,14 @@
     });
   }
 
-  // Load cloud data on startup and merge with local
-  window.addEventListener('load', function() {
+  // Pull cloud data and merge with local — exposed as window._cloudPull for manual trigger
+  window._cloudPull = function(onDone) {
     var syncKey = localStorage.getItem('lbp_sync_key');
-    if (!syncKey || !window.LBP_WORKER_URL) return;
+    if (!syncKey || !window.LBP_WORKER_URL) { if (onDone) onDone(false, 'missing config'); return; }
     _workerFetch('/sync?key=' + encodeURIComponent(syncKey))
       .then(function(res) { return res && res.json(); })
       .then(function(json) {
-        if (!json || !json.data) return;
-        // Merge: cloud wins for data, but merge alarm log
+        if (!json || !json.data) { if (onDone) onDone(false, 'no data in cloud yet'); return; }
         var local = {};
         try { local = JSON.parse(localStorage.getItem('lbp2026_data') || '{}'); } catch(_e) {}
         var merged = Object.assign({}, json.data);
@@ -187,9 +186,12 @@
           merged.alarmLog = (json.data.alarmLog||[]).concat(extras);
         }
         localStorage.setItem('lbp2026_data', JSON.stringify(merged));
+        localStorage.setItem('lbp_last_sync', new Date().toISOString());
         window.dispatchEvent(new Event('lbp_cloud_sync'));
-      }).catch(function() {});
-  });
+        if (onDone) onDone(true);
+      }).catch(function(e) { if (onDone) onDone(false, e && e.message ? e.message : 'network error'); });
+  };
+  window.addEventListener('load', function() { window._cloudPull(); });
 })();
 </script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/react/18.2.0/umd/react.production.min.js"></script>
@@ -12282,6 +12284,17 @@ var SyncSettingsButton = function SyncSettingsButton(_ref_ssb) {
   var _useState_ssb9 = useState(''), _useState_ssb10 = _slicedToArray(_useState_ssb9, 2), connStatus = _useState_ssb10[0], setConnStatus = _useState_ssb10[1];
   var _useState_ssb11 = useState(localStorage.getItem('lbp_push_registered') === '1'), _useState_ssb12 = _slicedToArray(_useState_ssb11, 2), pushRegistered = _useState_ssb12[0], setPushRegistered = _useState_ssb12[1];
   var isConnected = !!workerUrl;
+  var _lsSt = useState(localStorage.getItem('lbp_last_sync')), _lsSt2 = _slicedToArray(_lsSt, 2), lastSync = _lsSt2[0], setLastSync = _lsSt2[1];
+
+  var lastSyncDisplay = function() {
+    if (!lastSync) return null;
+    var d = new Date(lastSync);
+    var mins = Math.round((Date.now() - d.getTime()) / 60000);
+    if (mins < 1) return 'just now';
+    if (mins < 60) return mins + ' min ago';
+    var hrs = Math.floor(mins / 60);
+    return hrs === 1 ? '1 hour ago' : hrs + ' hours ago';
+  };
 
   var testConnection = function() {
     if (!urlDraft) return;
@@ -12303,6 +12316,24 @@ var SyncSettingsButton = function SyncSettingsButton(_ref_ssb) {
       else if (d.error) setConnStatus('❌ ' + d.error);
       else setConnStatus('⚠️ ' + d.failed + ' failed, ' + d.sent + ' sent');
     }).catch(function(){ setConnStatus('❌ Could not reach Worker'); });
+  };
+
+  var pullFromCloud = function() {
+    if (!workerUrl || !syncKey) { setConnStatus('❌ Worker URL or sync key missing'); return; }
+    setConnStatus('Pulling from cloud…');
+    if (window._cloudPull) {
+      window._cloudPull(function(ok, err) {
+        if (ok) {
+          var t = localStorage.getItem('lbp_last_sync');
+          setLastSync(t);
+          setConnStatus('✅ Data pulled — app updated!');
+        } else {
+          setConnStatus('❌ Pull failed: ' + (err || 'unknown error'));
+        }
+      });
+    } else {
+      setConnStatus('❌ Pull not available — reload the page');
+    }
   };
 
   var checkCloudAlarms = function() {
@@ -12394,6 +12425,17 @@ var SyncSettingsButton = function SyncSettingsButton(_ref_ssb) {
               style:{background:keyDraft.trim()?'var(--purple)':'rgba(255,255,255,0.1)',border:'none',borderRadius:8,padding:'7px 12px',color:keyDraft.trim()?'#fff':'var(--text-muted)',cursor:keyDraft.trim()?'pointer':'default',fontSize:12,whiteSpace:'nowrap'}
             }, 'Apply & Reload')
           )
+        ),
+
+        isConnected && /*#__PURE__*/React.createElement('div', { style:{marginBottom:16,padding:'10px 12px',background:'rgba(107,63,160,0.12)',borderRadius:10,border:'1px solid rgba(107,63,160,0.3)',display:'flex',alignItems:'center',justifyContent:'space-between',gap:8} },
+          /*#__PURE__*/React.createElement('div', null,
+            /*#__PURE__*/React.createElement('div', { style:{fontSize:12,color:'var(--text-muted)',marginBottom:2} }, '🔄 SYNC THIS DEVICE'),
+            lastSyncDisplay() && /*#__PURE__*/React.createElement('div', { style:{fontSize:11,color:'var(--text-dim)'} }, 'Last pulled: ' + lastSyncDisplay())
+          ),
+          /*#__PURE__*/React.createElement('button', {
+            onClick: pullFromCloud,
+            style:{background:'var(--purple)',border:'none',borderRadius:8,padding:'6px 14px',color:'#fff',cursor:'pointer',fontSize:12,whiteSpace:'nowrap',flexShrink:0}
+          }, '⬇ Pull from Cloud')
         ),
 
         /*#__PURE__*/React.createElement('div', { style:{borderTop:'1px solid rgba(255,255,255,0.1)',paddingTop:16,marginBottom:16} },
@@ -12544,6 +12586,19 @@ var App = function App() {
     }, 800);
     return function(){ clearInterval(_npiv); };
   }, []);
+
+  // Re-render when cloud pull writes new data to localStorage
+  useEffect(function() {
+    var onCloudSync = function() {
+      try {
+        var fresh = JSON.parse(localStorage.getItem('lbp2026_data') || '{}');
+        setData(fresh);
+      } catch(_e) {}
+    };
+    window.addEventListener('lbp_cloud_sync', onCloudSync);
+    return function() { window.removeEventListener('lbp_cloud_sync', onCloudSync); };
+  }, []);
+
   var fireAlarmOnce = useCallback(function (title, body, current, total, intervalMin, sound, vibration) {
     playAlarmSound(sound || 'bell');
     setActiveAlarm({ title: title, body: body, current: current, total: total });
