@@ -61,23 +61,38 @@
     }, 2000);
   };
 
-  // Post an alarm to the cloud (fires even when Chrome is dead)
+  // Batch-buffered cloud alarm scheduler — collects all alarms from a scheduleAlarms run
+  // and flushes them in ONE request instead of one request per alarm.
+  var _cloudAlarmBuffer = [];
+  var _cloudAlarmFlushTimer = null;
+  function _flushCloudAlarms() {
+    _cloudAlarmFlushTimer = null;
+    var syncKey = localStorage.getItem('lbp_sync_key');
+    if (!syncKey || !window.LBP_WORKER_URL || _cloudAlarmBuffer.length === 0) { _cloudAlarmBuffer = []; return; }
+    var alarms = _cloudAlarmBuffer.slice();
+    _cloudAlarmBuffer = [];
+    console.log('[LBP] Flushing', alarms.length, 'alarms to cloud in one batch');
+    _workerFetch('/alarms/batch', {
+      method: 'POST',
+      headers: {'Content-Type':'application/json'},
+      body: JSON.stringify({syncKey: syncKey, alarms: alarms})
+    }).then(function(r) {
+      if (!r) console.warn('[LBP] Cloud alarm batch: network error');
+      else if (r.ok) console.log('[LBP] Cloud alarm batch OK, count:', alarms.length);
+      else console.warn('[LBP] Cloud alarm batch failed, HTTP:', r.status);
+    }).catch(function(e) { console.error('[LBP] Cloud alarm batch error:', e); });
+  }
   window._cloudScheduleAlarm = function(alarmId, triggerAt, title, body, vibration) {
     var syncKey = localStorage.getItem('lbp_sync_key');
     if (!syncKey || !window.LBP_WORKER_URL) {
-      console.warn('[LBP] _cloudScheduleAlarm skipped — missing syncKey or workerUrl', {syncKey: !!syncKey, workerUrl: !!window.LBP_WORKER_URL});
+      console.warn('[LBP] _cloudScheduleAlarm skipped — missing syncKey or workerUrl');
       return;
     }
-    console.log('[LBP] Scheduling alarm in cloud:', alarmId, 'at', new Date(triggerAt).toLocaleString(), 'title:', title);
-    _workerFetch('/alarm', {
-      method: 'POST',
-      headers: {'Content-Type':'application/json'},
-      body: JSON.stringify({syncKey: syncKey, alarmId: alarmId, triggerAt: triggerAt, title: title, body: body, vibration: vibration || 'long'})
-    }).then(function(r) {
-      if (!r) console.warn('[LBP] Cloud alarm: network error or worker URL missing');
-      else if (r.ok) console.log('[LBP] Cloud alarm stored OK, status:', r.status);
-      else console.warn('[LBP] Cloud alarm store failed, HTTP status:', r.status);
-    }).catch(function(e) { console.error('[LBP] Cloud alarm store error:', e); });
+    // Deduplicate by alarmId (last write wins)
+    _cloudAlarmBuffer = _cloudAlarmBuffer.filter(function(a){ return a.alarmId !== alarmId; });
+    _cloudAlarmBuffer.push({ alarmId: alarmId, triggerAt: triggerAt, title: title, body: body, vibration: vibration || 'long' });
+    if (_cloudAlarmFlushTimer) clearTimeout(_cloudAlarmFlushTimer);
+    _cloudAlarmFlushTimer = setTimeout(_flushCloudAlarms, 800);
   };
 
   // Cancel a cloud alarm
