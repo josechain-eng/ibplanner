@@ -20,7 +20,7 @@
 <script>
 (function() {
   // ── Version ──────────────────────────────────────────────────────────────
-  window.LBP_VERSION = '2.8';
+  window.LBP_VERSION = '2.9';
 
   // ── PWA Install prompt ───────────────────────────────────────────────────
   window._installPrompt = null;
@@ -53,10 +53,14 @@
     if (!syncKey || !window.LBP_WORKER_URL) return;
     clearTimeout(_syncTimer);
     _syncTimer = setTimeout(function() {
+      // Stamp _cloudSaveTime so the pull can compare which version is newer
+      var saveTime = Date.now();
+      localStorage.setItem('lbp_last_save', saveTime.toString());
+      var stamped = Object.assign({}, data, { _cloudSaveTime: saveTime });
       _workerFetch('/sync', {
         method: 'POST',
         headers: {'Content-Type':'application/json'},
-        body: JSON.stringify({syncKey: syncKey, data: data})
+        body: JSON.stringify({syncKey: syncKey, data: stamped})
       });
     }, 2000);
   };
@@ -168,14 +172,29 @@
     });
   }
 
-  // Pull cloud data and merge with local — exposed as window._cloudPull for manual trigger
-  window._cloudPull = function(onDone) {
+  // Pull cloud data and merge with local — exposed as window._cloudPull for manual trigger.
+  // force=true  → always overwrite local (user clicked the button)
+  // force=false → only overwrite if cloud data is newer than local (safe auto-pull on page load)
+  window._cloudPull = function(onDone, force) {
     var syncKey = localStorage.getItem('lbp_sync_key');
     if (!syncKey || !window.LBP_WORKER_URL) { if (onDone) onDone(false, 'missing config'); return; }
     _workerFetch('/sync?key=' + encodeURIComponent(syncKey))
       .then(function(res) { return res && res.json(); })
       .then(function(json) {
         if (!json || !json.data) { if (onDone) onDone(false, 'no data in cloud yet'); return; }
+        // Safety: on auto-pull, don't overwrite local data if it's newer than cloud.
+        // This prevents the race condition where empty localStorage + slow cloud pull
+        // would let the app push INITIAL_DATA to cloud, wiping the backup.
+        if (!force) {
+          var localSave = parseInt(localStorage.getItem('lbp_last_save') || '0', 10);
+          var cloudSave = json.data._cloudSaveTime || 0;
+          var hasLocalData = !!localStorage.getItem('lbp2026_data');
+          if (hasLocalData && localSave > cloudSave) {
+            // Local is newer — skip overwrite, but still dispatch so React knows we checked
+            if (onDone) onDone(false, 'local data is newer — keeping local');
+            return;
+          }
+        }
         var local = {};
         try { local = JSON.parse(localStorage.getItem('lbp2026_data') || '{}'); } catch(_e) {}
         var merged = Object.assign({}, json.data);
@@ -191,7 +210,7 @@
         if (onDone) onDone(true);
       }).catch(function(e) { if (onDone) onDone(false, e && e.message ? e.message : 'network error'); });
   };
-  window.addEventListener('load', function() { window._cloudPull(); });
+  window.addEventListener('load', function() { window._cloudPull(null, false); }); // auto-pull: safe mode
 })();
 </script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/react/18.2.0/umd/react.production.min.js"></script>
@@ -633,7 +652,12 @@ var useStore = function useStore(key, init) {
     _useState2 = _slicedToArray(_useState, 2),
     val = _useState2[0],
     setVal = _useState2[1];
+  // _storeFirstRun: skip the effect on the initial mount.
+  // Without this, opening the app with empty localStorage pushes INITIAL_DATA
+  // to Cloudflare, wiping the cloud backup within 2 seconds.
+  var _storeFirstRun = useRef(true);
   useEffect(function () {
+    if (_storeFirstRun.current) { _storeFirstRun.current = false; return; }
     try {
       localStorage.setItem(key, JSON.stringify(val));
       // Sync to cloud if this is the main data store
@@ -12328,9 +12352,9 @@ var SyncSettingsButton = function SyncSettingsButton(_ref_ssb) {
           setLastSync(t);
           setConnStatus('✅ Data pulled — app updated!');
         } else {
-          setConnStatus('❌ Pull failed: ' + (err || 'unknown error'));
+          setConnStatus('❌ ' + (err || 'unknown error'));
         }
-      });
+      }, true); // force=true — user explicitly asked, always overwrite
     } else {
       setConnStatus('❌ Pull not available — reload the page');
     }
