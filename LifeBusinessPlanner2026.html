@@ -13127,7 +13127,7 @@ var App = function App() {
     /*#__PURE__*/React.createElement("span", null, " Notifications"),
     notifPerm !== 'granted' && /*#__PURE__*/React.createElement("span", {className:"badge", style:{marginLeft:'auto'}}, "!")
   )
-  ))), /*#__PURE__*/React.createElement(SyncSettingsButton, {workerUrl: workerUrl, setWorkerUrl: setWorkerUrl, syncKey: syncKey}),
+  )), /*#__PURE__*/React.createElement(SyncSettingsButton, {workerUrl: workerUrl, setWorkerUrl: setWorkerUrl, syncKey: syncKey}),
 notifPopOpen && /*#__PURE__*/React.createElement("div", {
   style: {
     position: 'fixed', top: 60, right: 16, width: 290, zIndex: 9999,
@@ -13224,7 +13224,7 @@ activeAlarm && /*#__PURE__*/React.createElement("div", {
     onClick: function onClick() {
       return setActiveAlarm(null);
     }
-  }, "\u2713 Dismiss")));
+  }, "\u2713 Dismiss"))));
 };
 ReactDOM.createRoot(document.getElementById('root')).render(/*#__PURE__*/React.createElement(App, null));
 </script>
