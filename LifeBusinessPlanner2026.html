@@ -20,7 +20,7 @@
 <script>
 (function() {
   // ── Version ──────────────────────────────────────────────────────────────
-  window.LBP_VERSION = '3.7';
+  window.LBP_VERSION = '3.8';
 
   // ── PWA Install prompt ───────────────────────────────────────────────────
   window._installPrompt = null;
@@ -442,12 +442,13 @@
   .mb-4 { margin-bottom: 4px; }
   .mb-8 { margin-bottom: 8px; }
   .mb-16 { margin-bottom: 16px; }
-  .mt-8 { margin-top: 8px; }
+  .mt-8 { margin-top: 28px; }
   .w-full { width: 100%; }
   .row { display: flex; align-items: center; justify-content: space-between; }
   .section-title { font-size: 13px; font-weight: 700; color: var(--text-dim); text-transform: uppercase;
-                   letter-spacing: .6px; margin-bottom: 10px; display: flex; align-items: center;
-                   justify-content: space-between; }
+                   letter-spacing: .6px; margin-top: 28px; margin-bottom: 12px; display: flex; align-items: center;
+                   justify-content: space-between; padding-bottom: 8px;
+                   border-bottom: 1px solid var(--border); }
   .kanban { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; overflow-x: auto; }
   @media (max-width: 700px) { .kanban { grid-template-columns: 1fr; } }
   .kanban-col { background: var(--surface2); border-radius: var(--radius); padding: 12px; }
@@ -2385,7 +2386,7 @@ var HomeScreen = function HomeScreen(_ref14) {
       fontWeight: 600
     }
   }, overdueTasks.length, " overdue tasks need attention")), /*#__PURE__*/React.createElement("div", {
-    className: "section-title"
+    className: "section-title", style:{marginTop:4}
   }, "Quick Actions"), /*#__PURE__*/React.createElement("div", {
     className: "quick-actions mb-16"
   }, [['➕', 'New Task', 'tasks'], ['📓', 'Journal', 'journal'], ['📅', 'New Meeting', 'meetings'], ['📁', 'New Project', 'projects'], ['🎯', 'New Goal', 'goals'], ['✍️', 'Content', 'content'], ['👤', 'New Client', 'clients'], ['💰', 'Finance', 'finance'], ['📂', 'Documents', 'documents']].map(function (_ref15) {
