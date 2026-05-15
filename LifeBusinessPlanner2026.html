@@ -20,7 +20,7 @@
 <script>
 (function() {
   // ── Version ──────────────────────────────────────────────────────────────
-  window.LBP_VERSION = '3.0';
+  window.LBP_VERSION = '3.1';
 
   // ── PWA Install prompt ───────────────────────────────────────────────────
   window._installPrompt = null;
@@ -12730,6 +12730,17 @@ var App = function App() {
     };
     window.addEventListener('lbp_cloud_sync', onCloudSync);
     return function() { window.removeEventListener('lbp_cloud_sync', onCloudSync); };
+  }, []);
+
+  // Auto-pull from cloud every 5 minutes (desktop keeps data fresh without manual refresh)
+  useEffect(function() {
+    var _autoRefreshMs = 5 * 60 * 1000; // 5 minutes
+    var _iv = setInterval(function() {
+      if (window._cloudPull && localStorage.getItem('lbp_worker_url')) {
+        window._cloudPull(null, false);
+      }
+    }, _autoRefreshMs);
+    return function() { clearInterval(_iv); };
   }, []);
 
   var fireAlarmOnce = useCallback(function (title, body, current, total, intervalMin, sound, vibration) {
