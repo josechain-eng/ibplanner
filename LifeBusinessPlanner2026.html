@@ -20,7 +20,7 @@
 <script>
 (function() {
   // ── Version ──────────────────────────────────────────────────────────────
-  window.LBP_VERSION = '3.3';
+  window.LBP_VERSION = '3.4';
 
   // ── PWA Install prompt ───────────────────────────────────────────────────
   window._installPrompt = null;
@@ -7645,8 +7645,9 @@ var DocumentsScreen = function DocumentsScreen(_ref46) {
     setNewCat('');
   };
   var delCat = function(c) {
-    if (DEFAULT_DOC_CATS.includes(c)) return; // protect defaults
     var next = cats.filter(function(x) { return x !== c; });
+    // If deleting a default cat, persist the full list minus this one
+    if (next.length === 0) next = [];
     setData(function(d) { return Object.assign({}, d, { docCategories: next }); });
     if (catFilter === c) setCatFilter('All');
   };
@@ -7666,7 +7667,7 @@ var DocumentsScreen = function DocumentsScreen(_ref46) {
           cats.map(function(c) {
             return /*#__PURE__*/React.createElement("div", {key:c, style:{display:'flex',alignItems:'center',gap:4,background:catColor(c)+'22',border:'1px solid '+catColor(c)+'55',borderRadius:20,padding:'3px 8px 3px 10px',fontSize:12}},
               /*#__PURE__*/React.createElement("span", {style:{color:catColor(c),fontWeight:600}}, c),
-              !DEFAULT_DOC_CATS.includes(c) && /*#__PURE__*/React.createElement("button", {
+              /*#__PURE__*/React.createElement("button", {
                 onClick:function(){delCat(c);},
                 style:{background:'none',border:'none',color:'var(--text-dim)',cursor:'pointer',fontSize:13,padding:'0 2px',lineHeight:1}
               }, "\xD7")
