@@ -20,7 +20,7 @@
 <script>
 (function() {
   // ── Version ──────────────────────────────────────────────────────────────
-  window.LBP_VERSION = '3.6';
+  window.LBP_VERSION = '3.7';
 
   // ── PWA Install prompt ───────────────────────────────────────────────────
   window._installPrompt = null;
@@ -2420,9 +2420,11 @@ var HomeScreen = function HomeScreen(_ref14) {
       marginBottom: 16,
       fontStyle: 'italic'
     }
-  }, "\u2705 No active tasks \u2014 great job!") : (showAllPriorities ? priorityTasks : priorityTasks.slice(0, 5)).map(function (t) {
+  }, "\u2705 No active tasks \u2014 great job!") : priorityTasks.map(function (t) {
     var _t$alarm;
     var isDueToday = t.dueDate === todayStr;
+    var _prioColor = t.priority === 'URGENT' ? '#F44336' : t.priority === 'HIGH' ? '#FF5722' : t.priority === 'MEDIUM' ? '#FF9800' : '#607D8B';
+    var _prioLabel = t.priority === 'URGENT' ? 'Urgent' : t.priority === 'HIGH' ? 'High' : t.priority === 'MEDIUM' ? 'Medium' : t.priority === 'LOW' ? 'Low' : null;
     if (showAllPriorities) {
       // Compact row
       return /*#__PURE__*/React.createElement("div", {
@@ -2442,11 +2444,9 @@ var HomeScreen = function HomeScreen(_ref14) {
           style:{display:'flex',alignItems:'center',justifyContent:'center',flexShrink:0}
         }, t.status === 'DONE' && /*#__PURE__*/React.createElement(Icon, {name:"check",size:10})),
         /*#__PURE__*/React.createElement("div", {style:{flex:1,fontSize:12,fontWeight:600,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}, t.title),
-        isDueToday && /*#__PURE__*/React.createElement("span", {style:{fontSize:10,color:'var(--purple-light)',fontWeight:700,flexShrink:0}}, "TODAY"),
-        t.dueDate && !isDueToday && /*#__PURE__*/React.createElement("span", {style:{fontSize:10,color:'var(--text-dim)',flexShrink:0}}, t.dueDate),
-        t.priority === 'URGENT' && /*#__PURE__*/React.createElement(Chip, {label:"Urgent",color:"#F44336"}),
-        t.priority === 'HIGH' && /*#__PURE__*/React.createElement(Chip, {label:"High",color:"#FF5722"}),
-        ((_t$alarm = t.alarm) === null || _t$alarm === void 0 ? void 0 : _t$alarm.enabled) && /*#__PURE__*/React.createElement("span", {style:{fontSize:12},title:"Alarm set"}, "\uD83D\uDD14")
+        _prioLabel && /*#__PURE__*/React.createElement(Chip, {label:_prioLabel, color:_prioColor}),
+        ((_t$alarm = t.alarm) === null || _t$alarm === void 0 ? void 0 : _t$alarm.enabled) && /*#__PURE__*/React.createElement("span", {style:{fontSize:12,flexShrink:0},title:"Alarm set"}, "\uD83D\uDD14"),
+        t.dueDate && /*#__PURE__*/React.createElement("span", {style:{fontSize:10,color: isDueToday ? 'var(--purple-light)' : 'var(--text-dim)',fontWeight: isDueToday ? 700 : 400,flexShrink:0}}, isDueToday ? "Today" : t.dueDate)
       );
     }
     // Normal card row
@@ -2476,13 +2476,11 @@ var HomeScreen = function HomeScreen(_ref14) {
     }, t.status === 'DONE' && /*#__PURE__*/React.createElement(Icon, {name: "check", size: 12})),
     /*#__PURE__*/React.createElement("div", {style: {flex: 1}},
       /*#__PURE__*/React.createElement("div", {style: {fontSize: 13, fontWeight: 600}}, t.title),
-      t.dueDate && /*#__PURE__*/React.createElement("div", {style: {fontSize: 11, color: isDueToday ? 'var(--purple-light)' : 'var(--text-dim)'}},
-        isDueToday ? "\uD83D\uDCC5 Due today" : t.dueDate
-      )
+      isDueToday && /*#__PURE__*/React.createElement("div", {style: {fontSize: 11, color: 'var(--purple-light)', fontWeight: 600}}, "\uD83D\uDCC5 Due today")
     ),
-    t.priority === 'HIGH' && /*#__PURE__*/React.createElement(Chip, {label: "\uD83D\uDEA9 High", color: "#FF5722"}),
-    t.priority === 'URGENT' && /*#__PURE__*/React.createElement(Chip, {label: "\uD83D\uDEA8 Urgent", color: "#F44336"}),
-    ((_t$alarm = t.alarm) === null || _t$alarm === void 0 ? void 0 : _t$alarm.enabled) && /*#__PURE__*/React.createElement("span", {style: {fontSize: 14}, title: "Alarm set"}, "\uD83D\uDD14"));
+    _prioLabel && /*#__PURE__*/React.createElement(Chip, {label: _prioLabel, color: _prioColor}),
+    ((_t$alarm = t.alarm) === null || _t$alarm === void 0 ? void 0 : _t$alarm.enabled) && /*#__PURE__*/React.createElement("span", {style: {fontSize: 14}, title: "Alarm set"}, "\uD83D\uDD14"),
+    t.dueDate && !isDueToday && /*#__PURE__*/React.createElement("span", {style:{fontSize:11,color:'var(--text-dim)',flexShrink:0}}, t.dueDate));
   }), /*#__PURE__*/React.createElement("div", {
     className: "section-title mt-8"
   }, "Active Project Board \uD83D\uDCCB", /*#__PURE__*/React.createElement("button", {
