@@ -20,7 +20,7 @@
 <script>
 (function() {
   // ── Version ──────────────────────────────────────────────────────────────
-  window.LBP_VERSION = '3.1';
+  window.LBP_VERSION = '3.2';
 
   // ── PWA Install prompt ───────────────────────────────────────────────────
   window._installPrompt = null;
@@ -497,8 +497,10 @@
   .checklist-item label { flex:1!important; min-width:0!important; white-space:normal!important; overflow-wrap:break-word!important; word-break:break-word!important; cursor:text; line-height:1.6; }
   /* Native-list checklist: works exactly like bullets (Enter = new checkbox, cursor beside box) */
   .rte-body .rte-checklist, .rte-render .rte-checklist { list-style:none!important; padding-left:4px!important; margin:4px 0; }
-  .rte-body .rte-checklist li, .rte-render .rte-checklist li { display:flex!important; align-items:flex-start!important; gap:0!important; margin:2px 0; white-space:normal!important; min-width:0!important; padding:1px 0; }
-  .rte-body .rte-checklist li input[type=checkbox], .rte-render .rte-checklist li input[type=checkbox] { flex-shrink:0!important; margin-top:3px!important; margin-right:6px!important; accent-color:var(--purple-light); cursor:pointer; width:14px!important; height:14px!important; }
+  .rte-body .rte-checklist li, .rte-render .rte-checklist li { display:-webkit-box!important; display:-webkit-flex!important; display:flex!important; -webkit-box-align:start!important; -webkit-align-items:flex-start!important; align-items:flex-start!important; gap:0!important; margin:2px 0; white-space:normal!important; min-width:0!important; padding:1px 0; -webkit-box-sizing:border-box; box-sizing:border-box; width:100%; }
+  .rte-body .rte-checklist li input[type=checkbox], .rte-render .rte-checklist li input[type=checkbox] { -webkit-flex-shrink:0!important; flex-shrink:0!important; margin-top:3px!important; margin-right:6px!important; accent-color:var(--purple-light); cursor:pointer; width:14px!important; height:14px!important; display:inline-block!important; vertical-align:top; }
+  /* Ensure text node after checkbox fills remaining width and wraps correctly on mobile */
+  .rte-body .rte-checklist li > *:not(input), .rte-render .rte-checklist li > *:not(input) { -webkit-flex:1!important; flex:1!important; min-width:0!important; overflow-wrap:break-word!important; word-break:break-word!important; }
 
   /* ═══════════════ ALARM PANEL ═══════════════ */
   .alarm-section { margin-bottom: 12px; }
@@ -857,7 +859,7 @@ var RichTextEditor = function RichTextEditor(_ref6) {
     var cb = document.createElement('input');
     cb.type = 'checkbox';
     cb.setAttribute('contenteditable','false');
-    cb.style.cssText = 'flex-shrink:0;margin-top:3px;margin-right:6px;width:14px;height:14px;accent-color:#9C68D6;cursor:pointer;vertical-align:middle;';
+    cb.style.cssText = 'flex-shrink:0;-webkit-flex-shrink:0;margin-top:3px;margin-right:6px;width:14px;height:14px;accent-color:#9C68D6;cursor:pointer;display:inline-block;vertical-align:top;';
     li.insertBefore(cb, li.firstChild);
     // Remove <br> nodes the browser inserts into empty <li> elements
     Array.from(li.querySelectorAll('br')).forEach(function(br){ br.parentNode.removeChild(br); });
@@ -1076,13 +1078,38 @@ var RichTextEditor = function RichTextEditor(_ref6) {
     style: {
       minHeight: minHeight
     },
-    onInput: handleInput,
+    onInput: function onInput(e) {
+      // Mobile keyboards fire 'insertParagraph' for Enter instead of keydown key='Enter'
+      if (e.nativeEvent && e.nativeEvent.inputType === 'insertParagraph' && _inClNow()) {
+        setTimeout(function() {
+          if (!ref.current) return;
+          Array.from(ref.current.querySelectorAll('.rte-checklist li')).forEach(_addCbToLi);
+          handleInput(); tick();
+        }, 0);
+        return;
+      }
+      // Mobile: also catch insertUnorderedList (some Android keyboards)
+      if (e.nativeEvent && e.nativeEvent.inputType === 'insertUnorderedList') {
+        setTimeout(function() {
+          if (!ref.current) return;
+          var _uls2 = ref.current.querySelectorAll('ul:not(.rte-checklist)');
+          if (_uls2.length) {
+            var _ul2 = _uls2[_uls2.length - 1];
+            _ul2.classList.add('rte-checklist');
+            Array.from(_ul2.querySelectorAll('li')).forEach(_addCbToLi);
+          }
+          handleInput(); tick();
+        }, 0);
+        return;
+      }
+      handleInput();
+    },
     onKeyDown: function onKeyDown(e) {
       if (e.key === 'Tab') {
         e.preventDefault();
         exec(e.shiftKey ? 'outdent' : 'indent');
       }
-      // Auto-add checkbox to new <li> created by Enter in a checklist
+      // Auto-add checkbox to new <li> created by Enter in a checklist (desktop)
       if (e.key === 'Enter') {
         var _s2 = window.getSelection(), _n2 = _s2 && _s2.anchorNode, _inCl = false;
         while (_n2 && _n2 !== ref.current) {
