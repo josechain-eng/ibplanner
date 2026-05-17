@@ -22,7 +22,7 @@
 <script>
 (function() {
   // ── Version ──────────────────────────────────────────────────────────────
-  window.LBP_VERSION = '4.5';
+  window.LBP_VERSION = '4.6';
 
   // ── PWA Install prompt ───────────────────────────────────────────────────
   window._installPrompt = null;
@@ -76,10 +76,7 @@
         cbs.forEach(function(cb) { try { cb(window._gcalToken); } catch(e){} });
       }
     });
-    // Auto-reconnect silently if previously connected
-    if (localStorage.getItem('lbp_gcal_connected') === '1') {
-      try { window._gcalTokenClient.requestAccessToken({ prompt: '' }); } catch(e){}
-    }
+    // Token is fetched lazily via _gcalEnsureToken when actually needed (no startup popup)
   };
 
   window._gcalConnect = function() {
