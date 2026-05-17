@@ -22,7 +22,7 @@
 <script>
 (function() {
   // ── Version ──────────────────────────────────────────────────────────────
-  window.LBP_VERSION = '4.0';
+  window.LBP_VERSION = '4.2';
 
   // ── PWA Install prompt ───────────────────────────────────────────────────
   window._installPrompt = null;
@@ -1681,7 +1681,48 @@ var DrawingCanvas = function DrawingCanvas(_ref1) {
 // ═══════════════════════════════════════════════════════
 // MEDIA ATTACHMENTS
 // ═══════════════════════════════════════════════════════
-var MAX_FILE_SIZE = 5 * 1024 * 1024; // 5 MB
+// ── IndexedDB file store (no localStorage size limit) ──
+var _lbpIDB = (function() {
+  var _db = null;
+  var _ready = new Promise(function(resolve, reject) {
+    var req = indexedDB.open('lbp_files_v1', 1);
+    req.onupgradeneeded = function(e) { e.target.result.createObjectStore('files'); };
+    req.onsuccess = function(e) { _db = e.target.result; resolve(_db); };
+    req.onerror = function() { reject(); };
+  });
+  return {
+    get: function(id) {
+      return _ready.then(function(db) {
+        return new Promise(function(res) {
+          var req = db.transaction('files','readonly').objectStore('files').get(id);
+          req.onsuccess = function() { res(req.result || null); };
+          req.onerror = function() { res(null); };
+        });
+      }).catch(function() { return null; });
+    },
+    put: function(id, data) {
+      return _ready.then(function(db) {
+        return new Promise(function(res) {
+          var tx = db.transaction('files','readwrite');
+          tx.objectStore('files').put(data, id);
+          tx.oncomplete = res; tx.onerror = res;
+        });
+      }).catch(function(){});
+    },
+    del: function(id) {
+      return _ready.then(function(db) {
+        return new Promise(function(res) {
+          var tx = db.transaction('files','readwrite');
+          tx.objectStore('files').delete(id);
+          tx.oncomplete = res; tx.onerror = res;
+        });
+      }).catch(function(){});
+    }
+  };
+})();
+window._lbpIDB = _lbpIDB;
+
+var MAX_FILE_SIZE = 50 * 1024 * 1024; // 50 MB (stored in IndexedDB, not localStorage)
 
 var MediaAttachments = function MediaAttachments(_ref10) {
   var _ref10$attachments = _ref10.attachments,
@@ -1707,23 +1748,51 @@ var MediaAttachments = function MediaAttachments(_ref10) {
     _useState18 = _slicedToArray(_useState17, 2),
     recording = _useState18[0],
     setRecording = _useState18[1];
+  // fileData: { [id]: base64DataUrl } — loaded from IndexedDB
+  var _useState19 = useState({}),
+    _useState20 = _slicedToArray(_useState19, 2),
+    fileData = _useState20[0],
+    setFileData = _useState20[1];
   var chunksRef = useRef([]);
+
+  // Load file data from IDB whenever attachment list changes
+  useEffect(function() {
+    if (!attachments.length) return;
+    var cancelled = false;
+    Promise.all(attachments.map(function(a) {
+      // Backward compat: if data is already inline (old format), use it directly
+      if (a.data) return Promise.resolve([a.id, a.data]);
+      return _lbpIDB.get(a.id).then(function(d) { return [a.id, d]; });
+    })).then(function(pairs) {
+      if (cancelled) return;
+      var map = {};
+      pairs.forEach(function(p) { if (p[1]) map[p[0]] = p[1]; });
+      setFileData(map);
+    });
+    return function() { cancelled = true; };
+  }, [attachments]);
+
+  // Helper: get resolved data for an attachment
+  var getData = function(a) { return fileData[a.id] || a.data || null; };
+
   var readFile = function readFile(file) {
-    return new Promise(function (resolve, reject) {
+    return new Promise(function(resolve, reject) {
       if (file.size > MAX_FILE_SIZE) {
-        alert("File \"".concat(file.name, "\" is too large (max 5 MB). Please use a smaller file."));
+        alert('File "' + file.name + '" is too large (max 50 MB).');
         return reject();
       }
       var reader = new FileReader();
-      reader.onload = function (e) {
-        return resolve({
-          id: uid(),
+      reader.onload = function(e) {
+        var id = uid();
+        var att = {
+          id: id,
           name: file.name,
           size: file.size,
           type: file.type.startsWith('image') ? 'image' : file.type.startsWith('audio') ? 'audio' : file.type.startsWith('video') ? 'video' : 'file',
-          mimeType: file.type,
-          data: e.target.result
-        });
+          mimeType: file.type
+          // no 'data' field — stored in IDB
+        };
+        _lbpIDB.put(id, e.target.result).then(function() { resolve(att); });
       };
       reader.onerror = reject;
       reader.readAsDataURL(file);
@@ -1772,9 +1841,8 @@ var MediaAttachments = function MediaAttachments(_ref10) {
     };
   }();
   var removeItem = function removeItem(id) {
-    return onChange(attachments.filter(function (a) {
-      return a.id !== id;
-    }));
+    _lbpIDB.del(id);
+    onChange(attachments.filter(function(a) { return a.id !== id; }));
   };
   var startRecording = /*#__PURE__*/function () {
     var _ref12 = _asyncToGenerator(/*#__PURE__*/_regenerator().m(function _callee2() {
@@ -1784,35 +1852,24 @@ var MediaAttachments = function MediaAttachments(_ref10) {
           case 0:
             _context2.p = 0;
             _context2.n = 1;
-            return navigator.mediaDevices.getUserMedia({
-              audio: true
-            });
+            return navigator.mediaDevices.getUserMedia({ audio: true });
           case 1:
             stream = _context2.v;
             mr = new MediaRecorder(stream);
             chunksRef.current = [];
-            mr.ondataavailable = function (e) {
-              return chunksRef.current.push(e.data);
-            };
-            mr.onstop = function () {
-              var blob = new Blob(chunksRef.current, {
-                type: 'audio/webm'
-              });
+            mr.ondataavailable = function(e) { return chunksRef.current.push(e.data); };
+            mr.onstop = function() {
+              var blob = new Blob(chunksRef.current, { type: 'audio/webm' });
               var reader = new FileReader();
-              reader.onload = function (ev) {
-                onChange([].concat(_toConsumableArray(attachments), [{
-                  id: uid(),
-                  name: "recording_".concat(new Date().toISOString().slice(0, 19), ".webm"),
-                  type: 'audio',
-                  mimeType: 'audio/webm',
-                  data: ev.target.result,
-                  size: blob.size
-                }]));
+              reader.onload = function(ev) {
+                var id = uid();
+                var att = { id: id, name: 'recording_' + new Date().toISOString().slice(0,19) + '.webm', type: 'audio', mimeType: 'audio/webm', size: blob.size };
+                _lbpIDB.put(id, ev.target.result).then(function() {
+                  onChange([].concat(_toConsumableArray(attachments), [att]));
+                });
               };
               reader.readAsDataURL(blob);
-              stream.getTracks().forEach(function (t) {
-                return t.stop();
-              });
+              stream.getTracks().forEach(function(t) { return t.stop(); });
             };
             mr.start();
             setMediaRecorder(mr);
@@ -1840,220 +1897,139 @@ var MediaAttachments = function MediaAttachments(_ref10) {
     }
   };
   var saveDrawing = function saveDrawing(dataUrl) {
-    onChange([].concat(_toConsumableArray(attachments), [{
-      id: uid(),
-      name: "handwriting_".concat(Date.now(), ".png"),
-      type: 'image',
-      mimeType: 'image/png',
-      data: dataUrl,
-      size: 0
-    }]));
+    var id = uid();
+    var att = { id: id, name: 'handwriting_' + Date.now() + '.png', type: 'image', mimeType: 'image/png', size: 0 };
+    _lbpIDB.put(id, dataUrl).then(function() {
+      onChange([].concat(_toConsumableArray(attachments), [att]));
+    });
   };
   var typeIcon = function typeIcon(t) {
-    return t === 'image' ? '🖼' : t === 'audio' ? '🎵' : t === 'video' ? '🎬' : '📎';
+    return t === 'image' ? '🖼' : t === 'audio' ? '🎵' : t === 'video' ? '🎥' : '📎';
   };
   return /*#__PURE__*/React.createElement(React.Fragment, null, /*#__PURE__*/React.createElement("div", {
     className: "attach-section"
   }, /*#__PURE__*/React.createElement("div", {
-    style: {
-      fontSize: 12,
-      color: 'var(--text-dim)',
-      fontWeight: 500,
-      marginBottom: 6
-    }
-  }, "\uD83D\uDCCE Attachments"), /*#__PURE__*/React.createElement("div", {
+    style: { fontSize: 12, color: 'var(--text-dim)', fontWeight: 500, marginBottom: 6 }
+  }, "📎 Attachments"), /*#__PURE__*/React.createElement("div", {
     className: "attach-bar"
   }, /*#__PURE__*/React.createElement("button", {
-    type: "button",
-    className: "attach-btn",
-    onClick: function onClick() {
-      return imgRef.current.click();
-    }
-  }, "\uD83D\uDDBC Image"), /*#__PURE__*/React.createElement("input", {
-    ref: imgRef,
-    type: "file",
-    accept: "image/*",
-    multiple: true,
-    style: {
-      display: 'none'
-    },
-    onChange: function onChange(e) {
-      return handleFiles(e, 'image');
-    }
+    type: "button", className: "attach-btn", onClick: function onClick() { return imgRef.current.click(); }
+  }, "🖼 Image"), /*#__PURE__*/React.createElement("input", {
+    ref: imgRef, type: "file", accept: "image/*", multiple: true, style: { display: 'none' },
+    onChange: function onChange(e) { return handleFiles(e, 'image'); }
   }), /*#__PURE__*/React.createElement("button", {
-    type: "button",
-    className: "attach-btn",
-    onClick: function onClick() {
-      return videoRef.current.click();
-    }
-  }, "\uD83C\uDFAC Video"), /*#__PURE__*/React.createElement("input", {
-    ref: videoRef,
-    type: "file",
-    accept: "video/*",
-    style: {
-      display: 'none'
-    },
-    onChange: function onChange(e) {
-      return handleFiles(e, 'video');
-    }
+    type: "button", className: "attach-btn", onClick: function onClick() { return videoRef.current.click(); }
+  }, "🎬 Video"), /*#__PURE__*/React.createElement("input", {
+    ref: videoRef, type: "file", accept: "video/*", style: { display: 'none' },
+    onChange: function onChange(e) { return handleFiles(e, 'video'); }
   }), !recording ? /*#__PURE__*/React.createElement("button", {
-    type: "button",
-    className: "attach-btn",
-    onClick: startRecording
-  }, "\uD83C\uDF99 Record Audio") : /*#__PURE__*/React.createElement("button", {
-    type: "button",
-    className: "attach-btn",
-    style: {
-      color: 'var(--red)',
-      borderColor: 'var(--red)'
-    },
-    onClick: stopRecording
-  }, "\u23F9 Stop Recording"), /*#__PURE__*/React.createElement("button", {
-    type: "button",
-    className: "attach-btn",
-    onClick: function onClick() {
-      return audioRef.current.click();
-    }
-  }, "\uD83C\uDFB5 Audio File"), /*#__PURE__*/React.createElement("input", {
-    ref: audioRef,
-    type: "file",
-    accept: "audio/*",
-    style: {
-      display: 'none'
-    },
-    onChange: function onChange(e) {
-      return handleFiles(e, 'audio');
-    }
+    type: "button", className: "attach-btn", onClick: startRecording
+  }, "🎙 Record Audio") : /*#__PURE__*/React.createElement("button", {
+    type: "button", className: "attach-btn", style: { color: 'var(--red)', borderColor: 'var(--red)' }, onClick: stopRecording
+  }, "⏹ Stop Recording"), /*#__PURE__*/React.createElement("button", {
+    type: "button", className: "attach-btn", onClick: function onClick() { return audioRef.current.click(); }
+  }, "🎵 Audio File"), /*#__PURE__*/React.createElement("input", {
+    ref: audioRef, type: "file", accept: "audio/*", style: { display: 'none' },
+    onChange: function onChange(e) { return handleFiles(e, 'audio'); }
   }), /*#__PURE__*/React.createElement("button", {
-    type: "button",
-    className: "attach-btn",
-    onClick: function onClick() {
-      return setShowDraw(true);
-    }
-  }, "\u270F\uFE0F Handwrite"), /*#__PURE__*/React.createElement("button", {
-    type: "button",
-    className: "attach-btn",
-    onClick: function onClick() {
-      return fileRef.current.click();
-    }
-  }, "\uD83D\uDCCE Other File"), /*#__PURE__*/React.createElement("input", {
-    ref: fileRef,
-    type: "file",
-    multiple: true,
-    style: {
-      display: 'none'
-    },
-    onChange: function onChange(e) {
-      return handleFiles(e, 'file');
-    }
+    type: "button", className: "attach-btn", onClick: function onClick() { return setShowDraw(true); }
+  }, "✏️ Handwrite"), /*#__PURE__*/React.createElement("button", {
+    type: "button", className: "attach-btn", onClick: function onClick() { return fileRef.current.click(); }
+  }, "📎 Other File"), /*#__PURE__*/React.createElement("input", {
+    ref: fileRef, type: "file", multiple: true, style: { display: 'none' },
+    onChange: function onChange(e) { return handleFiles(e, 'file'); }
   })), recording && /*#__PURE__*/React.createElement("div", {
-    style: {
-      display: 'flex',
-      alignItems: 'center',
-      gap: 8,
-      padding: '8px 12px',
-      background: 'rgba(244,67,54,.1)',
-      border: '1px solid rgba(244,67,54,.3)',
-      borderRadius: 8,
-      marginBottom: 8
-    }
+    style: { display: 'flex', alignItems: 'center', gap: 8, padding: '8px 12px', background: 'rgba(244,67,54,.1)', border: '1px solid rgba(244,67,54,.3)', borderRadius: 8, marginBottom: 8 }
   }, /*#__PURE__*/React.createElement("span", {
-    style: {
-      color: 'var(--red)',
-      fontSize: 12
-    }
-  }, "\u25CF Recording\u2026"), /*#__PURE__*/React.createElement("button", {
-    className: "btn btn-danger btn-sm",
-    onClick: stopRecording
+    style: { color: 'var(--red)', fontSize: 12 }
+  }, "● Recording…"), /*#__PURE__*/React.createElement("button", {
+    className: "btn btn-danger btn-sm", onClick: stopRecording
   }, "Stop")), attachments.length > 0 && /*#__PURE__*/React.createElement("div", {
     className: "media-grid"
-  }, attachments.map(function (a) {
+  }, attachments.map(function(a) {
+    var src = getData(a);
     return /*#__PURE__*/React.createElement("div", {
-      key: a.id,
-      className: "media-thumb"
-    }, a.type === 'image' ? /*#__PURE__*/React.createElement("img", {
-      src: a.data,
-      alt: a.name,
-      onClick: function onClick() {
-        return setViewItem(a);
-      },
-      style: {
-        cursor: 'pointer'
-      }
+      key: a.id, className: "media-thumb",
+      onClick: function() { setViewItem(Object.assign({}, a, { _src: src })); },
+      style: { cursor: 'pointer' }
+    }, a.type === 'image' && src ? /*#__PURE__*/React.createElement("img", {
+      src: src, alt: a.name, style: { pointerEvents: 'none' }
     }) : /*#__PURE__*/React.createElement(React.Fragment, null, /*#__PURE__*/React.createElement("div", {
       className: "m-icon"
     }, typeIcon(a.type)), /*#__PURE__*/React.createElement("div", {
       className: "m-name"
     }, a.name)), /*#__PURE__*/React.createElement("button", {
       className: "m-del",
-      onClick: function onClick() {
-        return removeItem(a.id);
-      }
+      onClick: function(e) { e.stopPropagation(); return removeItem(a.id); }
     }, "\xD7"));
-  })), attachments.filter(function (a) {
-    return a.type === 'audio';
-  }).map(function (a) {
-    return /*#__PURE__*/React.createElement("div", {
-      key: a.id + '_a',
-      style: {
-        marginTop: 8
-      }
+  })), attachments.filter(function(a) { return a.type === 'audio'; }).map(function(a) {
+    var src = getData(a);
+    return src ? /*#__PURE__*/React.createElement("div", {
+      key: a.id + '_a', style: { marginTop: 8 }
     }, /*#__PURE__*/React.createElement("div", {
-      style: {
-        fontSize: 11,
-        color: 'var(--text-dim)',
-        marginBottom: 3
-      }
-    }, "\uD83C\uDFB5 ", a.name), /*#__PURE__*/React.createElement("audio", {
-      controls: true,
-      src: a.data
-    }));
-  }), attachments.filter(function (a) {
-    return a.type === 'video';
-  }).map(function (a) {
-    return /*#__PURE__*/React.createElement("div", {
-      key: a.id + '_v',
-      style: {
-        marginTop: 8
-      }
-    }, /*#__PURE__*/React.createElement("video", {
-      controls: true,
-      src: a.data
-    }));
+      style: { fontSize: 11, color: 'var(--text-dim)', marginBottom: 3 }
+    }, "🎵 ", a.name), /*#__PURE__*/React.createElement("audio", { controls: true, src: src })) : null;
+  }), attachments.filter(function(a) { return a.type === 'video'; }).map(function(a) {
+    var src = getData(a);
+    return src ? /*#__PURE__*/React.createElement("div", {
+      key: a.id + '_v', style: { marginTop: 8 }
+    }, /*#__PURE__*/React.createElement("video", { controls: true, src: src, style: { width: '100%', borderRadius: 8 } })) : null;
   })), showDraw && /*#__PURE__*/React.createElement(DrawingCanvas, {
-    onSave: saveDrawing,
-    onClose: function onClose() {
-      return setShowDraw(false);
-    }
+    onSave: saveDrawing, onClose: function onClose() { return setShowDraw(false); }
   }), viewItem && /*#__PURE__*/React.createElement("div", {
     className: "modal-bg",
-    onClick: function onClick() {
-      return setViewItem(null);
-    }
+    onClick: function(e) { if (e.target === e.currentTarget) setViewItem(null); }
   }, /*#__PURE__*/React.createElement("div", {
-    style: {
-      maxWidth: '90vw',
-      maxHeight: '90vh',
-      display: 'flex',
-      flexDirection: 'column',
-      alignItems: 'center',
-      gap: 12
-    }
-  }, /*#__PURE__*/React.createElement("img", {
-    src: viewItem.data,
-    alt: viewItem.name,
-    style: {
-      maxWidth: '85vw',
-      maxHeight: '80vh',
-      borderRadius: 12,
-      objectFit: 'contain'
-    }
-  }), /*#__PURE__*/React.createElement("button", {
-    className: "btn btn-secondary",
-    onClick: function onClick() {
-      return setViewItem(null);
-    }
-  }, "Close"))));
+    style: { background:'var(--surface)', borderRadius:16, padding:20, maxWidth:360, width:'92vw', display:'flex', flexDirection:'column', gap:12, maxHeight:'90vh', overflowY:'auto' },
+    onClick: function(e) { e.stopPropagation(); }
+  },
+    viewItem.type === 'image' && viewItem._src && /*#__PURE__*/React.createElement("img", {
+      src: viewItem._src, alt: viewItem.name,
+      style: { width:'100%', maxHeight:260, objectFit:'contain', borderRadius:10 }
+    }),
+    viewItem.type === 'audio' && viewItem._src && /*#__PURE__*/React.createElement("audio", { controls:true, src:viewItem._src, style:{width:'100%'} }),
+    viewItem.type === 'video' && viewItem._src && /*#__PURE__*/React.createElement("video", { controls:true, src:viewItem._src, style:{width:'100%', maxHeight:220, borderRadius:8} }),
+    (viewItem.type === 'file' || !viewItem._src) && /*#__PURE__*/React.createElement("div", { style:{textAlign:'center', fontSize:52, padding:'12px 0'} }, typeIcon(viewItem.type)),
+    /*#__PURE__*/React.createElement("div", { style:{fontSize:13, fontWeight:600, wordBreak:'break-all', textAlign:'center', color:'var(--text)'} }, viewItem.name),
+    viewItem._src ? /*#__PURE__*/React.createElement("div", { style:{display:'flex', gap:8, flexWrap:'wrap', justifyContent:'center'} },
+      /*#__PURE__*/React.createElement("button", {
+        className: "btn btn-secondary btn-sm",
+        onClick: function() { window.open(viewItem._src, '_blank'); }
+      }, "🔗 Open"),
+      /*#__PURE__*/React.createElement("button", {
+        className: "btn btn-secondary btn-sm",
+        onClick: function() {
+          var a = document.createElement('a');
+          a.href = viewItem._src; a.download = viewItem.name || 'file';
+          document.body.appendChild(a); a.click(); document.body.removeChild(a);
+        }
+      }, "⬇️ Download"),
+      typeof navigator.share === 'function' && /*#__PURE__*/React.createElement("button", {
+        className: "btn btn-primary btn-sm",
+        onClick: function() {
+          try {
+            var arr = viewItem._src.split(',');
+            var mime = ((arr[0].match(/:(.*?);/) || [])[1]) || 'application/octet-stream';
+            var bstr = atob(arr[1]); var n = bstr.length; var u8 = new Uint8Array(n);
+            while (n--) u8[n] = bstr.charCodeAt(n);
+            var file = new File([u8], viewItem.name || 'file', { type: mime });
+            if (navigator.canShare && navigator.canShare({ files: [file] })) {
+              navigator.share({ files: [file], title: viewItem.name }).catch(function(){});
+            } else {
+              navigator.share({ title: viewItem.name, text: viewItem.name }).catch(function(){});
+            }
+          } catch(e) { window.open(viewItem._src, '_blank'); }
+        }
+      }, "📤 Share"),
+      /*#__PURE__*/React.createElement("button", {
+        className: "btn btn-secondary btn-sm", onClick: function() { setViewItem(null); }
+      }, "✕ Close")
+    ) : /*#__PURE__*/React.createElement("div", { style:{display:'flex', gap:8, justifyContent:'center'} },
+      /*#__PURE__*/React.createElement("button", {
+        className: "btn btn-secondary btn-sm", onClick: function() { setViewItem(null); }
+      }, "✕ Close")
+    )
+  )));
 };
 
 // ═══════════════════════════════════════════════════════
