@@ -22,7 +22,7 @@
 <script>
 (function() {
   // ── Version ──────────────────────────────────────────────────────────────
-  window.LBP_VERSION = '4.3';
+  window.LBP_VERSION = '4.4';
 
   // ── PWA Install prompt ───────────────────────────────────────────────────
   window._installPrompt = null;
@@ -2995,6 +2995,15 @@ var GoalsScreen = function GoalsScreen(_ref19) {
     setModal(false);
     setEditItem(null);
   };
+  var _gSwipe = useRef({x:null,y:null,did:false});
+  useEffect(function() {
+    var pe = window._lbpPendingEdit;
+    if (pe && pe.type === 'goals') {
+      window._lbpPendingEdit = null;
+      var _item = (data.goals||[]).find(function(g){ return g.id === pe.id; });
+      if (_item) { setEditItem(_item); setForm(Object.assign({}, _item)); setModal(true); }
+    }
+  }, []);
   var updateProgress = function updateProgress(id, val) {
     return setData(function (d) {
       return _objectSpread(_objectSpread({}, d), {}, {
@@ -3049,7 +3058,16 @@ var GoalsScreen = function GoalsScreen(_ref19) {
     var c = g.status === 'COMPLETED' ? '#4CAF50' : g.status === 'PAUSED' ? '#607D8B' : '#C9A84C';
     return /*#__PURE__*/React.createElement("div", {
       className: "card mb-8",
-      key: g.id
+      key: g.id,
+      onTouchStart: function(e) { _gSwipe.current = {x:e.touches[0].clientX, y:e.touches[0].clientY, did:false}; },
+      onTouchEnd: function(e) {
+        var dx = e.changedTouches[0].clientX - _gSwipe.current.x;
+        var dy = e.changedTouches[0].clientY - _gSwipe.current.y;
+        if (Math.abs(dx) > 60 && Math.abs(dx) > Math.abs(dy) * 1.5) {
+          _gSwipe.current.did = true;
+          if (dx < 0) { setEditItem(g); setForm(Object.assign({}, g)); setModal(true); }
+        }
+      }
     }, /*#__PURE__*/React.createElement("div", {
       className: "row mb-4"
     }, /*#__PURE__*/React.createElement("div", null, /*#__PURE__*/React.createElement("div", {
@@ -3270,6 +3288,9 @@ var ProjectsScreen = function ProjectsScreen(_ref20) {
       if (_item) { setEditItem(_item); setForm(Object.assign({}, _item)); setModal(true); }
     }
   }, []);
+  var _useStatePAI = useState(null), _useStatePAI2 = _slicedToArray(_useStatePAI,2), pAlarmItem = _useStatePAI2[0], setPAlarmItem = _useStatePAI2[1];
+  var _useStatePAF = useState(defaultAlarm()), _useStatePAF2 = _slicedToArray(_useStatePAF,2), pAlarmForm = _useStatePAF2[0], setPAlarmForm = _useStatePAF2[1];
+  var _pSwipe = useRef({x:null,y:null,did:false});
   var _useStateVLT = useState(null),
     _useStateVLT2 = _slicedToArray(_useStateVLT, 2),
     viewLinkedTask = _useStateVLT2[0],
@@ -3489,7 +3510,17 @@ var ProjectsScreen = function ProjectsScreen(_ref20) {
     var c = statusColor(p.status);
     return /*#__PURE__*/React.createElement("div", {
       className: "card mb-8",
-      key: p.id
+      key: p.id,
+      onTouchStart: function(e) { _pSwipe.current = {x:e.touches[0].clientX, y:e.touches[0].clientY, did:false}; },
+      onTouchEnd: function(e) {
+        var dx = e.changedTouches[0].clientX - _pSwipe.current.x;
+        var dy = e.changedTouches[0].clientY - _pSwipe.current.y;
+        if (Math.abs(dx) > 60 && Math.abs(dx) > Math.abs(dy) * 1.5) {
+          _pSwipe.current.did = true;
+          if (dx < 0) { setEditItem(p); setForm(Object.assign({}, p)); setModal(true); }
+          else { setPAlarmItem(p); setPAlarmForm(Object.assign({}, p.alarm || defaultAlarm())); }
+        }
+      }
     }, /*#__PURE__*/React.createElement("div", {
       className: "row mb-8"
     }, /*#__PURE__*/React.createElement("div", null, /*#__PURE__*/React.createElement("div", {
@@ -3752,7 +3783,21 @@ var ProjectsScreen = function ProjectsScreen(_ref20) {
   /*#__PURE__*/React.createElement(MediaAttachments, {attachments:subtaskForm.attachments||[], onChange:function(a){setSubtaskForm(Object.assign({},subtaskForm,{attachments:a}));}}),
   /*#__PURE__*/React.createElement(CategoryTagInput, {category:subtaskForm.category||'', tags:Array.isArray(subtaskForm.tags)?subtaskForm.tags:[], allCategories:(data.categories||['Personal','Work','Home','Health','Finance','Learning','Creative']), onChange:function(c,t){setSubtaskForm(Object.assign({},subtaskForm,{category:c,tags:t}));}, onAddCategory:function(v){setData(function(d){return Object.assign({},d,{categories:(d.categories||[]).concat([v])});});}}),
   /*#__PURE__*/React.createElement(AlarmPanel, {alarm:subtaskForm.alarm, onChange:function(a){setSubtaskForm(Object.assign({},subtaskForm,{alarm:a}));}, label:subtaskForm.title||'Subtask'})
-  ));
+  ),
+  pAlarmItem && /*#__PURE__*/React.createElement(Modal, {
+    title: '\uD83D\uDD14 Edit Alarm — ' + (pAlarmItem.name || pAlarmItem.title || 'Alarm'),
+    onClose: function() { setPAlarmItem(null); },
+    footer: /*#__PURE__*/React.createElement(React.Fragment, null,
+      /*#__PURE__*/React.createElement('button', {className:'btn btn-primary', onClick:function() {
+        setData(function(d) {
+          var _upd = (d.projects||[]).map(function(it) { return it.id === pAlarmItem.id ? Object.assign({},it,{alarm:pAlarmForm}) : it; });
+          return Object.assign({}, d, {projects: _upd});
+        });
+        setPAlarmItem(null);
+      }}, 'Save Alarm'),
+      /*#__PURE__*/React.createElement('button', {className:'btn btn-secondary', onClick:function(){setPAlarmItem(null);}}, 'Cancel')
+    )
+  }, /*#__PURE__*/React.createElement(AlarmPanel, {alarm:pAlarmForm, onChange:setPAlarmForm, label: pAlarmItem.name||pAlarmItem.title||''})));
 };
 
 // ─── TASKS ─────────────────────────────────────────────
@@ -3783,6 +3828,9 @@ var TasksScreen = function TasksScreen(_ref21) {
       if (_item) { setEditItem(_item); setForm(Object.assign({}, _item)); setModal(true); }
     }
   }, []);
+  var _useStateTAI = useState(null), _useStateTAI2 = _slicedToArray(_useStateTAI,2), tAlarmItem = _useStateTAI2[0], setTAlarmItem = _useStateTAI2[1];
+  var _useStateTAF = useState(defaultAlarm()), _useStateTAF2 = _slicedToArray(_useStateTAF,2), tAlarmForm = _useStateTAF2[0], setTAlarmForm = _useStateTAF2[1];
+  var _tSwipe = useRef({x:null,y:null,did:false});
   var _useState39 = useState({
       title: '',
       description: '',
@@ -3953,7 +4001,17 @@ var TasksScreen = function TasksScreen(_ref21) {
       return /*#__PURE__*/React.createElement("div", {
         key: t.id,
         style: {display:"flex",alignItems:"center",gap:8,padding:"7px 10px",background:"var(--surface)",borderRadius:8,marginBottom:4,cursor:"pointer"},
-        onClick: function(e) { setEditItem(t); setForm(Object.assign({}, t)); setModal(true); }
+        onClick: function() { if (_tSwipe.current.did) { _tSwipe.current.did = false; return; } setEditItem(t); setForm(Object.assign({}, t)); setModal(true); },
+        onTouchStart: function(e) { _tSwipe.current = {x:e.touches[0].clientX, y:e.touches[0].clientY, did:false}; },
+        onTouchEnd: function(e) {
+          var dx = e.changedTouches[0].clientX - _tSwipe.current.x;
+          var dy = e.changedTouches[0].clientY - _tSwipe.current.y;
+          if (Math.abs(dx) > 60 && Math.abs(dx) > Math.abs(dy) * 1.5) {
+            _tSwipe.current.did = true;
+            if (dx < 0) { setEditItem(t); setForm(Object.assign({}, t)); setModal(true); }
+            else { setTAlarmItem(t); setTAlarmForm(Object.assign({}, t.alarm || defaultAlarm())); }
+          }
+        }
       },
         /*#__PURE__*/React.createElement("div", {
           className: "task-check " + (t.status === 'DONE' ? 'done' : ''),
@@ -3969,9 +4027,17 @@ var TasksScreen = function TasksScreen(_ref21) {
     return /*#__PURE__*/React.createElement("div", {
       className: "task-item",
       key: t.id,
-      style: {
-        borderRadius: 10,
-        marginBottom: 6
+      style: { borderRadius: 10, marginBottom: 6, cursor:'pointer' },
+      onClick: function() { if (_tSwipe.current.did) { _tSwipe.current.did = false; return; } setEditItem(t); setForm(Object.assign({}, t)); setModal(true); },
+      onTouchStart: function(e) { _tSwipe.current = {x:e.touches[0].clientX, y:e.touches[0].clientY, did:false}; },
+      onTouchEnd: function(e) {
+        var dx = e.changedTouches[0].clientX - _tSwipe.current.x;
+        var dy = e.changedTouches[0].clientY - _tSwipe.current.y;
+        if (Math.abs(dx) > 60 && Math.abs(dx) > Math.abs(dy) * 1.5) {
+          _tSwipe.current.did = true;
+          if (dx < 0) { setEditItem(t); setForm(Object.assign({}, t)); setModal(true); }
+          else { setTAlarmItem(t); setTAlarmForm(Object.assign({}, t.alarm || defaultAlarm())); }
+        }
       }
     }, /*#__PURE__*/React.createElement("div", {
       className: "task-check ".concat(t.status === 'DONE' ? 'done' : ''),
@@ -4151,7 +4217,21 @@ var TasksScreen = function TasksScreen(_ref21) {
       }));
     },
     label: form.title || 'Task'
-  }), editItem && editItem.id && /*#__PURE__*/React.createElement(JournalLinksSection, {data:data,setData:setData,itemType:'task',itemId:editItem.id})));
+  }), editItem && editItem.id && /*#__PURE__*/React.createElement(JournalLinksSection, {data:data,setData:setData,itemType:'task',itemId:editItem.id})),
+  tAlarmItem && /*#__PURE__*/React.createElement(Modal, {
+    title: '\uD83D\uDD14 Edit Alarm — ' + (tAlarmItem.title || 'Alarm'),
+    onClose: function() { setTAlarmItem(null); },
+    footer: /*#__PURE__*/React.createElement(React.Fragment, null,
+      /*#__PURE__*/React.createElement('button', {className:'btn btn-primary', onClick:function() {
+        setData(function(d) {
+          var _upd = (d.tasks||[]).map(function(it) { return it.id === tAlarmItem.id ? Object.assign({},it,{alarm:tAlarmForm}) : it; });
+          return Object.assign({}, d, {tasks: _upd});
+        });
+        setTAlarmItem(null);
+      }}, 'Save Alarm'),
+      /*#__PURE__*/React.createElement('button', {className:'btn btn-secondary', onClick:function(){setTAlarmItem(null);}}, 'Cancel')
+    )
+  }, /*#__PURE__*/React.createElement(AlarmPanel, {alarm:tAlarmForm, onChange:setTAlarmForm, label: tAlarmItem.title||''})));
 };
 
 // ─── CLIENTS ───────────────────────────────────────────
@@ -4909,6 +4989,17 @@ var MeetingsScreen = function MeetingsScreen(_ref26) {
     _useState62 = _slicedToArray(_useState61, 2),
     form = _useState62[0],
     setForm = _useState62[1];
+  var _mSwipe = {x:null,y:null,did:false};
+  var _useStateMAI = useState(null), _useStateMAI2 = _slicedToArray(_useStateMAI,2), mAlarmItem = _useStateMAI2[0], setMAlarmItem = _useStateMAI2[1];
+  var _useStateMAF = useState(defaultAlarm()), _useStateMAF2 = _slicedToArray(_useStateMAF,2), mAlarmForm = _useStateMAF2[0], setMAlarmForm = _useStateMAF2[1];
+  useEffect(function() {
+    var pe = window._lbpPendingEdit;
+    if (pe && pe.type === 'meetings') {
+      window._lbpPendingEdit = null;
+      var _item = (data.meetings||[]).find(function(m){ return m.id === pe.id; });
+      if (_item) { setEditItem(_item); setForm(Object.assign({}, _item)); setModal(true); }
+    }
+  }, []);
   var meetings = _toConsumableArray(data.meetings || []).sort(function (a, b) {
     return a.date.localeCompare(b.date);
   });
@@ -4967,7 +5058,17 @@ var MeetingsScreen = function MeetingsScreen(_ref26) {
   var MeetCard = function MeetCard(_ref27) {
     var m = _ref27.m;
     return /*#__PURE__*/React.createElement("div", {
-      className: "card mb-8"
+      className: "card mb-8",
+      onTouchStart: function(e) { _mSwipe.x = e.touches[0].clientX; _mSwipe.y = e.touches[0].clientY; _mSwipe.did = false; },
+      onTouchEnd: function(e) {
+        var dx = e.changedTouches[0].clientX - _mSwipe.x;
+        var dy = e.changedTouches[0].clientY - _mSwipe.y;
+        if (Math.abs(dx) > 60 && Math.abs(dx) > Math.abs(dy) * 1.5) {
+          _mSwipe.did = true;
+          if (dx < 0) { setEditItem(m); setForm(Object.assign({}, m)); setModal(true); }
+          else { setMAlarmItem(m); setMAlarmForm(Object.assign({}, m.alarm || defaultAlarm())); }
+        }
+      }
     }, /*#__PURE__*/React.createElement("div", {
       className: "row mb-4"
     }, /*#__PURE__*/React.createElement("div", null, /*#__PURE__*/React.createElement("div", {
@@ -5157,7 +5258,21 @@ var MeetingsScreen = function MeetingsScreen(_ref26) {
       }));
     },
     label: form.title || 'Meeting'
-  }), editItem && editItem.id && /*#__PURE__*/React.createElement(JournalLinksSection, {data:data,setData:setData,itemType:'meeting',itemId:editItem.id})));
+  }), editItem && editItem.id && /*#__PURE__*/React.createElement(JournalLinksSection, {data:data,setData:setData,itemType:'meeting',itemId:editItem.id})),
+  mAlarmItem && /*#__PURE__*/React.createElement(Modal, {
+    title: '\uD83D\uDD14 Edit Alarm — ' + (mAlarmItem.title || 'Alarm'),
+    onClose: function() { setMAlarmItem(null); },
+    footer: /*#__PURE__*/React.createElement(React.Fragment, null,
+      /*#__PURE__*/React.createElement('button', {className:'btn btn-primary', onClick:function() {
+        setData(function(d) {
+          var _upd = (d.meetings||[]).map(function(it) { return it.id === mAlarmItem.id ? Object.assign({},it,{alarm:mAlarmForm}) : it; });
+          return Object.assign({}, d, {meetings: _upd});
+        });
+        setMAlarmItem(null);
+      }}, 'Save Alarm'),
+      /*#__PURE__*/React.createElement('button', {className:'btn btn-secondary', onClick:function(){setMAlarmItem(null);}}, 'Cancel')
+    )
+  }, /*#__PURE__*/React.createElement(AlarmPanel, {alarm:mAlarmForm, onChange:setMAlarmForm, label: mAlarmItem.title||''})));
 };
 
 // ─── CONTENT PLANNER ───────────────────────────────────
@@ -5636,6 +5751,9 @@ var JournalScreen = function JournalScreen(_ref31) {
       }
     }
   }, []);
+  var _useStateJAI = useState(null), _useStateJAI2 = _slicedToArray(_useStateJAI,2), jAlarmItem = _useStateJAI2[0], setJAlarmItem = _useStateJAI2[1];
+  var _useStateJAF = useState(defaultAlarm()), _useStateJAF2 = _slicedToArray(_useStateJAF,2), jAlarmForm = _useStateJAF2[0], setJAlarmForm = _useStateJAF2[1];
+  var _jSwipe = useRef({x:null,y:null,did:false});
   var jAllCats = data.categories && data.categories.length ? data.categories : ['Personal','Work','Home','Health','Finance','Learning','Creative'];
   var _jCatColors = {'Personal':'#FF9800','Work':'#2196F3','Home':'#4CAF50','Health':'#F44336','Finance':'#00BCD4','Learning':'#9C27B0','Creative':'#E91E63','Other':'#607D8B'};
   var jCatColor = function(c) { return _jCatColors[c] || '#6B3FA0'; };
@@ -5763,7 +5881,20 @@ var JournalScreen = function JournalScreen(_ref31) {
       return /*#__PURE__*/React.createElement("div", {
         key: e.id,
         style: {display:"flex",alignItems:"center",gap:8,padding:"7px 10px",background:"var(--surface)",borderRadius:8,marginBottom:4,cursor:"pointer"},
-        onClick: function() { setViewEntry(e); }
+        onClick: function() { if (_jSwipe.current.did) { _jSwipe.current.did = false; return; } setViewEntry(e); },
+        onTouchStart: function(ev) { _jSwipe.current = {x:ev.touches[0].clientX, y:ev.touches[0].clientY, did:false}; },
+        onTouchEnd: function(ev) {
+          var dx = ev.changedTouches[0].clientX - _jSwipe.current.x;
+          var dy = ev.changedTouches[0].clientY - _jSwipe.current.y;
+          if (Math.abs(dx) > 60 && Math.abs(dx) > Math.abs(dy) * 1.5) {
+            _jSwipe.current.did = true;
+            if (dx < 0) {
+              setEditEntry(e); setMood(e.mood||'GOOD');
+              setForm({title:e.title||'',content:e.content||'',gratitude:e.gratitude||'',topWins:e.topWins||'',challenges:e.challenges||'',tomorrowFocus:e.tomorrowFocus||'',affirmations:e.affirmations||'',mood:e.mood||'GOOD',attachments:e.attachments||[],category:e.category||'',tags:e.tags||[],alarm:e.alarm||defaultAlarm(),links:e.links||[],entryType:e.entryType||'journal'});
+              setModal(true);
+            } else { setJAlarmItem(e); setJAlarmForm(Object.assign({}, e.alarm || defaultAlarm())); }
+          }
+        }
       },
         /*#__PURE__*/React.createElement("span", {style:{fontSize:16,flexShrink:0}}, _moji),
         /*#__PURE__*/React.createElement("span", {style:{fontSize:11,color:"var(--text-dim)",flexShrink:0,fontWeight:600,minWidth:80}}, e.date),
@@ -5779,11 +5910,20 @@ var JournalScreen = function JournalScreen(_ref31) {
     return /*#__PURE__*/React.createElement("div", {
       className: "card mb-8",
       key: e.id,
-      style: {
-        cursor: 'pointer'
-      },
-      onClick: function onClick() {
-        return setViewEntry(e);
+      style: { cursor: 'pointer' },
+      onClick: function() { if (_jSwipe.current.did) { _jSwipe.current.did = false; return; } setViewEntry(e); },
+      onTouchStart: function(ev) { _jSwipe.current = {x:ev.touches[0].clientX, y:ev.touches[0].clientY, did:false}; },
+      onTouchEnd: function(ev) {
+        var dx = ev.changedTouches[0].clientX - _jSwipe.current.x;
+        var dy = ev.changedTouches[0].clientY - _jSwipe.current.y;
+        if (Math.abs(dx) > 60 && Math.abs(dx) > Math.abs(dy) * 1.5) {
+          _jSwipe.current.did = true;
+          if (dx < 0) {
+            setEditEntry(e); setMood(e.mood||'GOOD');
+            setForm({title:e.title||'',content:e.content||'',gratitude:e.gratitude||'',topWins:e.topWins||'',challenges:e.challenges||'',tomorrowFocus:e.tomorrowFocus||'',affirmations:e.affirmations||'',mood:e.mood||'GOOD',attachments:e.attachments||[],category:e.category||'',tags:e.tags||[],alarm:e.alarm||defaultAlarm(),links:e.links||[],entryType:e.entryType||'journal'});
+            setModal(true);
+          } else { setJAlarmItem(e); setJAlarmForm(Object.assign({}, e.alarm || defaultAlarm())); }
+        }
       }
     }, /*#__PURE__*/React.createElement("div", {
       className: "row mb-8"
@@ -6045,7 +6185,21 @@ var JournalScreen = function JournalScreen(_ref31) {
       }));
     },
     label: "Journal reminder"
-  })));
+  })),
+  jAlarmItem && /*#__PURE__*/React.createElement(Modal, {
+    title: '\uD83D\uDD14 Edit Alarm — ' + (jAlarmItem.title || jAlarmItem.date || 'Alarm'),
+    onClose: function() { setJAlarmItem(null); },
+    footer: /*#__PURE__*/React.createElement(React.Fragment, null,
+      /*#__PURE__*/React.createElement('button', {className:'btn btn-primary', onClick:function() {
+        setData(function(d) {
+          var _upd = (d.journal||[]).map(function(it) { return it.id === jAlarmItem.id ? Object.assign({},it,{alarm:jAlarmForm}) : it; });
+          return Object.assign({}, d, {journal: _upd});
+        });
+        setJAlarmItem(null);
+      }}, 'Save Alarm'),
+      /*#__PURE__*/React.createElement('button', {className:'btn btn-secondary', onClick:function(){setJAlarmItem(null);}}, 'Cancel')
+    )
+  }, /*#__PURE__*/React.createElement(AlarmPanel, {alarm:jAlarmForm, onChange:setJAlarmForm, label: jAlarmItem.title||jAlarmItem.date||''})));
 };
 
 // ─── HABITS ────────────────────────────────────────────
@@ -6076,6 +6230,15 @@ var HabitsScreen = function HabitsScreen(_ref38) {
     _useState84 = _slicedToArray(_useState83, 2),
     viewDate = _useState84[0],
     setViewDate = _useState84[1];
+  var _hSwipe = useRef({x:null,y:null,did:false});
+  useEffect(function() {
+    var pe = window._lbpPendingEdit;
+    if (pe && pe.type === 'habits') {
+      window._lbpPendingEdit = null;
+      var _item = (data.habits||[]).find(function(h){ return h.id === pe.id; });
+      if (_item) { setEditItem(_item); setForm(Object.assign({}, _item)); setModal(true); }
+    }
+  }, []);
   var habits = data.habits || [];
   var entries = data.habitEntries || [];
   var doneIds = entries.filter(function (e) {
@@ -6219,8 +6382,15 @@ var HabitsScreen = function HabitsScreen(_ref38) {
     var done = doneIds.includes(h.id);
     return /*#__PURE__*/React.createElement("div", {
       key: h.id,
-      onClick: function onClick() {
-        return toggle(h.id);
+      onClick: function() { if (_hSwipe.current.did) { _hSwipe.current.did = false; return; } toggle(h.id); },
+      onTouchStart: function(e) { _hSwipe.current = {x:e.touches[0].clientX, y:e.touches[0].clientY, did:false}; },
+      onTouchEnd: function(e) {
+        var dx = e.changedTouches[0].clientX - _hSwipe.current.x;
+        var dy = e.changedTouches[0].clientY - _hSwipe.current.y;
+        if (Math.abs(dx) > 60 && Math.abs(dx) > Math.abs(dy) * 1.5) {
+          _hSwipe.current.did = true;
+          if (dx < 0) { setEditItem(h); setForm(Object.assign({}, h)); setModal(true); }
+        }
       },
       style: {
         display: 'flex',
@@ -6398,6 +6568,8 @@ var BucketListScreen = function BucketListScreen(_ref39) {
     _useState90 = _slicedToArray(_useState89, 2),
     showDone = _useState90[0],
     setShowDone = _useState90[1];
+  var _useStateBLEI = useState(null), _useStateBLEI2 = _slicedToArray(_useStateBLEI,2), editItem = _useStateBLEI2[0], setEditItem = _useStateBLEI2[1];
+  var _blSwipe = useRef({x:null,y:null,did:false});
   var pending = (data.bucketList || []).filter(function (i) {
     return !i.isCompleted;
   });
@@ -6492,10 +6664,15 @@ var BucketListScreen = function BucketListScreen(_ref39) {
     return /*#__PURE__*/React.createElement("div", {
       className: "card mb-8",
       key: item.id,
-      style: {
-        display: 'flex',
-        gap: 10,
-        alignItems: 'flex-start'
+      style: { display: 'flex', gap: 10, alignItems: 'flex-start' },
+      onTouchStart: function(e) { _blSwipe.current = {x:e.touches[0].clientX, y:e.touches[0].clientY, did:false}; },
+      onTouchEnd: function(e) {
+        var dx = e.changedTouches[0].clientX - _blSwipe.current.x;
+        var dy = e.changedTouches[0].clientY - _blSwipe.current.y;
+        if (Math.abs(dx) > 60 && Math.abs(dx) > Math.abs(dy) * 1.5) {
+          _blSwipe.current.did = true;
+          if (dx < 0) { setEditItem(item); setForm(Object.assign({}, item)); setModal(true); }
+        }
       }
     }, /*#__PURE__*/React.createElement("input", {
       type: "checkbox",
@@ -7918,6 +8095,15 @@ var DocumentsScreen = function DocumentsScreen(_ref46) {
     setData(function(d) { return Object.assign({}, d, { docCategories: next }); });
     if (catFilter === c) setCatFilter('All');
   };
+  var _dSwipe = useRef({x:null,y:null,did:false});
+  useEffect(function() {
+    var pe = window._lbpPendingEdit;
+    if (pe && pe.type === 'documents') {
+      window._lbpPendingEdit = null;
+      var _item = (data.documents||[]).find(function(d){ return d.id === pe.id; });
+      if (_item) { setEditItem(_item); setForm(Object.assign({},_item,{tags:_item.tags||'',attachments:_item.attachments||[]})); setModal(true); }
+    }
+  }, []);
 
   return /*#__PURE__*/React.createElement("div", null,
     /*#__PURE__*/React.createElement("div", {className:"page-header"},
@@ -7966,7 +8152,18 @@ var DocumentsScreen = function DocumentsScreen(_ref46) {
             /*#__PURE__*/React.createElement("button", {className:"btn btn-primary", onClick:function(){setForm(defaultForm());setEditItem(null);setModal(true);}}, "+ Add Document")
           )
         : docs.map(function(d) {
-            return /*#__PURE__*/React.createElement("div", {className:"card mb-8", key:d.id, style:{display:'flex',gap:12,alignItems:'flex-start'}},
+            return /*#__PURE__*/React.createElement("div", {className:"card mb-8", key:d.id,
+              style:{display:'flex',gap:12,alignItems:'flex-start'},
+              onTouchStart: function(e) { _dSwipe.current = {x:e.touches[0].clientX, y:e.touches[0].clientY, did:false}; },
+              onTouchEnd: function(e) {
+                var dx = e.changedTouches[0].clientX - _dSwipe.current.x;
+                var dy = e.changedTouches[0].clientY - _dSwipe.current.y;
+                if (Math.abs(dx) > 60 && Math.abs(dx) > Math.abs(dy) * 1.5) {
+                  _dSwipe.current.did = true;
+                  if (dx < 0) { setEditItem(d); setForm(Object.assign({},d,{tags:d.tags||'',attachments:d.attachments||[]})); setModal(true); }
+                }
+              }
+            },
               /*#__PURE__*/React.createElement("div", {style:{width:40,height:40,borderRadius:10,background:catColor(d.category)+'25',display:'flex',alignItems:'center',justifyContent:'center',fontSize:20,flexShrink:0}},
                 d.attachments && d.attachments.length > 0
                   ? (d.attachments[0].type&&d.attachments[0].type.startsWith('image') ? '\uD83D\uDDBC\uFE0F' : d.attachments[0].type&&d.attachments[0].type.startsWith('audio') ? '\uD83C\uDFB5' : d.attachments[0].type&&d.attachments[0].type.startsWith('video') ? '\uD83C\uDFA5' : '\uD83D\uDCCE')
@@ -8046,6 +8243,16 @@ var RoutinesScreen = function RoutinesScreen(_ref47) {
     _useState132 = _slicedToArray(_useState131, 2),
     modal = _useState132[0],
     setModal = _useState132[1];
+  var _useStateREI = useState(null), _useStateREI2 = _slicedToArray(_useStateREI,2), routineEditItem = _useStateREI2[0], setRoutineEditItem = _useStateREI2[1];
+  var _rSwipe = useRef({x:null,y:null,did:false});
+  useEffect(function() {
+    var pe = window._lbpPendingEdit;
+    if (pe && pe.type === 'routines') {
+      window._lbpPendingEdit = null;
+      var _item = (data.routines||[]).find(function(r){ return r.id === pe.id; });
+      if (_item) { setRoutineEditItem(_item); setForm(Object.assign({}, _item)); setModal(true); }
+    }
+  }, []);
   var _useState133 = useState({
       name: '',
       duration: '',
@@ -8100,15 +8307,19 @@ var RoutinesScreen = function RoutinesScreen(_ref47) {
   };
   var save = function save() {
     if (!form.name) return;
-    setData(function (d) {
-      return _objectSpread(_objectSpread({}, d), {}, {
-        routines: [].concat(_toConsumableArray(d.routines || []), [_objectSpread(_objectSpread({}, form), {}, {
-          id: uid(),
-          order: (d.routines || []).length,
-          createdAt: now()
-        })])
+    if (routineEditItem) {
+      setData(function(d) { return _objectSpread(_objectSpread({},d),{},{routines:d.routines.map(function(x){return x.id===routineEditItem.id?_objectSpread(_objectSpread({},routineEditItem),form):x;})}); });
+    } else {
+      setData(function (d) {
+        return _objectSpread(_objectSpread({}, d), {}, {
+          routines: [].concat(_toConsumableArray(d.routines || []), [_objectSpread(_objectSpread({}, form), {}, {
+            id: uid(),
+            order: (d.routines || []).length,
+            createdAt: now()
+          })])
+        });
       });
-    });
+    }
     setForm({
       name: '',
       duration: '',
@@ -8117,6 +8328,7 @@ var RoutinesScreen = function RoutinesScreen(_ref47) {
       type: 'MORNING',
       alarm: defaultAlarm()
     });
+    setRoutineEditItem(null);
     setModal(false);
   };
   var del = function del(id) {
@@ -8225,8 +8437,15 @@ var RoutinesScreen = function RoutinesScreen(_ref47) {
     var done = doneIds.includes(r.id);
     return /*#__PURE__*/React.createElement("div", {
       key: r.id,
-      onClick: function onClick() {
-        return toggle(r.id);
+      onClick: function() { if (_rSwipe.current.did) { _rSwipe.current.did = false; return; } toggle(r.id); },
+      onTouchStart: function(e) { _rSwipe.current = {x:e.touches[0].clientX, y:e.touches[0].clientY, did:false}; },
+      onTouchEnd: function(e) {
+        var dx = e.changedTouches[0].clientX - _rSwipe.current.x;
+        var dy = e.changedTouches[0].clientY - _rSwipe.current.y;
+        if (Math.abs(dx) > 60 && Math.abs(dx) > Math.abs(dy) * 1.5) {
+          _rSwipe.current.did = true;
+          if (dx < 0) { setRoutineEditItem(r); setForm(Object.assign({}, r)); setModal(true); }
+        }
       },
       style: {
         display: 'flex',
@@ -8284,7 +8503,7 @@ var RoutinesScreen = function RoutinesScreen(_ref47) {
       }
     }, "\xD7"));
   })), modal && /*#__PURE__*/React.createElement(Modal, {
-    title: "Add Routine Step",
+    title: routineEditItem ? "Edit Routine Step" : "Add Routine Step",
     onClose: function onClose() {
       return setModal(false);
     },
