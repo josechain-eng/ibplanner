@@ -22,7 +22,7 @@
 <script>
 (function() {
   // ── Version ──────────────────────────────────────────────────────────────
-  window.LBP_VERSION = '4.2';
+  window.LBP_VERSION = '4.3';
 
   // ── PWA Install prompt ───────────────────────────────────────────────────
   window._installPrompt = null;
@@ -3255,6 +3255,9 @@ var ProjectsScreen = function ProjectsScreen(_ref20) {
     _useStateEI2 = _slicedToArray(_useStateEI, 2),
     editItem = _useStateEI2[0],
     setEditItem = _useStateEI2[1];
+  var _useStatePCF = useState('All'), _useStatePCFA = _slicedToArray(_useStatePCF, 2), pCatFilter = _useStatePCFA[0], setPCatFilter = _useStatePCFA[1];
+  var _useStatePMC = useState(false), _useStatePMCA = _slicedToArray(_useStatePMC, 2), pManageCats = _useStatePMCA[0], setPManageCats = _useStatePMCA[1];
+  var _useStatePNC = useState(''), _useStatePNCA = _slicedToArray(_useStatePNC, 2), pNewCat = _useStatePNCA[0], setPNewCat = _useStatePNCA[1];
   var _useStateNST = useState(''),
     _useStateNST2 = _slicedToArray(_useStateNST, 2),
     newSubtask = _useStateNST2[0],
@@ -3284,6 +3287,12 @@ var ProjectsScreen = function ProjectsScreen(_ref20) {
     subtaskForm = _useStateSF2[0],
     setSubtaskForm = _useStateSF2[1];
   var allProjects = data.projects || [];
+  var pAllCats = data.categories && data.categories.length ? data.categories : ['Personal','Work','Home','Health','Finance','Learning','Creative'];
+  var _pCatColors = {'Personal':'#FF9800','Work':'#2196F3','Home':'#4CAF50','Health':'#F44336','Finance':'#00BCD4','Learning':'#9C27B0','Creative':'#E91E63','Other':'#607D8B'};
+  var pCatColor = function(c) { return _pCatColors[c] || '#6B3FA0'; };
+  var pAddCat = function() { var v = pNewCat.trim(); if (!v || pAllCats.includes(v)) return; setData(function(d){ return Object.assign({},d,{categories:(d.categories||[]).concat([v])}); }); setPNewCat(''); };
+  var pDelCat = function(c) { setData(function(d){ return Object.assign({},d,{categories:(d.categories||[]).filter(function(x){return x!==c;})}); }); if(pCatFilter===c) setPCatFilter('All'); };
+  var allProjectsFiltered = pCatFilter === 'All' ? allProjects : allProjects.filter(function(p){ return (p.category||'') === pCatFilter; });
   var displayed = tab === 'All' ? allProjects : allProjects.filter(function (p) {
     return p.status === tab.replace(' ', '_');
   });
@@ -3383,7 +3392,36 @@ var ProjectsScreen = function ProjectsScreen(_ref20) {
     }, t.replace('_', ' '));
   })), /*#__PURE__*/React.createElement("div", {
     className: "page-content"
-  }, tab === 'All' && /*#__PURE__*/React.createElement("div", {
+  }, /*#__PURE__*/React.createElement("div", null,
+    pManageCats && /*#__PURE__*/React.createElement("div", {style:{background:'var(--card)',borderRadius:10,padding:'10px 12px',marginBottom:10,border:'1px solid var(--border)'}},
+      /*#__PURE__*/React.createElement("div", {style:{fontWeight:700,fontSize:12,marginBottom:8}}, "Manage Categories"),
+      /*#__PURE__*/React.createElement("div", {style:{display:'flex',gap:5,flexWrap:'wrap',marginBottom:8}},
+        pAllCats.map(function(c) {
+          return /*#__PURE__*/React.createElement("div", {key:c,style:{display:'flex',alignItems:'center',gap:3,background:pCatColor(c)+'22',border:'1px solid '+pCatColor(c)+'55',borderRadius:20,padding:'2px 6px 2px 8px',fontSize:11}},
+            /*#__PURE__*/React.createElement("span", {style:{color:pCatColor(c),fontWeight:600}}, c),
+            /*#__PURE__*/React.createElement("button", {onClick:function(){return pDelCat(c);},style:{background:'none',border:'none',color:'var(--text-dim)',cursor:'pointer',fontSize:12,padding:'0 2px',lineHeight:1}}, "\xD7")
+          );
+        })
+      ),
+      /*#__PURE__*/React.createElement("div", {style:{display:'flex',gap:6}},
+        /*#__PURE__*/React.createElement("input", {value:pNewCat,onChange:function(e){setPNewCat(e.target.value);},onKeyDown:function(e){if(e.key==='Enter'){e.preventDefault();pAddCat();}},placeholder:"New category",style:{flex:1,fontSize:11,padding:'4px 8px'}}),
+        /*#__PURE__*/React.createElement("button", {className:"btn btn-primary btn-sm",onClick:pAddCat}, "+ Add")
+      )
+    ),
+    /*#__PURE__*/React.createElement("div", {style:{display:'flex',gap:5,marginBottom:10,flexWrap:'wrap',alignItems:'center'}},
+      /*#__PURE__*/React.createElement("button", {
+        className:"btn btn-sm",onClick:function(){setPManageCats(function(v){return !v;});},
+        style:{fontSize:9,padding:'2px 6px',color:'var(--text-dim)',border:'1px solid var(--border)',background:'var(--card)',flexShrink:0,lineHeight:1.4}
+      }, "\u2699\uFE0F"),
+      ['All'].concat(pAllCats).map(function(c) {
+        return /*#__PURE__*/React.createElement("button", {
+          key:c,className:"btn btn-sm",
+          onClick:function(){setPCatFilter(c);},
+          style:{background:pCatFilter===c?(pCatColor(c)||'var(--purple)'):'var(--card)',color:pCatFilter===c?'#fff':'var(--text-dim)',border:'1px solid var(--border)',padding:'3px 8px',fontSize:10,flexShrink:0}
+        }, c);
+      })
+    )
+  ), tab === 'All' && /*#__PURE__*/React.createElement("div", {
     className: "kanban mb-16"
   }, ['IN_PROGRESS', 'CLIENT_REVIEW', 'DONE'].map(function (s) {
     var c = statusColor(s);
@@ -3396,7 +3434,7 @@ var ProjectsScreen = function ProjectsScreen(_ref20) {
         background: "".concat(c, "25"),
         color: c
       }
-    }, s.replace('_', ' ')), allProjects.filter(function (p) {
+    }, s.replace('_', ' ')), allProjectsFiltered.filter(function (p) {
       return p.status === s;
     }).map(function (p) {
       var _p$alarm;
@@ -3734,6 +3772,9 @@ var TasksScreen = function TasksScreen(_ref21) {
     editItem = _useState38[0],
     setEditItem = _useState38[1];
   var _useStateTCP = useState(false), _useStateTCPArr = _slicedToArray(_useStateTCP, 2), compact = _useStateTCPArr[0], setCompact = _useStateTCPArr[1];
+  var _useStateTCF = useState('All'), _useStateTCFA = _slicedToArray(_useStateTCF, 2), tCatFilter = _useStateTCFA[0], setTCatFilter = _useStateTCFA[1];
+  var _useStateTMC = useState(false), _useStateTMCA = _slicedToArray(_useStateTMC, 2), tManageCats = _useStateTMCA[0], setTManageCats = _useStateTMCA[1];
+  var _useStateTNC = useState(''), _useStateTNCA = _slicedToArray(_useStateTNC, 2), tNewCat = _useStateTNCA[0], setTNewCat = _useStateTNCA[1];
   useEffect(function() {
     var pe = window._lbpPendingEdit;
     if (pe && pe.type === 'tasks') {
@@ -3759,8 +3800,13 @@ var TasksScreen = function TasksScreen(_ref21) {
     form = _useState40[0],
     setForm = _useState40[1];
   var allTasks = data.tasks || [];
+  var tAllCats = data.categories && data.categories.length ? data.categories : ['Personal','Work','Home','Health','Finance','Learning','Creative'];
+  var _tCatColors = {'Personal':'#FF9800','Work':'#2196F3','Home':'#4CAF50','Health':'#F44336','Finance':'#00BCD4','Learning':'#9C27B0','Creative':'#E91E63','Other':'#607D8B'};
+  var tCatColor = function(c) { return _tCatColors[c] || '#6B3FA0'; };
+  var tAddCat = function() { var v = tNewCat.trim(); if (!v || tAllCats.includes(v)) return; setData(function(d){ return Object.assign({},d,{categories:(d.categories||[]).concat([v])}); }); setTNewCat(''); };
+  var tDelCat = function(c) { setData(function(d){ return Object.assign({},d,{categories:(d.categories||[]).filter(function(x){return x!==c;})}); }); if(tCatFilter===c) setTCatFilter('All'); };
   var displayed = allTasks.filter(function (t) {
-    return t.status === tab;
+    return t.status === tab && (tCatFilter === 'All' || (t.category || '') === tCatFilter);
   });
   var save = function save() {
     if (!form.title) return;
@@ -3863,7 +3909,36 @@ var TasksScreen = function TasksScreen(_ref21) {
     }, statusCounts[s]));
   })), /*#__PURE__*/React.createElement("div", {
     className: "page-content"
-  }, displayed.length === 0 ? /*#__PURE__*/React.createElement("div", {
+  }, /*#__PURE__*/React.createElement("div", null,
+    tManageCats && /*#__PURE__*/React.createElement("div", {style:{background:'var(--card)',borderRadius:10,padding:'10px 12px',marginBottom:10,border:'1px solid var(--border)'}},
+      /*#__PURE__*/React.createElement("div", {style:{fontWeight:700,fontSize:12,marginBottom:8}}, "Manage Categories"),
+      /*#__PURE__*/React.createElement("div", {style:{display:'flex',gap:5,flexWrap:'wrap',marginBottom:8}},
+        tAllCats.map(function(c) {
+          return /*#__PURE__*/React.createElement("div", {key:c,style:{display:'flex',alignItems:'center',gap:3,background:tCatColor(c)+'22',border:'1px solid '+tCatColor(c)+'55',borderRadius:20,padding:'2px 6px 2px 8px',fontSize:11}},
+            /*#__PURE__*/React.createElement("span", {style:{color:tCatColor(c),fontWeight:600}}, c),
+            /*#__PURE__*/React.createElement("button", {onClick:function(){return tDelCat(c);},style:{background:'none',border:'none',color:'var(--text-dim)',cursor:'pointer',fontSize:12,padding:'0 2px',lineHeight:1}}, "\xD7")
+          );
+        })
+      ),
+      /*#__PURE__*/React.createElement("div", {style:{display:'flex',gap:6}},
+        /*#__PURE__*/React.createElement("input", {value:tNewCat,onChange:function(e){setTNewCat(e.target.value);},onKeyDown:function(e){if(e.key==='Enter'){e.preventDefault();tAddCat();}},placeholder:"New category",style:{flex:1,fontSize:11,padding:'4px 8px'}}),
+        /*#__PURE__*/React.createElement("button", {className:"btn btn-primary btn-sm",onClick:tAddCat}, "+ Add")
+      )
+    ),
+    /*#__PURE__*/React.createElement("div", {style:{display:'flex',gap:5,marginBottom:10,flexWrap:'wrap',alignItems:'center'}},
+      /*#__PURE__*/React.createElement("button", {
+        className:"btn btn-sm",onClick:function(){setTManageCats(function(v){return !v;});},
+        style:{fontSize:9,padding:'2px 6px',color:'var(--text-dim)',border:'1px solid var(--border)',background:'var(--card)',flexShrink:0,lineHeight:1.4}
+      }, "\u2699\uFE0F"),
+      ['All'].concat(tAllCats).map(function(c) {
+        return /*#__PURE__*/React.createElement("button", {
+          key:c,className:"btn btn-sm",
+          onClick:function(){setTCatFilter(c);},
+          style:{background:tCatFilter===c?(tCatColor(c)||'var(--purple)'):'var(--card)',color:tCatFilter===c?'#fff':'var(--text-dim)',border:'1px solid var(--border)',padding:'3px 8px',fontSize:10,flexShrink:0}
+        }, c);
+      })
+    )
+  ), displayed.length === 0 ? /*#__PURE__*/React.createElement("div", {
     className: "empty-state"
   }, /*#__PURE__*/React.createElement("div", {
     className: "e-icon"
@@ -5545,6 +5620,9 @@ var JournalScreen = function JournalScreen(_ref31) {
     setViewEntry = _useState76[1];
   var _useStateEE = useState(null), _useStateEE2 = _slicedToArray(_useStateEE, 2), editEntry = _useStateEE2[0], setEditEntry = _useStateEE2[1];
   var _useStateJCP = useState(false), _useStateJCPArr = _slicedToArray(_useStateJCP, 2), compact = _useStateJCPArr[0], setCompact = _useStateJCPArr[1];
+  var _useStateJCF = useState('All'), _useStateJCFA = _slicedToArray(_useStateJCF, 2), jCatFilter = _useStateJCFA[0], setJCatFilter = _useStateJCFA[1];
+  var _useStateJMC = useState(false), _useStateJMCA = _slicedToArray(_useStateJMC, 2), jManageCats = _useStateJMCA[0], setJManageCats = _useStateJMCA[1];
+  var _useStateJNC = useState(''), _useStateJNCA = _slicedToArray(_useStateJNC, 2), jNewCat = _useStateJNCA[0], setJNewCat = _useStateJNCA[1];
   useEffect(function() {
     var pe = window._lbpPendingEdit;
     if (pe && pe.type === 'journal') {
@@ -5558,9 +5636,14 @@ var JournalScreen = function JournalScreen(_ref31) {
       }
     }
   }, []);
+  var jAllCats = data.categories && data.categories.length ? data.categories : ['Personal','Work','Home','Health','Finance','Learning','Creative'];
+  var _jCatColors = {'Personal':'#FF9800','Work':'#2196F3','Home':'#4CAF50','Health':'#F44336','Finance':'#00BCD4','Learning':'#9C27B0','Creative':'#E91E63','Other':'#607D8B'};
+  var jCatColor = function(c) { return _jCatColors[c] || '#6B3FA0'; };
+  var jAddCat = function() { var v = jNewCat.trim(); if (!v || jAllCats.includes(v)) return; setData(function(d){ return Object.assign({},d,{categories:(d.categories||[]).concat([v])}); }); setJNewCat(''); };
+  var jDelCat = function(c) { setData(function(d){ return Object.assign({},d,{categories:(d.categories||[]).filter(function(x){return x!==c;})}); }); if(jCatFilter===c) setJCatFilter('All'); };
   var entries = _toConsumableArray(data.journal || []).sort(function (a, b) {
     return b.date.localeCompare(a.date);
-  });
+  }).filter(function(e){ return jCatFilter === 'All' || (e.category||'') === jCatFilter; });
   var moods = [['TERRIBLE', '😞'], ['BAD', '😔'], ['NEUTRAL', '😐'], ['GOOD', '🙂'], ['EXCELLENT', '😄']];
   var moodColor = function moodColor(m) {
     return {
@@ -5634,7 +5717,36 @@ var JournalScreen = function JournalScreen(_ref31) {
     }, "+ Write Today")
   )), /*#__PURE__*/React.createElement("div", {
     className: "page-content"
-  }, entries.length === 0 ? /*#__PURE__*/React.createElement("div", {
+  }, /*#__PURE__*/React.createElement("div", null,
+    jManageCats && /*#__PURE__*/React.createElement("div", {style:{background:'var(--card)',borderRadius:10,padding:'10px 12px',marginBottom:10,border:'1px solid var(--border)'}},
+      /*#__PURE__*/React.createElement("div", {style:{fontWeight:700,fontSize:12,marginBottom:8}}, "Manage Categories"),
+      /*#__PURE__*/React.createElement("div", {style:{display:'flex',gap:5,flexWrap:'wrap',marginBottom:8}},
+        jAllCats.map(function(c) {
+          return /*#__PURE__*/React.createElement("div", {key:c,style:{display:'flex',alignItems:'center',gap:3,background:jCatColor(c)+'22',border:'1px solid '+jCatColor(c)+'55',borderRadius:20,padding:'2px 6px 2px 8px',fontSize:11}},
+            /*#__PURE__*/React.createElement("span", {style:{color:jCatColor(c),fontWeight:600}}, c),
+            /*#__PURE__*/React.createElement("button", {onClick:function(){return jDelCat(c);},style:{background:'none',border:'none',color:'var(--text-dim)',cursor:'pointer',fontSize:12,padding:'0 2px',lineHeight:1}}, "\xD7")
+          );
+        })
+      ),
+      /*#__PURE__*/React.createElement("div", {style:{display:'flex',gap:6}},
+        /*#__PURE__*/React.createElement("input", {value:jNewCat,onChange:function(e){setJNewCat(e.target.value);},onKeyDown:function(e){if(e.key==='Enter'){e.preventDefault();jAddCat();}},placeholder:"New category",style:{flex:1,fontSize:11,padding:'4px 8px'}}),
+        /*#__PURE__*/React.createElement("button", {className:"btn btn-primary btn-sm",onClick:jAddCat}, "+ Add")
+      )
+    ),
+    /*#__PURE__*/React.createElement("div", {style:{display:'flex',gap:5,marginBottom:10,flexWrap:'wrap',alignItems:'center'}},
+      /*#__PURE__*/React.createElement("button", {
+        className:"btn btn-sm",onClick:function(){setJManageCats(function(v){return !v;});},
+        style:{fontSize:9,padding:'2px 6px',color:'var(--text-dim)',border:'1px solid var(--border)',background:'var(--card)',flexShrink:0,lineHeight:1.4}
+      }, "\u2699\uFE0F"),
+      ['All'].concat(jAllCats).map(function(c) {
+        return /*#__PURE__*/React.createElement("button", {
+          key:c,className:"btn btn-sm",
+          onClick:function(){setJCatFilter(c);},
+          style:{background:jCatFilter===c?(jCatColor(c)||'var(--purple)'):'var(--card)',color:jCatFilter===c?'#fff':'var(--text-dim)',border:'1px solid var(--border)',padding:'3px 8px',fontSize:10,flexShrink:0}
+        }, c);
+      })
+    )
+  ), entries.length === 0 ? /*#__PURE__*/React.createElement("div", {
     className: "empty-state"
   }, /*#__PURE__*/React.createElement("div", {
     className: "e-icon"
