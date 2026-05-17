@@ -22,7 +22,7 @@
 <script>
 (function() {
   // ── Version ──────────────────────────────────────────────────────────────
-  window.LBP_VERSION = '4.4';
+  window.LBP_VERSION = '4.5';
 
   // ── PWA Install prompt ───────────────────────────────────────────────────
   window._installPrompt = null;
@@ -2530,7 +2530,10 @@ var HomeScreen = function HomeScreen(_ref14) {
       key: label,
       className: "qa-btn",
       onClick: function onClick() {
-        return navigate(route);
+        if (route === 'tasks' || route === 'journal' || route === 'projects') {
+          window._lbpPendingNew = { type: route };
+        }
+        navigate(route);
       }
     }, /*#__PURE__*/React.createElement("span", {style:{fontSize:18}}, icon), label);
   })), /*#__PURE__*/React.createElement("div", {
@@ -3287,6 +3290,11 @@ var ProjectsScreen = function ProjectsScreen(_ref20) {
       var _item = (data.projects||[]).find(function(p){ return p.id === pe.id; });
       if (_item) { setEditItem(_item); setForm(Object.assign({}, _item)); setModal(true); }
     }
+    var pn = window._lbpPendingNew;
+    if (pn && pn.type === 'projects') {
+      window._lbpPendingNew = null;
+      setEditItem(null); setModal(true);
+    }
   }, []);
   var _useStatePAI = useState(null), _useStatePAI2 = _slicedToArray(_useStatePAI,2), pAlarmItem = _useStatePAI2[0], setPAlarmItem = _useStatePAI2[1];
   var _useStatePAF = useState(defaultAlarm()), _useStatePAF2 = _slicedToArray(_useStatePAF,2), pAlarmForm = _useStatePAF2[0], setPAlarmForm = _useStatePAF2[1];
@@ -3826,6 +3834,11 @@ var TasksScreen = function TasksScreen(_ref21) {
       window._lbpPendingEdit = null;
       var _item = (data.tasks||[]).find(function(t){ return t.id === pe.id; });
       if (_item) { setEditItem(_item); setForm(Object.assign({}, _item)); setModal(true); }
+    }
+    var pn = window._lbpPendingNew;
+    if (pn && pn.type === 'tasks') {
+      window._lbpPendingNew = null;
+      setEditItem(null); setModal(true);
     }
   }, []);
   var _useStateTAI = useState(null), _useStateTAI2 = _slicedToArray(_useStateTAI,2), tAlarmItem = _useStateTAI2[0], setTAlarmItem = _useStateTAI2[1];
@@ -5749,6 +5762,14 @@ var JournalScreen = function JournalScreen(_ref31) {
         setMood(_e.mood||'GOOD');
         setModal(true);
       }
+    }
+    var pn = window._lbpPendingNew;
+    if (pn && pn.type === 'journal') {
+      window._lbpPendingNew = null;
+      setEditEntry(null);
+      setForm({title:'',content:'',gratitude:'',topWins:'',challenges:'',tomorrowFocus:'',affirmations:'',mood:'GOOD',attachments:[],category:'',tags:[],alarm:defaultAlarm(),links:[],entryType:'journal'});
+      setMood('GOOD');
+      setModal(true);
     }
   }, []);
   var _useStateJAI = useState(null), _useStateJAI2 = _slicedToArray(_useStateJAI,2), jAlarmItem = _useStateJAI2[0], setJAlarmItem = _useStateJAI2[1];
