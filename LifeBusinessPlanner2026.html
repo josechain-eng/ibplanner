@@ -22,7 +22,7 @@
 <script>
 (function() {
   // ── Version ──────────────────────────────────────────────────────────────
-  window.LBP_VERSION = '3.9';
+  window.LBP_VERSION = '4.0';
 
   // ── PWA Install prompt ───────────────────────────────────────────────────
   window._installPrompt = null;
@@ -2308,6 +2308,7 @@ var HomeScreen = function HomeScreen(_ref14) {
   var activePjs = projects.filter(function (p) {
     return ['IN_PROGRESS', 'CLIENT_REVIEW'].includes(p.status);
   });
+  var activeTasks = tasks.filter(function (t) { return t.status !== 'DONE'; });
   var thisMonth = new Date().getMonth() + 1;
   var thisYear = new Date().getFullYear();
   var income = transactions.filter(function (t) {
@@ -2415,14 +2416,19 @@ var HomeScreen = function HomeScreen(_ref14) {
   }, greeting, ", ", firstName, " \uD83D\uDC4B"), /*#__PURE__*/React.createElement("div", {
     style: {
       display: 'grid',
-      gridTemplateColumns: 'repeat(3,1fr)',
-      gap: 8
+      gridTemplateColumns: 'repeat(4,1fr)',
+      gap: 6
     }
   }, [{
     label: 'Active Projects',
     value: activePjs.length,
     color: '#9C68D6',
     route: 'projects'
+  }, {
+    label: 'Active Tasks',
+    value: activeTasks.length,
+    color: '#60A5FA',
+    route: 'tasks'
   }, {
     label: "Today's Tasks",
     value: todayTasks.length,
@@ -2440,20 +2446,22 @@ var HomeScreen = function HomeScreen(_ref14) {
       style: {
         background: 'rgba(255,255,255,.1)',
         borderRadius: 10,
-        padding: '10px 12px',
+        padding: '8px 8px',
         cursor: 'pointer',
         transition: 'opacity .15s'
       }
     }, /*#__PURE__*/React.createElement("div", {
       style: {
-        fontSize: 22,
+        fontSize: 20,
         fontWeight: 800,
         color: s.color
       }
     }, s.value), /*#__PURE__*/React.createElement("div", {
       style: {
-        fontSize: 11,
-        opacity: .8
+        fontSize: 10,
+        opacity: .8,
+        lineHeight: 1.3,
+        marginTop: 2
       }
     }, s.label));
   })), /*#__PURE__*/React.createElement("div", {
