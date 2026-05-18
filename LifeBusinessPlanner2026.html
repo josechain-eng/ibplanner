@@ -22,7 +22,7 @@
 <script>
 (function() {
   // ── Version ──────────────────────────────────────────────────────────────
-  window.LBP_VERSION = '4.6';
+  window.LBP_VERSION = '4.7';
 
   // ── PWA Install prompt ───────────────────────────────────────────────────
   window._installPrompt = null;
@@ -824,7 +824,8 @@ var uid = function uid() {
   return Date.now().toString(36) + Math.random().toString(36).slice(2);
 };
 var today = function today() {
-  return new Date().toISOString().slice(0, 10);
+  var d = new Date();
+  return d.getFullYear() + '-' + String(d.getMonth()+1).padStart(2,'0') + '-' + String(d.getDate()).padStart(2,'0');
 };
 var now = function now() {
   return new Date().toISOString();
@@ -2770,7 +2771,7 @@ var HomeScreen = function HomeScreen(_ref14) {
       dayLabels.map(function(lbl, i) {
         var d = new Date(ws);
         d.setDate(d.getDate() + i);
-        var ds = d.toISOString().slice(0,10);
+        var ds = d.getFullYear() + '-' + String(d.getMonth()+1).padStart(2,'0') + '-' + String(d.getDate()).padStart(2,'0');
         var dm = (meetings||[]).filter(function(m){ return m.date === ds; });
         var isToday = ds === todayStr;
         return React.createElement("div", {
