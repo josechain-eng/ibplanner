@@ -22,7 +22,7 @@
 <script>
 (function() {
   // ── Version ──────────────────────────────────────────────────────────────
-  window.LBP_VERSION = '4.9';
+  window.LBP_VERSION = '4.11';
 
   // ── PWA Install prompt ───────────────────────────────────────────────────
   window._installPrompt = null;
@@ -2328,6 +2328,12 @@ var HomeScreen = function HomeScreen(_ref14) {
   var overdueTasks = tasks.filter(function (t) {
     return t.dueDate && t.dueDate < todayStr && t.status !== 'DONE';
   });
+  var overdueProjects = projects.filter(function(p) {
+    return p.dueDate && p.dueDate < todayStr && !['DONE','ARCHIVED'].includes(p.status);
+  });
+  var overdueGoals = goals.filter(function(g) {
+    return g.targetDate && g.targetDate < todayStr && g.status !== 'COMPLETED';
+  });
   var activePjs = projects.filter(function (p) {
     return ['IN_PROGRESS', 'CLIENT_REVIEW'].includes(p.status);
   });
@@ -2544,7 +2550,8 @@ var HomeScreen = function HomeScreen(_ref14) {
     }
   }, overdueTasks.length > 0 && /*#__PURE__*/React.createElement("div", {
     onClick: function onClick() {
-      return navigate('tasks');
+      window._lbpTaskFilter = 'overdue';
+      navigate('tasks');
     },
     style: {
       background: 'rgba(244,67,54,.1)',
@@ -2567,7 +2574,22 @@ var HomeScreen = function HomeScreen(_ref14) {
       color: '#F44336',
       fontWeight: 600
     }
-  }, overdueTasks.length, " overdue tasks need attention")), /*#__PURE__*/React.createElement("div", {
+  }, overdueTasks.length, " overdue tasks need attention")),
+  overdueProjects.length > 0 && /*#__PURE__*/React.createElement("div", {
+    onClick: function() { window._lbpProjectFilter = 'overdue'; navigate('projects'); },
+    style: { background:'rgba(255,152,0,.1)', border:'1px solid rgba(255,152,0,.3)', borderRadius:10, padding:'10px 14px', marginBottom:10, cursor:'pointer', display:'flex', alignItems:'center', gap:8 }
+  },
+    /*#__PURE__*/React.createElement("span", {style:{fontSize:16}}, "\u26A0\uFE0F"),
+    /*#__PURE__*/React.createElement("span", {style:{fontSize:13,color:"#FF9800",fontWeight:600}}, overdueProjects.length, " overdue project", overdueProjects.length > 1 ? "s" : "", " need attention")
+  ),
+  overdueGoals.length > 0 && /*#__PURE__*/React.createElement("div", {
+    onClick: function() { window._lbpGoalFilter = 'overdue'; navigate('goals'); },
+    style: { background:'rgba(201,168,76,.1)', border:'1px solid rgba(201,168,76,.3)', borderRadius:10, padding:'10px 14px', marginBottom:10, cursor:'pointer', display:'flex', alignItems:'center', gap:8 }
+  },
+    /*#__PURE__*/React.createElement("span", {style:{fontSize:16}}, "\u26A0\uFE0F"),
+    /*#__PURE__*/React.createElement("span", {style:{fontSize:13,color:"#C9A84C",fontWeight:600}}, overdueGoals.length, " overdue goal", overdueGoals.length > 1 ? "s" : "", " need attention")
+  ),
+  /*#__PURE__*/React.createElement("div", {
     className: "section-title", style:{marginTop:4}
   }, "Quick Actions"), /*#__PURE__*/React.createElement("div", {
     className: "quick-actions mb-16"
@@ -3011,9 +3033,10 @@ var GoalsScreen = function GoalsScreen(_ref19) {
     _useState26 = _slicedToArray(_useState25, 2),
     form = _useState26[0],
     setForm = _useState26[1];
-  var goals = (data.goals || []).filter(function (g) {
-    return tab === 'All' || g.period === tab.toUpperCase();
-  });
+  var _gTodayStr = (function(){ var d=new Date(); return d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0'); })();
+  var goals = gHighlight === 'overdue'
+    ? (data.goals || []).filter(function(g) { return g.targetDate && g.targetDate < _gTodayStr && g.status !== 'COMPLETED'; })
+    : (data.goals || []).filter(function (g) { return tab === 'All' || g.period === tab.toUpperCase(); });
   var save = function save() {
     if (!form.title) return;
     if (editItem) {
@@ -3048,6 +3071,7 @@ var GoalsScreen = function GoalsScreen(_ref19) {
     setModal(false);
     setEditItem(null);
   };
+  var _useStateGHL = useState(null), _useStateGHLA = _slicedToArray(_useStateGHL, 2), gHighlight = _useStateGHLA[0], setGHighlight = _useStateGHLA[1];
   var _gSwipe = useRef({x:null,y:null,did:false});
   useEffect(function() {
     var pe = window._lbpPendingEdit;
@@ -3056,6 +3080,8 @@ var GoalsScreen = function GoalsScreen(_ref19) {
       var _item = (data.goals||[]).find(function(g){ return g.id === pe.id; });
       if (_item) { setEditItem(_item); setForm(Object.assign({}, _item)); setModal(true); }
     }
+    var gf = window._lbpGoalFilter;
+    if (gf) { window._lbpGoalFilter = null; setGHighlight(gf); }
   }, []);
   var updateProgress = function updateProgress(id, val) {
     return setData(function (d) {
@@ -3097,7 +3123,14 @@ var GoalsScreen = function GoalsScreen(_ref19) {
     }, t);
   })), /*#__PURE__*/React.createElement("div", {
     className: "page-content"
-  }, goals.length === 0 ? /*#__PURE__*/React.createElement("div", {
+  }, /*#__PURE__*/React.createElement("div", null,
+    gHighlight && /*#__PURE__*/React.createElement("div", {style:{display:'flex',alignItems:'center',justifyContent:'space-between',background:'rgba(201,168,76,.15)',border:'1px solid rgba(201,168,76,.5)',borderRadius:10,padding:'8px 12px',marginBottom:10}},
+      /*#__PURE__*/React.createElement("span", {style:{fontSize:12,fontWeight:700,color:'#C9A84C'}},
+        gHighlight==='overdue' ? '\u26a0\ufe0f Showing: Overdue Goals' : 'Filtered'
+      ),
+      /*#__PURE__*/React.createElement("button", {onClick:function(){setGHighlight(null);},style:{background:'none',border:'none',color:'var(--text-dim)',cursor:'pointer',fontSize:16,lineHeight:1,padding:'0 2px'}}, '\xd7')
+    ),
+    goals.length === 0 ? /*#__PURE__*/React.createElement("div", {
     className: "empty-state"
   }, /*#__PURE__*/React.createElement("div", {
     className: "e-icon"
@@ -3204,7 +3237,7 @@ var GoalsScreen = function GoalsScreen(_ref19) {
         marginTop: 4
       }
     }, "Target: ", g.targetDate));
-  })), modal && /*#__PURE__*/React.createElement(Modal, {
+  }))), modal && /*#__PURE__*/React.createElement(Modal, {
     title: "New Goal",
     onClose: function onClose() {
       return setModal(false);
@@ -3345,7 +3378,10 @@ var ProjectsScreen = function ProjectsScreen(_ref20) {
       window._lbpPendingNew = null;
       setEditItem(null); setModal(true);
     }
+    var pf = window._lbpProjectFilter;
+    if (pf) { window._lbpProjectFilter = null; setPHighlight(pf); }
   }, []);
+  var _useStatePHL = useState(null), _useStatePHLA = _slicedToArray(_useStatePHL, 2), pHighlight = _useStatePHLA[0], setPHighlight = _useStatePHLA[1];
   var _useStatePAI = useState(null), _useStatePAI2 = _slicedToArray(_useStatePAI,2), pAlarmItem = _useStatePAI2[0], setPAlarmItem = _useStatePAI2[1];
   var _useStatePAF = useState(defaultAlarm()), _useStatePAF2 = _slicedToArray(_useStatePAF,2), pAlarmForm = _useStatePAF2[0], setPAlarmForm = _useStatePAF2[1];
   var _pSwipe = useRef({x:null,y:null,did:false});
@@ -3372,9 +3408,15 @@ var ProjectsScreen = function ProjectsScreen(_ref20) {
   var pAddCat = function() { var v = pNewCat.trim(); if (!v || pAllCats.includes(v)) return; setData(function(d){ return Object.assign({},d,{categories:(d.categories||[]).concat([v])}); }); setPNewCat(''); };
   var pDelCat = function(c) { setData(function(d){ return Object.assign({},d,{categories:(d.categories||[]).filter(function(x){return x!==c;})}); }); if(pCatFilter===c) setPCatFilter('All'); };
   var allProjectsFiltered = pCatFilter === 'All' ? allProjects : allProjects.filter(function(p){ return (p.category||'') === pCatFilter; });
-  var displayed = tab === 'All' ? allProjects : allProjects.filter(function (p) {
-    return p.status === tab.replace(' ', '_');
-  });
+  var _pTodayStr = (function(){ var d=new Date(); return d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0'); })();
+  var displayed = pHighlight
+    ? allProjects.filter(function(p) {
+        if (pHighlight === 'overdue') return p.dueDate && p.dueDate < _pTodayStr && !['DONE','ARCHIVED'].includes(p.status);
+        return true;
+      })
+    : (tab === 'All' ? allProjects : allProjects.filter(function (p) {
+        return p.status === tab.replace(' ', '_');
+      }));
   var saveSubtask = function saveSubtask() {
     if (!subtaskForm.title) return;
     var updated = editSubtask
@@ -3472,6 +3514,12 @@ var ProjectsScreen = function ProjectsScreen(_ref20) {
   })), /*#__PURE__*/React.createElement("div", {
     className: "page-content"
   }, /*#__PURE__*/React.createElement("div", null,
+    pHighlight && /*#__PURE__*/React.createElement("div", {style:{display:'flex',alignItems:'center',justifyContent:'space-between',background:'rgba(255,152,0,.15)',border:'1px solid rgba(255,152,0,.5)',borderRadius:10,padding:'8px 12px',marginBottom:10}},
+      /*#__PURE__*/React.createElement("span", {style:{fontSize:12,fontWeight:700,color:'#FF9800'}},
+        pHighlight==='overdue' ? '\u26a0\ufe0f Showing: Overdue Projects' : 'Filtered'
+      ),
+      /*#__PURE__*/React.createElement("button", {onClick:function(){setPHighlight(null);setTab('All');},style:{background:'none',border:'none',color:'var(--text-dim)',cursor:'pointer',fontSize:16,lineHeight:1,padding:'0 2px'}}, '\xd7')
+    ),
     pManageCats && /*#__PURE__*/React.createElement("div", {style:{background:'var(--card)',borderRadius:10,padding:'10px 12px',marginBottom:10,border:'1px solid var(--border)'}},
       /*#__PURE__*/React.createElement("div", {style:{fontWeight:700,fontSize:12,marginBottom:8}}, "Manage Categories"),
       /*#__PURE__*/React.createElement("div", {style:{display:'flex',gap:5,flexWrap:'wrap',marginBottom:8}},
