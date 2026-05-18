@@ -22,7 +22,7 @@
 <script>
 (function() {
   // ── Version ──────────────────────────────────────────────────────────────
-  window.LBP_VERSION = '4.8';
+  window.LBP_VERSION = '4.9';
 
   // ── PWA Install prompt ───────────────────────────────────────────────────
   window._installPrompt = null;
@@ -289,6 +289,36 @@
     });
   }
 
+  // ── Push health check: verify this device's subscription is still in Cloudflare KV ──
+  // Runs on startup, on visibilitychange, and every 30 min.
+  // If the subscription was silently expired and removed from KV by the cron worker,
+  // this re-registers automatically so cloud pushes resume without user action.
+  window._checkPushHealth = function() {
+    var syncKey = localStorage.getItem('lbp_sync_key');
+    if (!syncKey || !window.LBP_WORKER_URL || Notification.permission !== 'granted') return;
+    if (!('serviceWorker' in navigator)) return;
+    navigator.serviceWorker.ready.then(function(reg) {
+      if (!reg.pushManager) return;
+      reg.pushManager.getSubscription().then(function(sub) {
+        if (!sub) {
+          // No local subscription at all — create one
+          _registerPush(reg, false);
+          return;
+        }
+        // Ask worker if this endpoint is still registered in KV
+        fetch(window.LBP_WORKER_URL + '/check-sub?key=' + encodeURIComponent(syncKey) + '&endpoint=' + encodeURIComponent(sub.endpoint))
+          .then(function(r) { return r.ok ? r.json() : null; })
+          .then(function(result) {
+            if (result && result.found === false) {
+              // Subscription gone from KV (expired/deleted) — re-register silently
+              console.log('[LBP] Push subscription not in KV, re-registering...');
+              _registerPush(reg, false);
+            }
+          }).catch(function() {});
+      }).catch(function() {});
+    }).catch(function() {});
+  };
+
   if ('serviceWorker' in navigator) {
     window.addEventListener('load', function() {
       navigator.serviceWorker.register('./sw.js')
@@ -308,15 +338,29 @@
               if (!r.active) return;
               var _pa = [];
               try { _pa = JSON.parse(localStorage.getItem('lbp_pending_alarms') || '[]'); } catch(_e) {}
-              r.active.postMessage({type: 'KEEPALIVE', alarms: _pa});
+              r.active.postMessage({type: 'KEEPALIVE', alarms: _pa, workerUrl: window.LBP_WORKER_URL || '', syncKey: localStorage.getItem('lbp_sync_key') || ''});
             }).catch(function(){});
           }, 20000);
           // Register push subscription for cloud notifications
           if (Notification.permission === 'granted') _registerPush(reg);
           // Re-register when permission is granted later
           window._registerPush = function(_, forceNew) { _registerPush(reg, forceNew); };
+          // Health check: verify subscription is still in KV (catches silently-expired subs)
+          setTimeout(function() { if (window._checkPushHealth) window._checkPushHealth(); }, 8000);
+          // Periodic health check every 30 minutes while app is open
+          setInterval(function() { if (window._checkPushHealth) window._checkPushHealth(); }, 30 * 60 * 1000);
         })
         .catch(function(err) { console.warn('SW registration failed:', err); });
+    });
+    // Listen for SW signaling that the push subscription changed (pushsubscriptionchange)
+    navigator.serviceWorker.addEventListener('message', function(e) {
+      if (e.data && e.data.type === 'PUSH_SUB_CHANGED') {
+        // FCM invalidated the token -- re-register with fresh subscription
+        console.log('[LBP] PUSH_SUB_CHANGED from SW, re-registering...');
+        navigator.serviceWorker.ready.then(function(reg) {
+          _registerPush(reg, true); // forceNew=true: unsubscribe old, create fresh
+        }).catch(function() {});
+      }
     });
   }
 
@@ -2238,6 +2282,8 @@ document.addEventListener('visibilitychange', function() {
         }).catch(function(){});
       }
     } else {
+      // App becoming visible: check push health (re-register if subscription expired)
+      if (window._checkPushHealth) window._checkPushHealth();
       // App becoming visible: fire any missed alarms and clean up
       var _missed = _pend.filter(function(a) { return a.triggerAt <= _now && (_now - a.triggerAt) < 3600000; });
       if (_missed.length > 0 && 'serviceWorker' in navigator) {

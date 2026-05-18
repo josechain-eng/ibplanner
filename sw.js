@@ -5,6 +5,19 @@ self.addEventListener('activate', function(e) { e.waitUntil(self.clients.claim()
 
 var _timers = {};
 
+// ── Config stored from KEEPALIVE so pushsubscriptionchange can re-register ──
+var _swWorkerUrl = null;
+var _swSyncKey = null;
+var _swVapidKey = 'BApPK_6j13xSMZOEpBPK2lUtfH02sSarLJ8469bpbULrUYe4u4mMnNTG8QNUl2FajsOZo_D2CohQ98j1HzArmD0';
+
+function urlB64ToUint8Array(b64) {
+  var pad = '='.repeat((4 - b64.length % 4) % 4);
+  var raw = atob((b64 + pad).replace(/-/g, '+').replace(/_/g, '/'));
+  var arr = new Uint8Array(raw.length);
+  for (var i = 0; i < raw.length; i++) arr[i] = raw.charCodeAt(i);
+  return arr;
+}
+
 function showAlarm(title, body, tag, vibration) {
   var vPattern = vibration === 'verylong'
     ? [1200, 300, 1200, 300, 1500]
@@ -37,6 +50,42 @@ self.addEventListener('push', function(e) {
   ));
 });
 
+// ── pushsubscriptionchange: Android/FCM invalidated the token ──────────────
+// Re-subscribe automatically and update Cloudflare KV.
+// This fires even when the app is fully closed.
+self.addEventListener('pushsubscriptionchange', function(e) {
+  e.waitUntil(
+    self.registration.pushManager.subscribe({
+      userVisibleOnly: true,
+      applicationServerKey: urlB64ToUint8Array(_swVapidKey)
+    }).then(function(newSub) {
+      var tasks = [];
+      // POST new subscription to Cloudflare KV directly from SW
+      if (_swWorkerUrl && _swSyncKey) {
+        tasks.push(
+          fetch(_swWorkerUrl + '/subscribe', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ syncKey: _swSyncKey, subscription: newSub.toJSON() })
+          }).catch(function() {})
+        );
+      }
+      // Notify open app windows so they can also update their local state
+      tasks.push(
+        self.clients.matchAll({ type: 'window', includeUncontrolled: true }).then(function(cs) {
+          cs.forEach(function(c) { c.postMessage({ type: 'PUSH_SUB_CHANGED' }); });
+        })
+      );
+      return Promise.all(tasks);
+    }).catch(function() {
+      // Re-subscribe failed — at least notify open clients so they can retry
+      return self.clients.matchAll({ type: 'window', includeUncontrolled: true }).then(function(cs) {
+        cs.forEach(function(c) { c.postMessage({ type: 'PUSH_SUB_CHANGED' }); });
+      });
+    })
+  );
+});
+
 // ── SW-side setTimeout alarms (backup for when app is open) ────
 function scheduleOne(alarmId, triggerAt, title, body, vibration) {
   if (_timers[alarmId]) clearTimeout(_timers[alarmId]);
@@ -62,6 +111,9 @@ self.addEventListener('message', function(e) {
 
   if (d.type === 'KEEPALIVE') {
     e.waitUntil(new Promise(function(r) { setTimeout(r, 25000); }));
+    // Store config so pushsubscriptionchange can re-register without app being open
+    if (d.workerUrl) _swWorkerUrl = d.workerUrl;
+    if (d.syncKey) _swSyncKey = d.syncKey;
     var now = Date.now();
     (d.alarms || []).forEach(function(a) {
       if (a.triggerAt > now && !_timers[a.alarmId])
