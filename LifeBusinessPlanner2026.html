@@ -22,7 +22,7 @@
 <script>
 (function() {
   // ── Version ──────────────────────────────────────────────────────────────
-  window.LBP_VERSION = '4.7';
+  window.LBP_VERSION = '4.8';
 
   // ── PWA Install prompt ───────────────────────────────────────────────────
   window._installPrompt = null;
@@ -76,7 +76,10 @@
         cbs.forEach(function(cb) { try { cb(window._gcalToken); } catch(e){} });
       }
     });
-    // Token is fetched lazily via _gcalEnsureToken when actually needed (no startup popup)
+    // Auto-reconnect silently if previously connected
+    if (localStorage.getItem('lbp_gcal_connected') === '1') {
+      try { window._gcalTokenClient.requestAccessToken({ prompt: '' }); } catch(e){}
+    }
   };
 
   window._gcalConnect = function() {
@@ -2402,21 +2405,24 @@ var HomeScreen = function HomeScreen(_ref14) {
     label: 'Active Tasks',
     value: activeTasks.length,
     color: '#60A5FA',
-    route: 'tasks'
+    route: 'tasks',
+    filter: 'active'
   }, {
     label: "Today's Tasks",
     value: todayTasks.length,
     color: '#C9A84C',
-    route: 'tasks'
+    route: 'tasks',
+    filter: 'today'
   }, {
     label: 'Overdue',
     value: overdueTasks.length,
     color: overdueTasks.length > 0 ? '#F44336' : '#4CAF50',
-    route: 'tasks'
+    route: 'tasks',
+    filter: 'overdue'
   }].map(function (s) {
     return /*#__PURE__*/React.createElement("div", {
       key: s.label,
-      onClick: function onClick() { return navigate(s.route); },
+      onClick: function onClick() { if (s.filter) window._lbpTaskFilter = s.filter; navigate(s.route); },
       style: {
         background: 'rgba(255,255,255,.1)',
         borderRadius: 10,
@@ -3826,6 +3832,7 @@ var TasksScreen = function TasksScreen(_ref21) {
   var _useStateTCF = useState('All'), _useStateTCFA = _slicedToArray(_useStateTCF, 2), tCatFilter = _useStateTCFA[0], setTCatFilter = _useStateTCFA[1];
   var _useStateTMC = useState(false), _useStateTMCA = _slicedToArray(_useStateTMC, 2), tManageCats = _useStateTMCA[0], setTManageCats = _useStateTMCA[1];
   var _useStateTNC = useState(''), _useStateTNCA = _slicedToArray(_useStateTNC, 2), tNewCat = _useStateTNCA[0], setTNewCat = _useStateTNCA[1];
+  var _useStateTHL = useState(null), _useStateTHLA = _slicedToArray(_useStateTHL, 2), tHighlight = _useStateTHLA[0], setTHighlight = _useStateTHLA[1];
   useEffect(function() {
     var pe = window._lbpPendingEdit;
     if (pe && pe.type === 'tasks') {
@@ -3838,6 +3845,8 @@ var TasksScreen = function TasksScreen(_ref21) {
       window._lbpPendingNew = null;
       setEditItem(null); setModal(true);
     }
+    var pf = window._lbpTaskFilter;
+    if (pf) { window._lbpTaskFilter = null; setTHighlight(pf); }
   }, []);
   var _useStateTAI = useState(null), _useStateTAI2 = _slicedToArray(_useStateTAI,2), tAlarmItem = _useStateTAI2[0], setTAlarmItem = _useStateTAI2[1];
   var _useStateTAF = useState(defaultAlarm()), _useStateTAF2 = _slicedToArray(_useStateTAF,2), tAlarmForm = _useStateTAF2[0], setTAlarmForm = _useStateTAF2[1];
@@ -3864,9 +3873,17 @@ var TasksScreen = function TasksScreen(_ref21) {
   var tCatColor = function(c) { return _tCatColors[c] || '#6B3FA0'; };
   var tAddCat = function() { var v = tNewCat.trim(); if (!v || tAllCats.includes(v)) return; setData(function(d){ return Object.assign({},d,{categories:(d.categories||[]).concat([v])}); }); setTNewCat(''); };
   var tDelCat = function(c) { setData(function(d){ return Object.assign({},d,{categories:(d.categories||[]).filter(function(x){return x!==c;})}); }); if(tCatFilter===c) setTCatFilter('All'); };
-  var displayed = allTasks.filter(function (t) {
-    return t.status === tab && (tCatFilter === 'All' || (t.category || '') === tCatFilter);
-  });
+  var _tTodayStr = (function(){ var d=new Date(); return d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0'); })();
+  var displayed = tHighlight
+    ? allTasks.filter(function(t) {
+        if (tHighlight === 'active') return t.status !== 'DONE';
+        if (tHighlight === 'today') return t.dueDate === _tTodayStr && t.status !== 'DONE';
+        if (tHighlight === 'overdue') return t.dueDate && t.dueDate < _tTodayStr && t.status !== 'DONE';
+        return true;
+      }).filter(function(t){ return tCatFilter === 'All' || (t.category||'') === tCatFilter; })
+    : allTasks.filter(function (t) {
+        return t.status === tab && (tCatFilter === 'All' || (t.category || '') === tCatFilter);
+      });
   var save = function save() {
     if (!form.title) return;
     if (editItem) {
@@ -3969,6 +3986,12 @@ var TasksScreen = function TasksScreen(_ref21) {
   })), /*#__PURE__*/React.createElement("div", {
     className: "page-content"
   }, /*#__PURE__*/React.createElement("div", null,
+    tHighlight && /*#__PURE__*/React.createElement("div", {style:{display:'flex',alignItems:'center',justifyContent:'space-between',background:'var(--purple)22',border:'1px solid var(--purple-light)',borderRadius:10,padding:'8px 12px',marginBottom:10}},
+      /*#__PURE__*/React.createElement("span", {style:{fontSize:12,fontWeight:700,color:'var(--purple-light)'}},
+        tHighlight==='active' ? '\u26a1 Showing: Active Tasks' : tHighlight==='today' ? '\ud83d\udcc5 Showing: Today\'s Tasks' : '\u26a0\ufe0f Showing: Overdue Tasks'
+      ),
+      /*#__PURE__*/React.createElement("button", {onClick:function(){setTHighlight(null);},style:{background:'none',border:'none',color:'var(--text-dim)',cursor:'pointer',fontSize:16,lineHeight:1,padding:'0 2px'}}, '\xd7')
+    ),
     tManageCats && /*#__PURE__*/React.createElement("div", {style:{background:'var(--card)',borderRadius:10,padding:'10px 12px',marginBottom:10,border:'1px solid var(--border)'}},
       /*#__PURE__*/React.createElement("div", {style:{fontWeight:700,fontSize:12,marginBottom:8}}, "Manage Categories"),
       /*#__PURE__*/React.createElement("div", {style:{display:'flex',gap:5,flexWrap:'wrap',marginBottom:8}},
