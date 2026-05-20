@@ -22,7 +22,7 @@
 <script>
 (function() {
   // ── Version ──────────────────────────────────────────────────────────────
-  window.LBP_VERSION = '4.28';
+  window.LBP_VERSION = '4.29';
 
   // ── PWA Install prompt ───────────────────────────────────────────────────
   window._installPrompt = null;
@@ -2822,52 +2822,24 @@ var HomeScreen = function HomeScreen(_ref14) {
       return navigate('projects');
     }
   }, "+ Add Project")) : /*#__PURE__*/React.createElement("div", {
-    style: {
-      display: 'flex',
-      gap: 10,
-      overflowX: 'auto',
-      paddingBottom: 8,
-      marginBottom: 16
-    }
+    style: { marginBottom: 16 }
   }, activePjs.map(function (p) {
     var c = p.status === 'IN_PROGRESS' ? '#4CAF50' : p.status === 'CLIENT_REVIEW' ? '#FF9800' : '#9C27B0';
+    var pct = p.status==='PLANNING'?25:p.status==='IN_PROGRESS'?50:p.status==='CLIENT_REVIEW'?75:p.status==='DONE'?100:0;
     return /*#__PURE__*/React.createElement("div", {
+      className: "task-item",
       key: p.id,
       onClick: function(){ setViewProject(p); },
-      style: {
-        minWidth: 180,
-        background: "".concat(c, "15"),
-        border: "1px solid ".concat(c, "30"),
-        borderRadius: 12,
-        padding: 12,
-        cursor: 'pointer',
-        flexShrink: 0
-      }
-    }, /*#__PURE__*/React.createElement(Chip, {
-      label: p.status.replace('_', ' '),
-      color: c
-    }), /*#__PURE__*/React.createElement("div", {
-      style: {
-        fontWeight: 700,
-        fontSize: 13,
-        margin: '8px 0 4px'
-      }
-    }, p.name), p.dueDate && /*#__PURE__*/React.createElement("div", {
-      style: {
-        fontSize: 11,
-        color: 'var(--text-dim)',
-        marginBottom: 6
-      }
-    }, "Due: ", p.dueDate), /*#__PURE__*/React.createElement(Progress, {
-      value: (p.status==='PLANNING'?25:p.status==='IN_PROGRESS'?50:p.status==='CLIENT_REVIEW'?75:p.status==='DONE'?100:0),
-      color: c
-    }), /*#__PURE__*/React.createElement("div", {
-      style: {
-        fontSize: 11,
-        color: c,
-        marginTop: 3
-      }
-    }, (p.status==='PLANNING'?25:p.status==='IN_PROGRESS'?50:p.status==='CLIENT_REVIEW'?75:p.status==='DONE'?100:0) || 0, "%"));
+      style: { cursor: 'pointer', borderLeft: '3px solid ' + c, paddingLeft: 9 }
+    },
+      /*#__PURE__*/React.createElement("div", {style: {width:10,height:10,borderRadius:'50%',background:c,flexShrink:0,marginRight:2}}),
+      /*#__PURE__*/React.createElement("div", {style: {flex:1,minWidth:0}},
+        /*#__PURE__*/React.createElement("div", {style: {fontSize:13,fontWeight:700,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}, p.name),
+        p.dueDate && /*#__PURE__*/React.createElement("div", {style: {fontSize:11,color:'var(--text-dim)',marginTop:1}}, "📅 ", p.dueDate)
+      ),
+      /*#__PURE__*/React.createElement(Chip, {label: p.status.replace(/_/g,' '), color: c}),
+      /*#__PURE__*/React.createElement("span", {style: {fontSize:11,color:c,fontWeight:700,flexShrink:0,marginLeft:4}}, pct, "%")
+    );
   })), /*#__PURE__*/React.createElement("div", {
     className: "section-title"
   }, "Today's Habits \u2705", /*#__PURE__*/React.createElement("button", {
@@ -3918,7 +3890,7 @@ var ProjectsScreen = function ProjectsScreen(_ref20) {
       }));
     },
     label: form.name || 'Project'
-  })), editItem && editItem.id && /*#__PURE__*/React.createElement(JournalLinksSection, {data:data,setData:setData,itemType:'project',itemId:editItem.id}),
+  )),
   viewLinkedTask && /*#__PURE__*/React.createElement(Modal, {
     title: viewLinkedTask.title || 'Task',
     onClose: function onClose() { return setViewLinkedTask(null); },
