@@ -22,7 +22,7 @@
 <script>
 (function() {
   // ── Version ──────────────────────────────────────────────────────────────
-  window.LBP_VERSION = '4.36';
+  window.LBP_VERSION = '4.37';
 
   // ── PWA Install prompt ───────────────────────────────────────────────────
   window._installPrompt = null;
@@ -339,18 +339,26 @@
     var syncKey = localStorage.getItem('lbp_sync_key');
     if (!syncKey || !window.LBP_WORKER_URL) return;
     clearTimeout(_syncTimer);
-    _pendingSyncData = data;
-    // Capture edit time immediately so the 2s-debounced push uses the right timestamp.
+    // CRITICAL: capture editTime and pre-stamp updatedAt BEFORE the 2s debounce, then
+    // write to localStorage immediately.  If _cloudPull fires during the debounce window
+    // it reads localStorage to get the "local" side of the merge.  Without pre-stamping,
+    // newly-edited items have updatedAt=0 and lose to any cloud item that has a timestamp —
+    // even an old one — causing the per-item resolver to overwrite the user's fresh edit
+    // and revert React state before the push even happens.
     var _editTime = Date.now();
     localStorage.setItem('lbp_last_save', _editTime.toString());
+    var preStamped = _stampUpdatedAt(data, _editTime);
+    try { localStorage.setItem('lbp2026_data', JSON.stringify(preStamped)); } catch(_e) {}
+    _pendingSyncData = preStamped;
     console.log('[LBP SYNC] User edit detected, editTime='+_editTime+', debouncing 2s...');
     _syncTimer = setTimeout(function() {
       _syncTimer = null;
+      var toSync = _pendingSyncData || preStamped;
       _pendingSyncData = null;
-      var _push = function(toSync) {
+      var _push = function(merged) {
         var saveTime = Date.now();
         localStorage.setItem('lbp_last_save', saveTime.toString());
-        var stamped = Object.assign({}, toSync, { _cloudSaveTime: saveTime });
+        var stamped = Object.assign({}, merged, { _cloudSaveTime: saveTime });
         console.log('[LBP SYNC] PUSHING to cloud, _cloudSaveTime='+saveTime);
         _workerFetch('/sync', {
           method: 'POST',
@@ -358,7 +366,6 @@
           body: JSON.stringify({syncKey: syncKey, data: stamped})
         }).then(function(r){ console.log('[LBP SYNC] Push result:', r && r.status); });
       };
-      var preStamped = _stampUpdatedAt(data, _editTime);
       console.log('[LBP SYNC] Pulling cloud before push...');
       _workerFetch('/sync?key=' + encodeURIComponent(syncKey))
         .then(function(res) { return res && res.ok ? res.json() : null; })
@@ -366,8 +373,8 @@
           var cloudData = (json && json.data && json.data._cloudSaveTime) ? json.data : null;
           if (cloudData) _lastKnownCloudData = cloudData;
           console.log('[LBP SYNC] Cloud cloudSaveTime='+(cloudData?cloudData._cloudSaveTime:'none')+' local lbp_last_save='+localStorage.getItem('lbp_last_save'));
-          var merged = cloudData ? _mergeCloudData(preStamped, cloudData) : preStamped;
-          var mergeChanged = merged !== preStamped;
+          var merged = cloudData ? _mergeCloudData(toSync, cloudData) : toSync;
+          var mergeChanged = merged !== toSync;
           console.log('[LBP SYNC] Merge changed local?', mergeChanged);
           if (mergeChanged) {
             localStorage.setItem('lbp2026_data', JSON.stringify(merged));
@@ -375,7 +382,7 @@
           }
           _push(merged);
         })
-        .catch(function(e) { console.warn('[LBP SYNC] Pull failed, pushing anyway:', e); _push(preStamped); });
+        .catch(function(e) { console.warn('[LBP SYNC] Pull failed, pushing anyway:', e); _push(toSync); });
     }, 2000);
   };
 
