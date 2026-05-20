@@ -22,7 +22,7 @@
 <script>
 (function() {
   // ── Version ──────────────────────────────────────────────────────────────
-  window.LBP_VERSION = '4.19';
+  window.LBP_VERSION = '4.23';
 
   // ── PWA Install prompt ───────────────────────────────────────────────────
   window._installPrompt = null;
@@ -194,26 +194,72 @@
     });
   };
 
-  // Debounced cloud sync — called whenever app data changes
+  // Array sections that hold user-created items — used for cross-device merge
+  var _SYNC_LISTS = ['projects','tasks','goals','habits','meetings','routines',
+    'habitEntries','journal','content','travel','bucketList','books','services',
+    'resources','documents','campaigns','clientJourney','outfits','householdTasks',
+    'workouts','workoutTemplates','recipes','groceryItems','medications',
+    'medicationLogs','skinLogs','skinProducts','clients','transactions',
+    'routineLogs','categories'];
+
+  // Merge local data with cloud data: items that exist in cloud but NOT in local
+  // (by id) are appended. Local items always win on conflict (same id → keep local).
+  // Returns the merged object; returns local unchanged if cloud has nothing new.
+  function _mergeCloudData(local, cloud) {
+    if (!cloud) return local;
+    var merged = Object.assign({}, local);
+    var changed = false;
+    _SYNC_LISTS.forEach(function(k) {
+      var localArr = local[k] || [];
+      var cloudArr = cloud[k] || [];
+      if (!cloudArr.length) return;
+      var localIds = new Set(localArr.map(function(i) { return i && i.id; }));
+      var extras = cloudArr.filter(function(i) { return i && i.id && !localIds.has(i.id); });
+      if (extras.length) { merged[k] = localArr.concat(extras); changed = true; }
+    });
+    return changed ? merged : local;
+  }
+
+  // Last successfully fetched cloud snapshot — used by flush to merge without an async pull
+  var _lastKnownCloudData = null;
+
+  // Debounced cloud sync — pull → merge → push pattern
+  // This guarantees that a device never overwrites items added by another device.
   var _syncTimer = null;
   var _pendingSyncData = null;
   window._cloudSync = function(data) {
     var syncKey = localStorage.getItem('lbp_sync_key');
     if (!syncKey || !window.LBP_WORKER_URL) return;
     clearTimeout(_syncTimer);
-    _pendingSyncData = data; // track for emergency flush
+    _pendingSyncData = data;
     _syncTimer = setTimeout(function() {
-      // Stamp _cloudSaveTime so the pull can compare which version is newer
-      var saveTime = Date.now();
-      localStorage.setItem('lbp_last_save', saveTime.toString());
-      var stamped = Object.assign({}, data, { _cloudSaveTime: saveTime });
-      _pendingSyncData = null;
       _syncTimer = null;
-      _workerFetch('/sync', {
-        method: 'POST',
-        headers: {'Content-Type':'application/json'},
-        body: JSON.stringify({syncKey: syncKey, data: stamped})
-      });
+      _pendingSyncData = null;
+      var _push = function(toSync) {
+        var saveTime = Date.now();
+        localStorage.setItem('lbp_last_save', saveTime.toString());
+        var stamped = Object.assign({}, toSync, { _cloudSaveTime: saveTime });
+        _workerFetch('/sync', {
+          method: 'POST',
+          headers: {'Content-Type':'application/json'},
+          body: JSON.stringify({syncKey: syncKey, data: stamped})
+        });
+      };
+      // Pull current cloud state first, merge, then push
+      _workerFetch('/sync?key=' + encodeURIComponent(syncKey))
+        .then(function(res) { return res && res.ok ? res.json() : null; })
+        .then(function(json) {
+          var cloudData = (json && json.data && json.data._cloudSaveTime) ? json.data : null;
+          if (cloudData) _lastKnownCloudData = cloudData;
+          var merged = cloudData ? _mergeCloudData(data, cloudData) : data;
+          // If merge added items from cloud, update localStorage + React so UI reflects them
+          if (merged !== data) {
+            localStorage.setItem('lbp2026_data', JSON.stringify(merged));
+            window.dispatchEvent(new Event('lbp_cloud_sync'));
+          }
+          _push(merged);
+        })
+        .catch(function() { _push(data); }); // network error → push local as-is
     }, 2000);
   };
 
@@ -224,17 +270,19 @@
     _syncTimer = null;
     var syncKey = localStorage.getItem('lbp_sync_key');
     if (!syncKey || !window.LBP_WORKER_URL) return;
+    // Merge with last known cloud snapshot so the flush never wipes another device's items
+    var toFlush = _mergeCloudData(_pendingSyncData, _lastKnownCloudData);
+    _pendingSyncData = null;
     var saveTime = Date.now();
     localStorage.setItem('lbp_last_save', saveTime.toString());
-    var stamped = Object.assign({}, _pendingSyncData, { _cloudSaveTime: saveTime });
-    // Use sendBeacon for beforeunload (doesn't get cancelled when page closes)
+    var stamped = Object.assign({}, toFlush, { _cloudSaveTime: saveTime });
     var payload = JSON.stringify({ syncKey: syncKey, data: stamped });
+    // sendBeacon survives page close; keepalive fetch as fallback
     if (navigator.sendBeacon) {
       navigator.sendBeacon(window.LBP_WORKER_URL + '/sync', new Blob([payload], { type: 'application/json' }));
     } else {
-      _workerFetch('/sync', { method: 'POST', headers: {'Content-Type':'application/json'}, body: payload });
+      fetch(window.LBP_WORKER_URL + '/sync', { method: 'POST', headers: {'Content-Type':'application/json'}, body: payload, keepalive: true }).catch(function(){});
     }
-    _pendingSyncData = null;
   };
 
   // Batch-buffered cloud alarm scheduler — collects all alarms from a scheduleAlarms run
@@ -412,6 +460,8 @@
           }
         }
         var local = {};
+        // Cache cloud snapshot so _flushCloudSync can merge without an async pull
+        _lastKnownCloudData = json.data;
         try { local = JSON.parse(localStorage.getItem('lbp2026_data') || '{}'); } catch(_e) {}
         var merged = Object.assign({}, json.data);
         // Preserve local alarm log entries not in cloud
@@ -2768,7 +2818,7 @@ var HomeScreen = function HomeScreen(_ref14) {
         marginBottom: 6
       }
     }, "Due: ", p.dueDate), /*#__PURE__*/React.createElement(Progress, {
-      value: p.completion || 0,
+      value: (p.status==='PLANNING'?25:p.status==='IN_PROGRESS'?50:p.status==='CLIENT_REVIEW'?75:p.status==='DONE'?100:0),
       color: c
     }), /*#__PURE__*/React.createElement("div", {
       style: {
@@ -2776,7 +2826,7 @@ var HomeScreen = function HomeScreen(_ref14) {
         color: c,
         marginTop: 3
       }
-    }, p.completion || 0, "%"));
+    }, (p.status==='PLANNING'?25:p.status==='IN_PROGRESS'?50:p.status==='CLIENT_REVIEW'?75:p.status==='DONE'?100:0) || 0, "%"));
   })), /*#__PURE__*/React.createElement("div", {
     className: "section-title"
   }, "Today's Habits \u2705", /*#__PURE__*/React.createElement("button", {
@@ -3000,8 +3050,8 @@ var HomeScreen = function HomeScreen(_ref14) {
       viewProject.dueDate && /*#__PURE__*/React.createElement("span",{style:{fontSize:12,color:"var(--text-dim)"}}, "\uD83D\uDCC5 ", viewProject.dueDate),
       viewProject.budget && /*#__PURE__*/React.createElement("span",{style:{fontSize:12,color:"var(--text-dim)"}}, "\uD83D\uDCB0 $", viewProject.budget)
     ),
-    /*#__PURE__*/React.createElement(Progress, {value: viewProject.completion || 0, color: '#4CAF50'}),
-    /*#__PURE__*/React.createElement("div", {style:{fontSize:11,color:"var(--text-dim)",marginTop:2,marginBottom:10}}, (viewProject.completion||0) + "% complete"),
+    /*#__PURE__*/React.createElement(Progress, {value: (viewProject.status==='PLANNING'?25:viewProject.status==='IN_PROGRESS'?50:viewProject.status==='CLIENT_REVIEW'?75:viewProject.status==='DONE'?100:0), color: '#4CAF50'}),
+    /*#__PURE__*/React.createElement("div", {style:{fontSize:11,color:"var(--text-dim)",marginTop:2,marginBottom:10}}, (viewProject.status==='PLANNING'?25:viewProject.status==='IN_PROGRESS'?50:viewProject.status==='CLIENT_REVIEW'?75:viewProject.status==='DONE'?100:0) + "% complete"),
     viewProject.description && /*#__PURE__*/React.createElement("div", {style:{fontSize:13,lineHeight:1.6}}, /*#__PURE__*/React.createElement(RichContent,{html:viewProject.description}))
   )),
   alarmEditItem && /*#__PURE__*/React.createElement(Modal, {
@@ -3133,7 +3183,8 @@ var GoalsScreen = function GoalsScreen(_ref19) {
   }, /*#__PURE__*/React.createElement("h1", null, "\uD83C\uDFAF Goals & Vision"), /*#__PURE__*/React.createElement("button", {
     className: "btn btn-primary btn-sm",
     onClick: function onClick() {
-      return setModal(true);
+      setEditItem(null); setForm({title:'',description:'',vision:'',period:'YEARLY',category:'',targetDate:'',progress:0,alarm:defaultAlarm()});
+      setModal(true);
     }
   }, "+ Add Goal")), /*#__PURE__*/React.createElement("div", {
     className: "tabs"
@@ -3264,7 +3315,22 @@ var GoalsScreen = function GoalsScreen(_ref19) {
   }))), modal && /*#__PURE__*/React.createElement(Modal, {
     title: "New Goal",
     onClose: function onClose() {
-      return setModal(false);
+      setModal(false);
+      setEditItem(null);
+      setForm({
+      name: '',
+      description: '',
+      type: 'OTHER',
+      pricing: 'FIXED',
+      budget: '',
+      dueDate: '',
+      status: 'PLANNING',
+      completion: 0,
+      category: '',
+      tags: [],
+      subtasks: [],
+      alarm: defaultAlarm()
+    });
     },
     footer: /*#__PURE__*/React.createElement(React.Fragment, null, /*#__PURE__*/React.createElement("button", {
       className: "btn btn-secondary",
@@ -3425,6 +3491,9 @@ var ProjectsScreen = function ProjectsScreen(_ref20) {
     _useStateSF2 = _slicedToArray(_useStateSF, 2),
     subtaskForm = _useStateSF2[0],
     setSubtaskForm = _useStateSF2[1];
+  var statusToCompletion = function(s) {
+    return s === 'PLANNING' ? 25 : s === 'IN_PROGRESS' ? 50 : s === 'CLIENT_REVIEW' ? 75 : s === 'DONE' ? 100 : 0;
+  };
   var allProjects = data.projects || [];
   var pAllCats = data.categories && data.categories.length ? data.categories : ['Personal','Work','Home','Health','Finance','Learning','Creative'];
   var _pCatColors = {'Personal':'#FF9800','Work':'#2196F3','Home':'#4CAF50','Health':'#F44336','Finance':'#00BCD4','Learning':'#9C27B0','Creative':'#E91E63','Other':'#607D8B'};
@@ -3455,10 +3524,11 @@ var ProjectsScreen = function ProjectsScreen(_ref20) {
   var save = function save() {
     if (!form.name) return;
     if (editItem) {
+      var _formWithCompletion = _objectSpread(_objectSpread({}, form), {}, {completion: statusToCompletion(form.status)});
       setData(function (d) {
         return _objectSpread(_objectSpread({}, d), {}, {
           projects: d.projects.map(function (x) {
-            return x.id === editItem.id ? _objectSpread(_objectSpread({}, editItem), form) : x;
+            return x.id === editItem.id ? _objectSpread(_objectSpread({}, editItem), _formWithCompletion) : x;
           })
         });
       });
@@ -3467,7 +3537,8 @@ var ProjectsScreen = function ProjectsScreen(_ref20) {
         return _objectSpread(_objectSpread({}, d), {}, {
           projects: [].concat(_toConsumableArray(d.projects || []), [_objectSpread(_objectSpread({}, form), {}, {
             id: uid(),
-            createdAt: now()
+            createdAt: now(),
+            completion: statusToCompletion(form.status)
           })])
         });
       });
@@ -3524,7 +3595,22 @@ var ProjectsScreen = function ProjectsScreen(_ref20) {
   }, /*#__PURE__*/React.createElement("h1", null, "\uD83D\uDCC1 Project Manager"), /*#__PURE__*/React.createElement("button", {
     className: "btn btn-primary btn-sm",
     onClick: function onClick() {
-      return setModal(true);
+      setEditItem(null);
+      setForm({
+      name: '',
+      description: '',
+      type: 'OTHER',
+      pricing: 'FIXED',
+      budget: '',
+      dueDate: '',
+      status: 'PLANNING',
+      completion: 0,
+      category: '',
+      tags: [],
+      subtasks: [],
+      alarm: defaultAlarm()
+    });
+      setModal(true);
     }
   }, "+ New Project")), /*#__PURE__*/React.createElement("div", {
     className: "tabs"
@@ -3634,7 +3720,7 @@ var ProjectsScreen = function ProjectsScreen(_ref20) {
     }, /*#__PURE__*/React.createElement(RichContent, {
       html: p.description
     })), /*#__PURE__*/React.createElement(Progress, {
-      value: p.completion || 0,
+      value: statusToCompletion(p.status),
       color: c
     }), /*#__PURE__*/React.createElement("div", {
       style: {
@@ -3652,7 +3738,7 @@ var ProjectsScreen = function ProjectsScreen(_ref20) {
         color: c,
         fontWeight: 700
       }
-    }, p.completion || 0, "%")), p.budget && /*#__PURE__*/React.createElement("div", {
+    }, statusToCompletion(p.status), "%")), p.budget && /*#__PURE__*/React.createElement("div", {
       style: {
         fontSize: 11,
         color: '#4CAF50',
@@ -3699,7 +3785,7 @@ var ProjectsScreen = function ProjectsScreen(_ref20) {
   }, "+ New Project"))), modal && /*#__PURE__*/React.createElement(Modal, {
     title: editItem ? "Edit Project" : "New Project",
     onClose: function onClose() {
-      return setModal(false);
+      setModal(false); setEditItem(null);
     },
     footer: /*#__PURE__*/React.createElement(React.Fragment, null, /*#__PURE__*/React.createElement("button", {
       className: "btn btn-secondary",
@@ -4016,7 +4102,7 @@ var TasksScreen = function TasksScreen(_ref21) {
     /*#__PURE__*/React.createElement("button", {className:"btn btn-secondary btn-sm", onClick:function(){setCompact(function(c){return !c;});}, title:compact?"Expanded view":"Compact view"}, compact ? "☐ Expand" : "☰ Compact"),
     /*#__PURE__*/React.createElement("button", {
       className: "btn btn-primary btn-sm",
-      onClick: function onClick() { return setModal(true); }
+      onClick: function onClick() { setEditItem(null); setForm({title:'',description:'',status:'INBOX',priority:'MEDIUM',dueDate:'',estimatedHours:'',projectId:'',attachments:[],category:'',tags:[],alarm:defaultAlarm()}); setModal(true); }
     }, "+ Add Task")
   )), /*#__PURE__*/React.createElement("div", {
     className: "tabs"
@@ -4082,9 +4168,7 @@ var TasksScreen = function TasksScreen(_ref21) {
     className: "e-icon"
   }, "\u2705"), /*#__PURE__*/React.createElement("h3", null, "Nothing here"), /*#__PURE__*/React.createElement("button", {
     className: "btn btn-primary",
-    onClick: function onClick() {
-      return setModal(true);
-    }
+    onClick: function onClick() { setEditItem(null); setForm({title:'',description:'',status:'INBOX',priority:'MEDIUM',dueDate:'',estimatedHours:'',projectId:'',attachments:[],category:'',tags:[],alarm:defaultAlarm()}); setModal(true); }
   }, "+ Add Task")) : displayed.map(function (t) {
     var _t$alarm2;
     if (compact) {
@@ -4222,7 +4306,7 @@ var TasksScreen = function TasksScreen(_ref21) {
   })), modal && /*#__PURE__*/React.createElement(Modal, {
     title: editItem ? "Edit Task" : "New Task",
     onClose: function onClose() {
-      return setModal(false);
+      setModal(false); setEditItem(null);
     },
     footer: /*#__PURE__*/React.createElement(React.Fragment, null, /*#__PURE__*/React.createElement("button", {
       className: "btn btn-secondary",
@@ -4484,7 +4568,8 @@ var ClientsScreen = function ClientsScreen(_ref24) {
   }, "\uD83D\uDC65"), /*#__PURE__*/React.createElement("h3", null, "No clients yet"), /*#__PURE__*/React.createElement("button", {
     className: "btn btn-primary",
     onClick: function onClick() {
-      return setModal(true);
+      setEditItem(null); setForm({name:'',businessName:'',email:'',phone:'',status:'LEAD',industry:'',notes:''});
+      setModal(true);
     }
   }, "+ Add Client")) : clients.map(function (c) {
     return /*#__PURE__*/React.createElement("div", {
@@ -4566,7 +4651,7 @@ var ClientsScreen = function ClientsScreen(_ref24) {
   })), modal && /*#__PURE__*/React.createElement(Modal, {
     title: "New Client",
     onClose: function onClose() {
-      return setModal(false);
+      setModal(false); setEditItem(null);
     },
     footer: /*#__PURE__*/React.createElement(React.Fragment, null, /*#__PURE__*/React.createElement("button", {
       className: "btn btn-secondary",
@@ -4866,7 +4951,8 @@ var FinanceScreen = function FinanceScreen(_ref25) {
   }, "\uD83D\uDCB0"), /*#__PURE__*/React.createElement("h3", null, "No transactions this month"), /*#__PURE__*/React.createElement("button", {
     className: "btn btn-primary",
     onClick: function onClick() {
-      return setModal(true);
+      setEditItem(null); setForm({title:'',amount:'',type:'INCOME',category:'',invoiceNumber:'',isPaid:false,notes:''});
+      setModal(true);
     }
   }, "+ Add Transaction")) : displayed.map(function (t) {
     var c = t.type === 'INCOME' ? '#4CAF50' : '#F44336';
@@ -4934,7 +5020,7 @@ var FinanceScreen = function FinanceScreen(_ref25) {
   })), modal && /*#__PURE__*/React.createElement(Modal, {
     title: "Add Transaction",
     onClose: function onClose() {
-      return setModal(false);
+      setModal(false); setEditItem(null);
     },
     footer: /*#__PURE__*/React.createElement(React.Fragment, null, /*#__PURE__*/React.createElement("button", {
       className: "btn btn-secondary",
@@ -5212,9 +5298,7 @@ var MeetingsScreen = function MeetingsScreen(_ref26) {
     className: "page-header"
   }, /*#__PURE__*/React.createElement("h1", null, "\uD83D\uDCC5 Meetings & Events"), /*#__PURE__*/React.createElement("button", {
     className: "btn btn-primary btn-sm",
-    onClick: function onClick() {
-      return setModal(true);
-    }
+    onClick: function onClick() { setEditItem(null); setForm({title:'',date:today(),startTime:'09:00',endTime:'10:00',isOnline:false,location:'',agenda:'',notes:'',alarm:meetingAlarmDefault(today(),'09:00')}); setModal(true); }
   }, "+ New")), /*#__PURE__*/React.createElement("div", {
     className: "page-content"
   },
@@ -5248,7 +5332,7 @@ var MeetingsScreen = function MeetingsScreen(_ref26) {
   }, "+ Schedule Meeting"))), modal && /*#__PURE__*/React.createElement(Modal, {
     title: editItem ? "Edit Meeting / Event" : "New Meeting / Event",
     onClose: function onClose() {
-      return setModal(false);
+      setModal(false); setEditItem(null);
     },
     footer: /*#__PURE__*/React.createElement(React.Fragment, null, /*#__PURE__*/React.createElement("button", {
       className: "btn btn-secondary",
@@ -5516,7 +5600,8 @@ var ContentScreen = function ContentScreen(_ref28) {
   }, "\uD83D\uDCF1"), /*#__PURE__*/React.createElement("h3", null, "No content here"), /*#__PURE__*/React.createElement("button", {
     className: "btn btn-primary",
     onClick: function onClick() {
-      return setModal(true);
+      setEditItem(null); setForm({title:'',description:'',caption:'',hashtags:'',platform:'INSTAGRAM',contentType:'POST',status:'IDEA',scheduledDate:''});
+      setModal(true);
     }
   }, "+ Add Idea")) : content.map(function (c) {
     return /*#__PURE__*/React.createElement("div", {
@@ -5595,7 +5680,7 @@ var ContentScreen = function ContentScreen(_ref28) {
   })), modal && /*#__PURE__*/React.createElement(Modal, {
     title: "New Content Idea",
     onClose: function onClose() {
-      return setModal(false);
+      setModal(false); setEditItem(null);
     },
     footer: /*#__PURE__*/React.createElement(React.Fragment, null, /*#__PURE__*/React.createElement("button", {
       className: "btn btn-secondary",
@@ -6433,7 +6518,8 @@ var HabitsScreen = function HabitsScreen(_ref38) {
   }, /*#__PURE__*/React.createElement("h1", null, "\uD83D\uDD04 Habit Tracker"), /*#__PURE__*/React.createElement("button", {
     className: "btn btn-primary btn-sm",
     onClick: function onClick() {
-      return setModal(true);
+      setEditItem(null); setForm({name:'',description:'',emoji:'✅',color:'#6B3FA0',category:'',alarm:defaultAlarm()});
+      setModal(true);
     }
   }, "+ Add Habit")), /*#__PURE__*/React.createElement("div", {
     className: "page-content"
@@ -6569,7 +6655,7 @@ var HabitsScreen = function HabitsScreen(_ref38) {
   })), modal && /*#__PURE__*/React.createElement(Modal, {
     title: "New Habit",
     onClose: function onClose() {
-      return setModal(false);
+      setModal(false); setEditItem(null);
     },
     footer: /*#__PURE__*/React.createElement(React.Fragment, null, /*#__PURE__*/React.createElement("button", {
       className: "btn btn-secondary",
@@ -6891,7 +6977,7 @@ var BucketListScreen = function BucketListScreen(_ref39) {
   }))), modal && /*#__PURE__*/React.createElement(Modal, {
     title: "Add Bucket List Item",
     onClose: function onClose() {
-      return setModal(false);
+      setModal(false); setEditItem(null);
     },
     footer: /*#__PURE__*/React.createElement(React.Fragment, null, /*#__PURE__*/React.createElement("button", {
       className: "btn btn-secondary",
@@ -7043,7 +7129,8 @@ var TravelScreen = function TravelScreen(_ref40) {
   }, /*#__PURE__*/React.createElement("h1", null, "\u2708\uFE0F Travel Planner"), /*#__PURE__*/React.createElement("button", {
     className: "btn btn-primary btn-sm",
     onClick: function onClick() {
-      return setModal(true);
+      setEditItem(null); setForm({destination:'',country:'',status:'DREAMING',startDate:'',endDate:'',budget:'',accommodation:'',notes:''});
+      setModal(true);
     }
   }, "+ Add Destination")), /*#__PURE__*/React.createElement("div", {
     className: "tabs"
@@ -7126,7 +7213,7 @@ var TravelScreen = function TravelScreen(_ref40) {
   })), modal && /*#__PURE__*/React.createElement(Modal, {
     title: "Add Travel Plan",
     onClose: function onClose() {
-      return setModal(false);
+      setModal(false); setEditItem(null);
     },
     footer: /*#__PURE__*/React.createElement(React.Fragment, null, /*#__PURE__*/React.createElement("button", {
       className: "btn btn-secondary",
@@ -7305,7 +7392,8 @@ var BooksScreen = function BooksScreen(_ref41) {
   }, /*#__PURE__*/React.createElement("h1", null, "\uD83D\uDCDA Book Library"), /*#__PURE__*/React.createElement("button", {
     className: "btn btn-primary btn-sm",
     onClick: function onClick() {
-      return setModal(true);
+      setEditItem(null); setForm({title:'',author:'',genre:'',status:'WANT_TO_READ',rating:0,notes:'',startDate:'',endDate:''});
+      setModal(true);
     }
   }, "+ Add Book")), /*#__PURE__*/React.createElement("div", {
     className: "page-content"
@@ -7395,7 +7483,7 @@ var BooksScreen = function BooksScreen(_ref41) {
   })), modal && /*#__PURE__*/React.createElement(Modal, {
     title: "Add Book",
     onClose: function onClose() {
-      return setModal(false);
+      setModal(false); setEditItem(null);
     },
     footer: /*#__PURE__*/React.createElement(React.Fragment, null, /*#__PURE__*/React.createElement("button", {
       className: "btn btn-secondary",
@@ -7567,7 +7655,8 @@ var ServicesScreen = function ServicesScreen(_ref42) {
   }, /*#__PURE__*/React.createElement("h1", null, "\uD83D\uDCBC Services"), /*#__PURE__*/React.createElement("button", {
     className: "btn btn-primary btn-sm",
     onClick: function onClick() {
-      return setModal(true);
+      setEditItem(null); setForm({name:'',description:'',price:'',priceType:'FIXED',deliverables:'',duration:'',isActive:true});
+      setModal(true);
     }
   }, "+ Add Service")), /*#__PURE__*/React.createElement("div", {
     className: "page-content"
@@ -7644,7 +7733,7 @@ var ServicesScreen = function ServicesScreen(_ref42) {
   })), modal && /*#__PURE__*/React.createElement(Modal, {
     title: "New Service",
     onClose: function onClose() {
-      return setModal(false);
+      setModal(false); setEditItem(null);
     },
     footer: /*#__PURE__*/React.createElement(React.Fragment, null, /*#__PURE__*/React.createElement("button", {
       className: "btn btn-secondary",
@@ -8615,7 +8704,7 @@ var RoutinesScreen = function RoutinesScreen(_ref47) {
   })), modal && /*#__PURE__*/React.createElement(Modal, {
     title: routineEditItem ? "Edit Routine Step" : "Add Routine Step",
     onClose: function onClose() {
-      return setModal(false);
+      setModal(false); setEditItem(null);
     },
     footer: /*#__PURE__*/React.createElement(React.Fragment, null, /*#__PURE__*/React.createElement("button", {
       className: "btn btn-secondary",
@@ -8937,7 +9026,7 @@ var ResourcesScreen = function ResourcesScreen(_ref50) {
   })))), modal && /*#__PURE__*/React.createElement(Modal, {
     title: "Add Resource",
     onClose: function onClose() {
-      return setModal(false);
+      setModal(false); setEditItem(null);
     },
     footer: /*#__PURE__*/React.createElement(React.Fragment, null, /*#__PURE__*/React.createElement("button", {
       className: "btn btn-secondary",
@@ -9943,7 +10032,7 @@ var MarketingStrategyScreen = function MarketingStrategyScreen(_ref54) {
   }))), modal && /*#__PURE__*/React.createElement(Modal, {
     title: "New Campaign",
     onClose: function onClose() {
-      return setModal(false);
+      setModal(false); setEditItem(null);
     },
     footer: /*#__PURE__*/React.createElement(React.Fragment, null, /*#__PURE__*/React.createElement("button", {
       className: "btn btn-secondary",
@@ -10209,7 +10298,7 @@ var OutfitPlannerScreen = function OutfitPlannerScreen(_ref55) {
   }))), modal && /*#__PURE__*/React.createElement(Modal, {
     title: "New Outfit",
     onClose: function onClose() {
-      return setModal(false);
+      setModal(false); setEditItem(null);
     },
     footer: /*#__PURE__*/React.createElement(React.Fragment, null, /*#__PURE__*/React.createElement("button", {
       className: "btn btn-secondary",
@@ -10550,7 +10639,7 @@ var HouseholdScreen = function HouseholdScreen(_ref56) {
   })), modal && /*#__PURE__*/React.createElement(Modal, {
     title: "Add Household Task",
     onClose: function onClose() {
-      return setModal(false);
+      setModal(false); setEditItem(null);
     },
     footer: /*#__PURE__*/React.createElement(React.Fragment, null, /*#__PURE__*/React.createElement("button", {
       className: "btn btn-secondary",
@@ -11538,7 +11627,7 @@ var RecipesScreen = function RecipesScreen(_ref58) {
   })))), modal && /*#__PURE__*/React.createElement(Modal, {
     title: "New Recipe",
     onClose: function onClose() {
-      return setModal(false);
+      setModal(false); setEditItem(null);
     },
     footer: /*#__PURE__*/React.createElement(React.Fragment, null, /*#__PURE__*/React.createElement("button", {
       className: "btn btn-secondary",
@@ -12013,7 +12102,7 @@ var MedicationScreen = function MedicationScreen(_ref59) {
   }))), modal && /*#__PURE__*/React.createElement(Modal, {
     title: "Add Medication",
     onClose: function onClose() {
-      return setModal(false);
+      setModal(false); setEditItem(null);
     },
     footer: /*#__PURE__*/React.createElement(React.Fragment, null, /*#__PURE__*/React.createElement("button", {
       className: "btn btn-secondary",
@@ -13284,7 +13373,7 @@ var App = function App() {
 
   // Auto-pull from cloud every 5 minutes (desktop keeps data fresh without manual refresh)
   useEffect(function() {
-    var _autoRefreshMs = 5 * 60 * 1000; // 5 minutes
+    var _autoRefreshMs = 60 * 1000; // 60 seconds — fast cross-device sync
     var _iv = setInterval(function() {
       if (window._cloudPull && localStorage.getItem('lbp_worker_url')) {
         window._cloudPull(null, false);
