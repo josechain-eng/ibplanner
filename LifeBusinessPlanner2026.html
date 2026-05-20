@@ -22,7 +22,7 @@
 <script>
 (function() {
   // ── Version ──────────────────────────────────────────────────────────────
-  window.LBP_VERSION = '4.14';
+  window.LBP_VERSION = '4.16';
 
   // ── PWA Install prompt ───────────────────────────────────────────────────
   window._installPrompt = null;
@@ -2337,10 +2337,10 @@ var HomeScreen = function HomeScreen(_ref14) {
     return p.dueDate && p.dueDate < todayStr && !['DONE','ARCHIVED'].includes(p.status);
   });
   var overdueGoals = goals.filter(function(g) {
-    return g.targetDate && g.targetDate < todayStr && g.status !== 'COMPLETED';
+    return g.targetDate && g.targetDate < todayStr && !['COMPLETED','PAUSED'].includes(g.status);
   });
   var activePjs = projects.filter(function (p) {
-    return ['IN_PROGRESS', 'CLIENT_REVIEW'].includes(p.status);
+    return ['PLANNING', 'IN_PROGRESS', 'CLIENT_REVIEW'].includes(p.status);
   });
   var activeTasks = tasks.filter(function (t) { return t.status !== 'DONE'; });
   var thisMonth = new Date().getMonth() + 1;
@@ -2457,7 +2457,8 @@ var HomeScreen = function HomeScreen(_ref14) {
     label: 'Active Projects',
     value: activePjs.length,
     color: '#9C68D6',
-    route: 'projects'
+    route: 'projects',
+    filter: 'active'
   }, {
     label: 'Active Tasks',
     value: activeTasks.length,
@@ -2479,7 +2480,7 @@ var HomeScreen = function HomeScreen(_ref14) {
   }].map(function (s) {
     return /*#__PURE__*/React.createElement("div", {
       key: s.label,
-      onClick: function onClick() { if (s.filter) window._lbpTaskFilter = s.filter; navigate(s.route); },
+      onClick: function onClick() { if (s.filter) { if (s.route==='projects') window._lbpProjectFilter = s.filter; else window._lbpTaskFilter = s.filter; } navigate(s.route); },
       style: {
         background: 'rgba(255,255,255,.1)',
         borderRadius: 10,
@@ -3025,9 +3026,10 @@ var GoalsScreen = function GoalsScreen(_ref19) {
     _useState26 = _slicedToArray(_useState25, 2),
     form = _useState26[0],
     setForm = _useState26[1];
+  var _useStateGHL = useState(null), _useStateGHLA = _slicedToArray(_useStateGHL, 2), gHighlight = _useStateGHLA[0], setGHighlight = _useStateGHLA[1];
   var _gTodayStr = (function(){ var d=new Date(); return d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0'); })();
   var goals = gHighlight === 'overdue'
-    ? (data.goals || []).filter(function(g) { return g.targetDate && g.targetDate < _gTodayStr && g.status !== 'COMPLETED'; })
+    ? (data.goals || []).filter(function(g) { return g.targetDate && g.targetDate < _gTodayStr && !['COMPLETED','PAUSED'].includes(g.status); })
     : (data.goals || []).filter(function (g) { return tab === 'All' || g.period === tab.toUpperCase(); });
   var save = function save() {
     if (!form.title) return;
@@ -3063,7 +3065,6 @@ var GoalsScreen = function GoalsScreen(_ref19) {
     setModal(false);
     setEditItem(null);
   };
-  var _useStateGHL = useState(null), _useStateGHLA = _slicedToArray(_useStateGHL, 2), gHighlight = _useStateGHLA[0], setGHighlight = _useStateGHLA[1];
   var _gSwipe = useRef({x:null,y:null,did:false});
   useEffect(function() {
     var pe = window._lbpPendingEdit;
@@ -3402,11 +3403,12 @@ var ProjectsScreen = function ProjectsScreen(_ref20) {
   var allProjectsFiltered = pCatFilter === 'All' ? allProjects : allProjects.filter(function(p){ return (p.category||'') === pCatFilter; });
   var _pTodayStr = (function(){ var d=new Date(); return d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0'); })();
   var displayed = pHighlight
-    ? allProjects.filter(function(p) {
+    ? allProjectsFiltered.filter(function(p) {
         if (pHighlight === 'overdue') return p.dueDate && p.dueDate < _pTodayStr && !['DONE','ARCHIVED'].includes(p.status);
+        if (pHighlight === 'active') return ['PLANNING','IN_PROGRESS','CLIENT_REVIEW'].includes(p.status);
         return true;
       })
-    : (tab === 'All' ? allProjects : allProjects.filter(function (p) {
+    : (tab === 'All' ? allProjectsFiltered : allProjectsFiltered.filter(function (p) {
         return p.status === tab.replace(' ', '_');
       }));
   var saveSubtask = function saveSubtask() {
@@ -3508,7 +3510,7 @@ var ProjectsScreen = function ProjectsScreen(_ref20) {
   }, /*#__PURE__*/React.createElement("div", null,
     pHighlight && /*#__PURE__*/React.createElement("div", {style:{display:'flex',alignItems:'center',justifyContent:'space-between',background:'rgba(255,152,0,.15)',border:'1px solid rgba(255,152,0,.5)',borderRadius:10,padding:'8px 12px',marginBottom:10}},
       /*#__PURE__*/React.createElement("span", {style:{fontSize:12,fontWeight:700,color:'#FF9800'}},
-        pHighlight==='overdue' ? '\u26a0\ufe0f Showing: Overdue Projects' : 'Filtered'
+        pHighlight==='overdue' ? '\u26a0\ufe0f Showing: Overdue Projects' : pHighlight==='active' ? '\u26a1 Showing: Active Projects' : 'Filtered'
       ),
       /*#__PURE__*/React.createElement("button", {onClick:function(){setPHighlight(null);setTab('All');},style:{background:'none',border:'none',color:'var(--text-dim)',cursor:'pointer',fontSize:16,lineHeight:1,padding:'0 2px'}}, '\xd7')
     ),
@@ -3542,7 +3544,7 @@ var ProjectsScreen = function ProjectsScreen(_ref20) {
     )
   ), tab === 'All' && /*#__PURE__*/React.createElement("div", {
     className: "kanban mb-16"
-  }, ['IN_PROGRESS', 'CLIENT_REVIEW', 'DONE'].map(function (s) {
+  }, ['PLANNING', 'IN_PROGRESS', 'CLIENT_REVIEW', 'DONE', 'ARCHIVED'].map(function (s) {
     var c = statusColor(s);
     var _kCol = allProjectsFiltered.filter(function (p) { return p.status === s; });
     if (!_kCol.length) return null; // skip empty columns — don't show banner with nothing in it
