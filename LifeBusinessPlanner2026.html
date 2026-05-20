@@ -22,7 +22,7 @@
 <script>
 (function() {
   // ── Version ──────────────────────────────────────────────────────────────
-  window.LBP_VERSION = '4.30';
+  window.LBP_VERSION = '4.33';
 
   // ── PWA Install prompt ───────────────────────────────────────────────────
   window._installPrompt = null;
@@ -260,7 +260,19 @@
   // are treated as authoritative (cloudIsNewer stays false for concurrent remote changes).
   var _syncTimer = null;
   var _pendingSyncData = null;
+  // Flag set by onCloudSync before calling setData so _cloudSync knows the
+  // data update came from a cloud pull — not a user edit — and skips pushing back.
+  // This breaks the auto-pull → push loop that caused other devices to lose their edits.
+  window._lbpCloudPullUpdate = false;
   window._cloudSync = function(data) {
+    // If this setData call was triggered by a cloud pull (not a user edit), skip the
+    // push entirely.  Without this guard, every 60-second auto-pull on a reading device
+    // bumps _cloudSaveTime, which then makes every other device see cloudIsNewer=true
+    // and overwrite user edits with the stale pulled data.
+    if (window._lbpCloudPullUpdate) {
+      window._lbpCloudPullUpdate = false;
+      return;
+    }
     var syncKey = localStorage.getItem('lbp_sync_key');
     if (!syncKey || !window.LBP_WORKER_URL) return;
     clearTimeout(_syncTimer);
@@ -482,8 +494,7 @@
       .then(function(res) { return res && res.json(); })
       .then(function(json) {
         if (!json || !json.data) { if (onDone) onDone(false, 'no data in cloud yet'); return; }
-        // Only guard: if cloud has never been saved (no timestamp) and local has data,
-        // skip — this prevents a brand-new device from wiping an existing cloud backup.
+        // Guard: cloud has never been saved and local has data → skip (new device protection)
         if (!force && !json.data._cloudSaveTime && !!localStorage.getItem('lbp2026_data')) {
           if (onDone) onDone(false, 'cloud has no save timestamp — skipping to protect local data');
           return;
@@ -491,28 +502,49 @@
         _lastKnownCloudData = json.data;
         var local = {};
         try { local = JSON.parse(localStorage.getItem('lbp2026_data') || '{}'); } catch(_e) {}
-        // Cloud is authoritative for existing items; preserve local-only new items.
-        // Combine tombstones from both sides — a deletion on either device is permanent.
-        var allDeleted = Object.assign({}, (local._deletedIds || {}), (json.data._deletedIds || {}));
-        allDeleted = window._pruneTombstones(allDeleted);
-        var merged = Object.assign({}, json.data, { _deletedIds: allDeleted });
-        _SYNC_LISTS.forEach(function(k) {
-          var cloudArr = (json.data[k] || []);
-          var localArr = (local[k] || []);
-          if (!localArr.length) return;
-          var cloudIds = new Set(cloudArr.map(function(i) { return i && i.id; }));
-          var localOnly = localArr.filter(function(i) { return i && i.id && !cloudIds.has(i.id) && !allDeleted[i.id]; });
-          if (localOnly.length) merged[k] = cloudArr.concat(localOnly);
-        });
+
+        var cloudSaveTime = json.data._cloudSaveTime || 0;
+        var localLastSave = parseInt(localStorage.getItem('lbp_last_save') || '0', 10);
+        var cloudIsNewer = cloudSaveTime > localLastSave;
+
+        var merged;
+        if (force) {
+          // User explicitly clicked "Pull from Cloud" — cloud wins for existing items
+          // but never lose local-only new items or combined tombstones
+          var allDeleted = Object.assign({}, (local._deletedIds || {}), (json.data._deletedIds || {}));
+          allDeleted = window._pruneTombstones(allDeleted);
+          merged = Object.assign({}, json.data, { _deletedIds: allDeleted });
+          _SYNC_LISTS.forEach(function(k) {
+            var cloudArr = (json.data[k] || []);
+            var localArr = (local[k] || []);
+            if (!localArr.length) return;
+            var cloudIds = new Set(cloudArr.map(function(i) { return i && i.id; }));
+            var localOnly = localArr.filter(function(i) { return i && i.id && !cloudIds.has(i.id) && !allDeleted[i.id]; });
+            if (localOnly.length) merged[k] = cloudArr.concat(localOnly);
+          });
+        } else {
+          // Auto-pull: use the same smart merge as _cloudSync.
+          // If local was saved MORE RECENTLY than cloud, local wins for existing items —
+          // this prevents auto-pull from overwriting edits the user just made.
+          merged = _mergeCloudData(local, json.data);
+        }
+
         // Preserve local alarm log entries not in cloud
         if (local.alarmLog && json.data.alarmLog) {
-          var ids = new Set((merged.alarmLog||[]).map(function(a){return a.id;}));
+          var ids = new Set(((merged.alarmLog)||[]).map(function(a){return a.id;}));
           var extras = (local.alarmLog||[]).filter(function(a){return !ids.has(a.id);});
-          if (extras.length) merged.alarmLog = (merged.alarmLog||[]).concat(extras);
+          if (extras.length) merged = Object.assign({}, merged, {alarmLog: (merged.alarmLog||[]).concat(extras)});
         }
+
         localStorage.setItem('lbp2026_data', JSON.stringify(merged));
         localStorage.setItem('lbp_last_sync', new Date().toISOString());
-        window.dispatchEvent(new Event('lbp_cloud_sync'));
+        // Only tell React to re-render if cloud actually had newer data.
+        // Dispatch only if cloud had new data worth showing.
+        // _mergeCloudData returns the exact `local` object (by reference) when nothing changed.
+        // If it returned a new object, something was added/changed — tell React to re-render.
+        if (cloudIsNewer || force || merged !== local) {
+          window.dispatchEvent(new Event('lbp_cloud_sync'));
+        }
         if (onDone) onDone(true);
       }).catch(function(e) { if (onDone) onDone(false, e && e.message ? e.message : 'network error'); });
   };
@@ -520,8 +552,9 @@
   window.addEventListener('beforeunload', function() { if (window._flushCloudSync) window._flushCloudSync(); });
   document.addEventListener('visibilitychange', function() {
     if (document.visibilityState === 'hidden' && window._flushCloudSync) window._flushCloudSync();
-    // Force-pull when app comes back to foreground — shows other device's changes immediately
-    if (document.visibilityState === 'visible' && window._cloudPull && localStorage.getItem('lbp_worker_url')) {
+    // Pull when app comes back to foreground, but only if no local sync is pending.
+    // If _syncTimer is active the user just made edits — pulling would overwrite them.
+    if (document.visibilityState === 'visible' && window._cloudPull && localStorage.getItem('lbp_worker_url') && !_syncTimer) {
       window._cloudPull(null, false);
     }
   });
@@ -13328,8 +13361,14 @@ var App = function App() {
     var onCloudSync = function() {
       try {
         var fresh = JSON.parse(localStorage.getItem('lbp2026_data') || '{}');
+        // Tell _cloudSync this setData is from a cloud pull, not a user edit.
+        // _cloudSync will skip the push (and lbp_last_save stamp), breaking the
+        // auto-pull → push loop that was overwriting edits on other open devices.
+        window._lbpCloudPullUpdate = true;
+        // Safety net: clear the flag after 200ms in case setData throws or is async-deferred
+        setTimeout(function() { window._lbpCloudPullUpdate = false; }, 200);
         setData(fresh);
-      } catch(_e) {}
+      } catch(_e) { window._lbpCloudPullUpdate = false; }
     };
     window.addEventListener('lbp_cloud_sync', onCloudSync);
     return function() { window.removeEventListener('lbp_cloud_sync', onCloudSync); };
