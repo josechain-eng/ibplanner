@@ -22,7 +22,7 @@
 <script>
 (function() {
   // ── Version ──────────────────────────────────────────────────────────────
-  window.LBP_VERSION = '4.27';
+  window.LBP_VERSION = '4.28';
 
   // ── PWA Install prompt ───────────────────────────────────────────────────
   window._installPrompt = null;
@@ -202,6 +202,23 @@
     'medicationLogs','skinLogs','skinProducts','clients','transactions',
     'routineLogs','categories'];
 
+  // Prune deletion tombstones older than 30 days to keep the blob lean
+  function _pruneTombstones(deletedIds) {
+    var cutoff = Date.now() - 30 * 24 * 60 * 60 * 1000;
+    var pruned = {};
+    Object.keys(deletedIds || {}).forEach(function(id) {
+      if ((deletedIds[id] || 0) > cutoff) pruned[id] = deletedIds[id];
+    });
+    return pruned;
+  }
+
+  // Stamp a deletion tombstone into the data blob so other devices never re-add this item
+  function _lbpRecordDel(d, id) {
+    var dels = Object.assign({}, d._deletedIds || {});
+    dels[id] = Date.now();
+    return dels;
+  }
+
   // Smart merge: whichever side has the fresher global timestamp wins for EXISTING items.
   // Items that exist ONLY in the other side are always appended (never lost).
   //
@@ -217,13 +234,17 @@
     var base  = cloudIsNewer ? cloud : local;
     var other = cloudIsNewer ? local : cloud;
     var merged = Object.assign({}, base);
-    var changed = false;
+    // Combine tombstones from both sides — a deletion on either device is permanent
+    var allDeleted = Object.assign({}, local._deletedIds || {}, cloud._deletedIds || {});
+    allDeleted = _pruneTombstones(allDeleted);
+    merged._deletedIds = allDeleted;
+    var changed = Object.keys(allDeleted).length > Object.keys(base._deletedIds || {}).length;
     _SYNC_LISTS.forEach(function(k) {
       var baseArr  = base[k]  || [];
       var otherArr = other[k] || [];
       if (!otherArr.length) return;
       var baseIds = new Set(baseArr.map(function(i) { return i && i.id; }));
-      var extras  = otherArr.filter(function(i) { return i && i.id && !baseIds.has(i.id); });
+      var extras  = otherArr.filter(function(i) { return i && i.id && !baseIds.has(i.id) && !allDeleted[i.id]; });
       if (extras.length) { merged[k] = baseArr.concat(extras); changed = true; }
     });
     return changed ? merged : base;
@@ -469,13 +490,16 @@
         var local = {};
         try { local = JSON.parse(localStorage.getItem('lbp2026_data') || '{}'); } catch(_e) {}
         // Cloud is authoritative for existing items; preserve local-only new items.
-        var merged = Object.assign({}, json.data);
+        // Combine tombstones from both sides — a deletion on either device is permanent.
+        var allDeleted = Object.assign({}, (local._deletedIds || {}), (json.data._deletedIds || {}));
+        allDeleted = _pruneTombstones(allDeleted);
+        var merged = Object.assign({}, json.data, { _deletedIds: allDeleted });
         _SYNC_LISTS.forEach(function(k) {
           var cloudArr = (json.data[k] || []);
           var localArr = (local[k] || []);
           if (!localArr.length) return;
           var cloudIds = new Set(cloudArr.map(function(i) { return i && i.id; }));
-          var localOnly = localArr.filter(function(i) { return i && i.id && !cloudIds.has(i.id); });
+          var localOnly = localArr.filter(function(i) { return i && i.id && !cloudIds.has(i.id) && !allDeleted[i.id]; });
           if (localOnly.length) merged[k] = cloudArr.concat(localOnly);
         });
         // Preserve local alarm log entries not in cloud
@@ -3191,7 +3215,8 @@ var GoalsScreen = function GoalsScreen(_ref19) {
       return _objectSpread(_objectSpread({}, d), {}, {
         goals: d.goals.filter(function (g) {
           return g.id !== id;
-        })
+        }),
+        _deletedIds: _lbpRecordDel(d, id)
       });
     });
   };
@@ -3590,7 +3615,8 @@ var ProjectsScreen = function ProjectsScreen(_ref20) {
       return _objectSpread(_objectSpread({}, d), {}, {
         projects: d.projects.filter(function (p) {
           return p.id !== id;
-        })
+        }),
+        _deletedIds: _lbpRecordDel(d, id)
       });
     });
   };
@@ -4087,7 +4113,8 @@ var TasksScreen = function TasksScreen(_ref21) {
       return _objectSpread(_objectSpread({}, d), {}, {
         tasks: d.tasks.filter(function (t) {
           return t.id !== id;
-        })
+        }),
+        _deletedIds: _lbpRecordDel(d, id)
       });
     });
   };
@@ -4490,7 +4517,8 @@ var ClientsScreen = function ClientsScreen(_ref24) {
       return _objectSpread(_objectSpread({}, d), {}, {
         clients: d.clients.filter(function (c) {
           return c.id !== id;
-        })
+        }),
+        _deletedIds: _lbpRecordDel(d, id)
       });
     });
   };
@@ -4840,7 +4868,8 @@ var FinanceScreen = function FinanceScreen(_ref25) {
       return _objectSpread(_objectSpread({}, d), {}, {
         transactions: d.transactions.filter(function (t) {
           return t.id !== id;
-        })
+        }),
+        _deletedIds: _lbpRecordDel(d, id)
       });
     });
   };
@@ -5239,7 +5268,8 @@ var MeetingsScreen = function MeetingsScreen(_ref26) {
       return _objectSpread(_objectSpread({}, d), {}, {
         meetings: d.meetings.filter(function (m) {
           return m.id !== id;
-        })
+        }),
+        _deletedIds: _lbpRecordDel(d, id)
       });
     });
   };
@@ -5560,7 +5590,8 @@ var ContentScreen = function ContentScreen(_ref28) {
       return _objectSpread(_objectSpread({}, d), {}, {
         content: d.content.filter(function (c) {
           return c.id !== id;
-        })
+        }),
+        _deletedIds: _lbpRecordDel(d, id)
       });
     });
   };
@@ -6015,7 +6046,8 @@ var JournalScreen = function JournalScreen(_ref31) {
       return _objectSpread(_objectSpread({}, d), {}, {
         journal: d.journal.filter(function (e) {
           return e.id !== id;
-        })
+        }),
+        _deletedIds: _lbpRecordDel(d, id)
       });
     });
   };
@@ -6505,7 +6537,8 @@ var HabitsScreen = function HabitsScreen(_ref38) {
       return _objectSpread(_objectSpread({}, d), {}, {
         habits: d.habits.filter(function (h) {
           return h.id !== id;
-        })
+        }),
+        _deletedIds: _lbpRecordDel(d, id)
       });
     });
   };
@@ -6815,7 +6848,8 @@ var BucketListScreen = function BucketListScreen(_ref39) {
       return _objectSpread(_objectSpread({}, d), {}, {
         bucketList: d.bucketList.filter(function (i) {
           return i.id !== id;
-        })
+        }),
+        _deletedIds: _lbpRecordDel(d, id)
       });
     });
   };
@@ -7107,7 +7141,8 @@ var TravelScreen = function TravelScreen(_ref40) {
       return _objectSpread(_objectSpread({}, d), {}, {
         travel: d.travel.filter(function (p) {
           return p.id !== id;
-        })
+        }),
+        _deletedIds: _lbpRecordDel(d, id)
       });
     });
   };
@@ -7368,7 +7403,8 @@ var BooksScreen = function BooksScreen(_ref41) {
       return _objectSpread(_objectSpread({}, d), {}, {
         books: d.books.filter(function (b) {
           return b.id !== id;
-        })
+        }),
+        _deletedIds: _lbpRecordDel(d, id)
       });
     });
   };
@@ -7627,7 +7663,8 @@ var ServicesScreen = function ServicesScreen(_ref42) {
       return _objectSpread(_objectSpread({}, d), {}, {
         services: d.services.filter(function (s) {
           return s.id !== id;
-        })
+        }),
+        _deletedIds: _lbpRecordDel(d, id)
       });
     });
   };
@@ -8256,7 +8293,7 @@ var DocumentsScreen = function DocumentsScreen(_ref46) {
     }
     setForm(defaultForm()); setModal(false); setEditItem(null);
   };
-  var del = function(id) { setData(function(d) { return Object.assign({}, d, { documents: (d.documents||[]).filter(function(x) { return x.id !== id; }) }); }); };
+  var del = function(id) { setData(function(d) { return Object.assign({}, d, { documents: (d.documents||[]).filter(function(x) { return x.id !== id; }), _deletedIds: _lbpRecordDel(d, id) }); }); };
   var addCat = function() {
     var v = newCat.trim().toUpperCase();
     if (!v || cats.includes(v)) return;
@@ -8512,7 +8549,8 @@ var RoutinesScreen = function RoutinesScreen(_ref47) {
       return _objectSpread(_objectSpread({}, d), {}, {
         routines: d.routines.filter(function (r) {
           return r.id !== id;
-        })
+        }),
+        _deletedIds: _lbpRecordDel(d, id)
       });
     });
   };
@@ -8855,7 +8893,8 @@ var ResourcesScreen = function ResourcesScreen(_ref50) {
       return _objectSpread(_objectSpread({}, d), {}, {
         resources: d.resources.filter(function (r) {
           return r.id !== id;
-        })
+        }),
+        _deletedIds: _lbpRecordDel(d, id)
       });
     });
   };
@@ -9166,7 +9205,8 @@ var ClientJourneyScreen = function ClientJourneyScreen(_ref52) {
       return _objectSpread(_objectSpread({}, d), {}, {
         clientJourney: d.clientJourney.filter(function (i) {
           return i.id !== id;
-        })
+        }),
+        _deletedIds: _lbpRecordDel(d, id)
       });
     });
   };
@@ -9778,7 +9818,8 @@ var MarketingStrategyScreen = function MarketingStrategyScreen(_ref54) {
       return _objectSpread(_objectSpread({}, d), {}, {
         campaigns: d.campaigns.filter(function (c) {
           return c.id !== id;
-        })
+        }),
+        _deletedIds: _lbpRecordDel(d, id)
       });
     });
   };
@@ -10169,7 +10210,8 @@ var OutfitPlannerScreen = function OutfitPlannerScreen(_ref55) {
       return _objectSpread(_objectSpread({}, d), {}, {
         outfits: d.outfits.filter(function (o) {
           return o.id !== id;
-        })
+        }),
+        _deletedIds: _lbpRecordDel(d, id)
       });
     });
   };
@@ -10471,7 +10513,8 @@ var HouseholdScreen = function HouseholdScreen(_ref56) {
       return _objectSpread(_objectSpread({}, d), {}, {
         householdTasks: d.householdTasks.filter(function (t) {
           return t.id !== id;
-        })
+        }),
+        _deletedIds: _lbpRecordDel(d, id)
       });
     });
   };
@@ -10831,7 +10874,8 @@ var WorkoutPlannerScreen = function WorkoutPlannerScreen(_ref57) {
       return _objectSpread(_objectSpread({}, d), {}, {
         workouts: d.workouts.filter(function (w) {
           return w.id !== id;
-        })
+        }),
+        _deletedIds: _lbpRecordDel(d, id)
       });
     });
   };
@@ -10840,7 +10884,8 @@ var WorkoutPlannerScreen = function WorkoutPlannerScreen(_ref57) {
       return _objectSpread(_objectSpread({}, d), {}, {
         workoutTemplates: d.workoutTemplates.filter(function (t) {
           return t.id !== id;
-        })
+        }),
+        _deletedIds: _lbpRecordDel(d, id)
       });
     });
   };
@@ -11350,7 +11395,8 @@ var RecipesScreen = function RecipesScreen(_ref58) {
       return _objectSpread(_objectSpread({}, d), {}, {
         groceryItems: d.groceryItems.filter(function (g) {
           return g.id !== id;
-        })
+        }),
+        _deletedIds: _lbpRecordDel(d, id)
       });
     });
   };
@@ -11359,7 +11405,8 @@ var RecipesScreen = function RecipesScreen(_ref58) {
       return _objectSpread(_objectSpread({}, d), {}, {
         recipes: d.recipes.filter(function (r) {
           return r.id !== id;
-        })
+        }),
+        _deletedIds: _lbpRecordDel(d, id)
       });
     });
   };
@@ -11842,7 +11889,8 @@ var MedicationScreen = function MedicationScreen(_ref59) {
       return _objectSpread(_objectSpread({}, d), {}, {
         medications: d.medications.filter(function (m) {
           return m.id !== id;
-        })
+        }),
+        _deletedIds: _lbpRecordDel(d, id)
       });
     });
   };
@@ -12314,7 +12362,8 @@ var SkinTrackerScreen = function SkinTrackerScreen(_ref60) {
       return _objectSpread(_objectSpread({}, d), {}, {
         skinLogs: d.skinLogs.filter(function (l) {
           return l.id !== id;
-        })
+        }),
+        _deletedIds: _lbpRecordDel(d, id)
       });
     });
   };
@@ -12323,7 +12372,8 @@ var SkinTrackerScreen = function SkinTrackerScreen(_ref60) {
       return _objectSpread(_objectSpread({}, d), {}, {
         skinProducts: d.skinProducts.filter(function (p) {
           return p.id !== id;
-        })
+        }),
+        _deletedIds: _lbpRecordDel(d, id)
       });
     });
   };
