@@ -22,7 +22,7 @@
 <script>
 (function() {
   // ── Version ──────────────────────────────────────────────────────────────
-  window.LBP_VERSION = '4.13';
+  window.LBP_VERSION = '4.14';
 
   // ── PWA Install prompt ───────────────────────────────────────────────────
   window._installPrompt = null;
@@ -2217,7 +2217,7 @@ var _fireNotification = function(title, body, tag, vibration) {
 };
 
 // Helper: schedule alarms for entities
-var _ALARM_TYPE_LABELS = {tasks:'Task', goals:'Goal', projects:'Project', journal:'Journal entry', routines:'Routine', habits:'Habit', medications:'Medication', householdTasks:'Household task', workouts:'Workout', meetings:'Meeting'};
+var _ALARM_TYPE_LABELS = {tasks:'Task', goals:'Goal', projects:'Project', subtask:'Subtask', journal:'Journal entry', routines:'Routine', habits:'Habit', medications:'Medication', householdTasks:'Household task', workouts:'Workout', meetings:'Meeting'};
 var scheduleAlarms = function scheduleAlarms(entities, type, addToast) {
   var nowMs = Date.now();
   var oneDayMs = 24 * 60 * 60 * 1000;
@@ -3544,6 +3544,8 @@ var ProjectsScreen = function ProjectsScreen(_ref20) {
     className: "kanban mb-16"
   }, ['IN_PROGRESS', 'CLIENT_REVIEW', 'DONE'].map(function (s) {
     var c = statusColor(s);
+    var _kCol = allProjectsFiltered.filter(function (p) { return p.status === s; });
+    if (!_kCol.length) return null; // skip empty columns — don't show banner with nothing in it
     return /*#__PURE__*/React.createElement("div", {
       className: "kanban-col",
       key: s
@@ -3553,9 +3555,7 @@ var ProjectsScreen = function ProjectsScreen(_ref20) {
         background: "".concat(c, "25"),
         color: c
       }
-    }, s.replace('_', ' ')), allProjectsFiltered.filter(function (p) {
-      return p.status === s;
-    }).map(function (p) {
+    }, s.replace('_', ' ')), _kCol.map(function (p) {
       var _p$alarm;
       return /*#__PURE__*/React.createElement("div", {
         key: p.id,
@@ -13442,6 +13442,9 @@ var App = function App() {
     var _noToast = function(){};
     var _types = ['tasks','goals','projects','journal','routines','habits','medications','householdTasks','workouts','meetings'];
     _types.forEach(function(k){ scheduleAlarms(data[k] || [], k, _noToast); });
+    // Also schedule alarms for subtasks nested inside projects
+    var _allSubtasks = (data.projects || []).reduce(function(acc, p) { return acc.concat(p.subtasks || []); }, []);
+    if (_allSubtasks.length) scheduleAlarms(_allSubtasks, 'subtask', _noToast);
 
     // Missed alarm check: show "(Missed)" notification for any alarm that fired in the last hour
     // This catches the case where the app was closed when alarm fired (cross-device sync scenario)
@@ -13468,6 +13471,26 @@ var App = function App() {
           }).catch(function(){});
         }
       });
+    });
+    // Missed alarm check for subtasks within projects
+    _allSubtasks.forEach(function(entity) {
+      var al = entity.alarm;
+      if (!al || !al.enabled || !al.datetime) return;
+      var t = new Date(al.datetime).getTime();
+      var age = nowMs2 - t;
+      if (age <= 0 || age > oneHour) return;
+      var _baseKey = (entity.id || '') + '_' + al.datetime;
+      var missedKey = _baseKey + '_missed';
+      if (firedRef.current.has(missedKey) || firedRef.current.has(_baseKey) || (window._lbpFiredSet && window._lbpFiredSet.has(_baseKey))) return;
+      firedRef.current.add(missedKey);
+      var entityName = entity.title || '';
+      var notifTitle = entityName || 'Subtask Reminder';
+      var notifBody = '(Missed) ' + (entityName ? entityName + ' · ' : '') + 'Subtask reminder';
+      if ('serviceWorker' in navigator) {
+        navigator.serviceWorker.ready.then(function(reg) {
+          if (reg.active) reg.active.postMessage({type:'SHOW_NOTIFICATION', title:notifTitle, body:notifBody, tag:'lbp_missed_'+missedKey, vibration:'long'});
+        }).catch(function(){});
+      }
     });
   }, [data]);
 
