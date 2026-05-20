@@ -22,7 +22,7 @@
 <script>
 (function() {
   // ── Version ──────────────────────────────────────────────────────────────
-  window.LBP_VERSION = '4.25';
+  window.LBP_VERSION = '4.26';
 
   // ── PWA Install prompt ───────────────────────────────────────────────────
   window._installPrompt = null;
@@ -5623,8 +5623,10 @@ var ContentScreen = function ContentScreen(_ref28) {
     }, /*#__PURE__*/React.createElement("select", {
       value: c.status,
       onChange: function onChange(e) {
-        return changeStatus(c.id, e.target.value);
+        e.stopPropagation();
+        changeStatus(c.id, e.target.value);
       },
+      onClick: function onClick(e) { e.stopPropagation(); },
       style: {
         fontSize: 11,
         padding: '3px 6px'
@@ -9167,6 +9169,7 @@ var ClientJourneyScreen = function ClientJourneyScreen(_ref52) {
   }, /*#__PURE__*/React.createElement("h1", null, "\uD83D\uDDFA Client Journey"), /*#__PURE__*/React.createElement("button", {
     className: "btn btn-primary btn-sm",
     onClick: function onClick() {
+      setCjEditItem(null);
       setSelStage(null);
       setModal(true);
     }
