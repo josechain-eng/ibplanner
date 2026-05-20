@@ -22,7 +22,7 @@
 <script>
 (function() {
   // ── Version ──────────────────────────────────────────────────────────────
-  window.LBP_VERSION = '4.16';
+  window.LBP_VERSION = '4.17';
 
   // ── PWA Install prompt ───────────────────────────────────────────────────
   window._installPrompt = null;
@@ -196,21 +196,45 @@
 
   // Debounced cloud sync — called whenever app data changes
   var _syncTimer = null;
+  var _pendingSyncData = null;
   window._cloudSync = function(data) {
     var syncKey = localStorage.getItem('lbp_sync_key');
     if (!syncKey || !window.LBP_WORKER_URL) return;
     clearTimeout(_syncTimer);
+    _pendingSyncData = data; // track for emergency flush
     _syncTimer = setTimeout(function() {
       // Stamp _cloudSaveTime so the pull can compare which version is newer
       var saveTime = Date.now();
       localStorage.setItem('lbp_last_save', saveTime.toString());
       var stamped = Object.assign({}, data, { _cloudSaveTime: saveTime });
+      _pendingSyncData = null;
+      _syncTimer = null;
       _workerFetch('/sync', {
         method: 'POST',
         headers: {'Content-Type':'application/json'},
         body: JSON.stringify({syncKey: syncKey, data: stamped})
       });
     }, 2000);
+  };
+
+  // Flush pending cloud sync immediately (bypasses 2s debounce) — called on beforeunload/visibilitychange
+  window._flushCloudSync = function() {
+    if (!_syncTimer || !_pendingSyncData) return; // nothing queued
+    clearTimeout(_syncTimer);
+    _syncTimer = null;
+    var syncKey = localStorage.getItem('lbp_sync_key');
+    if (!syncKey || !window.LBP_WORKER_URL) return;
+    var saveTime = Date.now();
+    localStorage.setItem('lbp_last_save', saveTime.toString());
+    var stamped = Object.assign({}, _pendingSyncData, { _cloudSaveTime: saveTime });
+    // Use sendBeacon for beforeunload (doesn't get cancelled when page closes)
+    var payload = JSON.stringify({ syncKey: syncKey, data: stamped });
+    if (navigator.sendBeacon) {
+      navigator.sendBeacon(window.LBP_WORKER_URL + '/sync', new Blob([payload], { type: 'application/json' }));
+    } else {
+      _workerFetch('/sync', { method: 'POST', headers: {'Content-Type':'application/json'}, body: payload });
+    }
+    _pendingSyncData = null;
   };
 
   // Batch-buffered cloud alarm scheduler — collects all alarms from a scheduleAlarms run
@@ -402,6 +426,13 @@
         if (onDone) onDone(true);
       }).catch(function(e) { if (onDone) onDone(false, e && e.message ? e.message : 'network error'); });
   };
+  // Flush queued sync when user closes tab or switches away — prevents data loss
+  // if the 2s debounce hasn't fired yet when the page unloads.
+  window.addEventListener('beforeunload', function() { if (window._flushCloudSync) window._flushCloudSync(); });
+  document.addEventListener('visibilitychange', function() {
+    if (document.visibilityState === 'hidden' && window._flushCloudSync) window._flushCloudSync();
+  });
+
   window.addEventListener('load', function() { window._cloudPull(null, false); }); // auto-pull: safe mode
 })();
 </script>
@@ -3542,7 +3573,7 @@ var ProjectsScreen = function ProjectsScreen(_ref20) {
         }, c);
       })
     )
-  ), tab === 'All' && /*#__PURE__*/React.createElement("div", {
+  ), tab === 'All' && !pHighlight && /*#__PURE__*/React.createElement("div", {
     className: "kanban mb-16"
   }, ['PLANNING', 'IN_PROGRESS', 'CLIENT_REVIEW', 'DONE', 'ARCHIVED'].map(function (s) {
     var c = statusColor(s);
