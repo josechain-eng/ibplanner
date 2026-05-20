@@ -22,7 +22,7 @@
 <script>
 (function() {
   // ── Version ──────────────────────────────────────────────────────────────
-  window.LBP_VERSION = '4.33';
+  window.LBP_VERSION = '4.34';
 
   // ── PWA Install prompt ───────────────────────────────────────────────────
   window._installPrompt = null;
@@ -243,11 +243,17 @@
     var changed = Object.keys(allDeleted).length > Object.keys(base._deletedIds || {}).length;
     _SYNC_LISTS.forEach(function(k) {
       var baseArr  = base[k]  || [];
+      // First: remove any base items that are tombstoned on EITHER side.
+      // (e.g. local wins but cloud tombstoned an item — must honour the deletion)
+      var filteredBase = baseArr.filter(function(i) { return i && i.id && !allDeleted[i.id]; });
+      if (filteredBase.length !== baseArr.length) { merged[k] = filteredBase; changed = true; }
+      var currentBase = merged[k] || filteredBase;
+      // Second: append items that exist only on the other side and are not tombstoned.
       var otherArr = other[k] || [];
       if (!otherArr.length) return;
-      var baseIds = new Set(baseArr.map(function(i) { return i && i.id; }));
+      var baseIds = new Set(currentBase.map(function(i) { return i && i.id; }));
       var extras  = otherArr.filter(function(i) { return i && i.id && !baseIds.has(i.id) && !allDeleted[i.id]; });
-      if (extras.length) { merged[k] = baseArr.concat(extras); changed = true; }
+      if (extras.length) { merged[k] = currentBase.concat(extras); changed = true; }
     });
     return changed ? merged : base;
   }
@@ -1018,8 +1024,18 @@ var useStore = function useStore(key, init) {
     if (_storeFirstRun.current) { _storeFirstRun.current = false; return; }
     try {
       localStorage.setItem(key, JSON.stringify(val));
-      // Sync to cloud if this is the main data store
-      if (key === 'lbp2026_data' && window._cloudSync) window._cloudSync(val);
+      // Sync to cloud if this is the main data store.
+      // _lbpCloudPullUpdate is set by onCloudSync before calling setData — it signals
+      // that this state update came from a cloud pull, not a user edit.  Checking here
+      // (inside the effect, during React's commit phase) is timing-safe: the flag was
+      // set synchronously before setData, so it is guaranteed to still be true now.
+      if (key === 'lbp2026_data' && window._cloudSync) {
+        if (window._lbpCloudPullUpdate) {
+          window._lbpCloudPullUpdate = false; // consume the flag — skip push
+        } else {
+          window._cloudSync(val);
+        }
+      }
     } catch (_unused2) {}
   }, [key, val]);
   return [val, setVal];
@@ -13361,12 +13377,10 @@ var App = function App() {
     var onCloudSync = function() {
       try {
         var fresh = JSON.parse(localStorage.getItem('lbp2026_data') || '{}');
-        // Tell _cloudSync this setData is from a cloud pull, not a user edit.
-        // _cloudSync will skip the push (and lbp_last_save stamp), breaking the
-        // auto-pull → push loop that was overwriting edits on other open devices.
+        // Signal to useStore that this setData comes from a cloud pull, not a user edit.
+        // useStore checks this flag during React's commit phase (timing-safe) and skips
+        // the cloud push.  Flag is consumed (cleared) by useStore's effect.
         window._lbpCloudPullUpdate = true;
-        // Safety net: clear the flag after 200ms in case setData throws or is async-deferred
-        setTimeout(function() { window._lbpCloudPullUpdate = false; }, 200);
         setData(fresh);
       } catch(_e) { window._lbpCloudPullUpdate = false; }
     };
