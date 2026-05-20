@@ -22,7 +22,7 @@
 <script>
 (function() {
   // ── Version ──────────────────────────────────────────────────────────────
-  window.LBP_VERSION = '4.24';
+  window.LBP_VERSION = '4.25';
 
   // ── PWA Install prompt ───────────────────────────────────────────────────
   window._installPrompt = null;
@@ -3211,9 +3211,7 @@ var GoalsScreen = function GoalsScreen(_ref19) {
     className: "e-icon"
   }, "\uD83C\uDFAF"), /*#__PURE__*/React.createElement("h3", null, "No goals yet"), /*#__PURE__*/React.createElement("p", null, "Set your vision and track your journey"), /*#__PURE__*/React.createElement("button", {
     className: "btn btn-primary",
-    onClick: function onClick() {
-      return setModal(true);
-    }
+    onClick: function onClick() { setEditItem(null); setModal(true); }
   }, "Add First Goal")) : goals.map(function (g) {
     var _g$alarm;
     var c = g.status === 'COMPLETED' ? '#4CAF50' : g.status === 'PAUSED' ? '#607D8B' : '#C9A84C';
@@ -3266,9 +3264,7 @@ var GoalsScreen = function GoalsScreen(_ref19) {
       }
     }, "\u270F\uFE0F"), " ", /*#__PURE__*/React.createElement("button", {
       className: "btn btn-danger btn-sm btn-icon",
-      onClick: function onClick() {
-        return del(g.id);
-      }
+      onClick: function onClick(e) { e.stopPropagation(); del(g.id); }
     }, "\xD7"))), g.vision && /*#__PURE__*/React.createElement("div", {
       style: {
         fontSize: 12,
@@ -3710,9 +3706,7 @@ var ProjectsScreen = function ProjectsScreen(_ref20) {
       }
     }, "\u270F\uFE0F"), " ", /*#__PURE__*/React.createElement("button", {
       className: "btn btn-danger btn-sm btn-icon",
-      onClick: function onClick() {
-        return del(p.id);
-      }
+      onClick: function onClick(e) { e.stopPropagation(); del(p.id); }
     }, "\xD7"))), p.description && /*#__PURE__*/React.createElement("div", {
       style: {
         marginBottom: 8
@@ -3779,9 +3773,7 @@ var ProjectsScreen = function ProjectsScreen(_ref20) {
     className: "e-icon"
   }, "\uD83D\uDCC1"), /*#__PURE__*/React.createElement("h3", null, "No projects"), /*#__PURE__*/React.createElement("button", {
     className: "btn btn-primary",
-    onClick: function onClick() {
-      return setModal(true);
-    }
+    onClick: function onClick() { setEditItem(null); setModal(true); }
   }, "+ New Project"))), modal && /*#__PURE__*/React.createElement(Modal, {
     title: editItem ? "Edit Project" : "New Project",
     onClose: function onClose() {
@@ -4504,9 +4496,7 @@ var ClientsScreen = function ClientsScreen(_ref24) {
     className: "page-header"
   }, /*#__PURE__*/React.createElement("h1", null, "\uD83D\uDC65 Client Hub"), /*#__PURE__*/React.createElement("button", {
     className: "btn btn-primary btn-sm",
-    onClick: function onClick() {
-      return setModal(true);
-    }
+    onClick: function onClick() { setEditItem(null); setModal(true); }
   }, "+ New Client")), /*#__PURE__*/React.createElement("div", {
     className: "page-content"
   }, /*#__PURE__*/React.createElement("div", {
@@ -4648,9 +4638,7 @@ var ClientsScreen = function ClientsScreen(_ref24) {
       }
     }, "\u270F\uFE0F"), " ", /*#__PURE__*/React.createElement("button", {
       className: "btn btn-danger btn-sm",
-      onClick: function onClick() {
-        return del(c.id);
-      }
+      onClick: function onClick(e) { e.stopPropagation(); del(c.id); }
     }, "Delete")));
   })), modal && /*#__PURE__*/React.createElement(Modal, {
     title: "New Client",
@@ -4843,9 +4831,7 @@ var FinanceScreen = function FinanceScreen(_ref25) {
     className: "page-header"
   }, /*#__PURE__*/React.createElement("h1", null, "\uD83D\uDCB0 Financial Overview"), /*#__PURE__*/React.createElement("button", {
     className: "btn btn-primary btn-sm",
-    onClick: function onClick() {
-      return setModal(true);
-    }
+    onClick: function onClick() { setEditItem(null); setModal(true); }
   }, "+ Add")), /*#__PURE__*/React.createElement("div", {
     className: "page-content"
   }, /*#__PURE__*/React.createElement("div", {
@@ -5017,9 +5003,7 @@ var FinanceScreen = function FinanceScreen(_ref25) {
       }
     }, "\u270F\uFE0F"), " ", /*#__PURE__*/React.createElement("button", {
       className: "btn btn-danger btn-sm btn-icon",
-      onClick: function onClick() {
-        return del(t.id);
-      }
+      onClick: function onClick(e) { e.stopPropagation(); del(t.id); }
     }, "\xD7"));
   })), modal && /*#__PURE__*/React.createElement(Modal, {
     title: "Add Transaction",
@@ -5278,9 +5262,7 @@ var MeetingsScreen = function MeetingsScreen(_ref26) {
       }
     }, "\u270F\uFE0F"), " ", /*#__PURE__*/React.createElement("button", {
       className: "btn btn-danger btn-sm",
-      onClick: function onClick() {
-        return del(m.id);
-      }
+      onClick: function onClick(e) { e.stopPropagation(); del(m.id); }
     }, "Delete")), m.isOnline ? /*#__PURE__*/React.createElement("div", {
       style: {
         fontSize: 12,
@@ -5330,9 +5312,7 @@ var MeetingsScreen = function MeetingsScreen(_ref26) {
     className: "e-icon"
   }, "\uD83D\uDCC5"), /*#__PURE__*/React.createElement("h3", null, "No meetings yet"), /*#__PURE__*/React.createElement("button", {
     className: "btn btn-primary",
-    onClick: function onClick() {
-      return setModal(true);
-    }
+    onClick: function onClick() { setEditItem(null); setModal(true); }
   }, "+ Schedule Meeting"))), modal && /*#__PURE__*/React.createElement(Modal, {
     title: editItem ? "Edit Meeting / Event" : "New Meeting / Event",
     onClose: function onClose() {
@@ -5571,9 +5551,7 @@ var ContentScreen = function ContentScreen(_ref28) {
     className: "page-header"
   }, /*#__PURE__*/React.createElement("h1", null, "\uD83D\uDCF1 Content Planner"), /*#__PURE__*/React.createElement("button", {
     className: "btn btn-primary btn-sm",
-    onClick: function onClick() {
-      return setModal(true);
-    }
+    onClick: function onClick() { setEditItem(null); setModal(true); }
   }, "+ New Idea")), /*#__PURE__*/React.createElement("div", {
     className: "tabs"
   }, [['IDEA', '💡 Ideas'], ['DRAFT', '✍️ Draft'], ['SCHEDULED', '📅 Scheduled'], ['PUBLISHED', '✅ Published']].map(function (_ref29) {
@@ -5665,9 +5643,7 @@ var ContentScreen = function ContentScreen(_ref28) {
       }
     }, "\u270F\uFE0F"), " ", /*#__PURE__*/React.createElement("button", {
       className: "btn btn-danger btn-sm",
-      onClick: function onClick() {
-        return del(c.id);
-      }
+      onClick: function onClick(e) { e.stopPropagation(); del(c.id); }
     }, "Delete"))), c.description && /*#__PURE__*/React.createElement("div", {
       style: {
         fontSize: 12,
@@ -6030,7 +6006,7 @@ var JournalScreen = function JournalScreen(_ref31) {
     /*#__PURE__*/React.createElement("button", {className:"btn btn-secondary btn-sm", onClick:function(){setCompact(function(c){return !c;});}, title:compact?"Expanded view":"Compact view"}, compact ? "\u2610 Expand" : "\u2630 Compact"),
     /*#__PURE__*/React.createElement("button", {
       className: "btn btn-primary btn-sm",
-      onClick: function onClick() { return setModal(true); }
+      onClick: function onClick() { setEditItem(null); setModal(true); }
     }, "+ Write Today")
   )), /*#__PURE__*/React.createElement("div", {
     className: "page-content"
@@ -6069,9 +6045,7 @@ var JournalScreen = function JournalScreen(_ref31) {
     className: "e-icon"
   }, "\uD83D\uDCD3"), /*#__PURE__*/React.createElement("h3", null, "No entries yet"), /*#__PURE__*/React.createElement("p", null, "Start writing to capture your thoughts, gratitude, and wins."), /*#__PURE__*/React.createElement("button", {
     className: "btn btn-primary",
-    onClick: function onClick() {
-      return setModal(true);
-    }
+    onClick: function onClick() { setEditItem(null); setModal(true); }
   }, "Write First Entry")) : entries.map(function (e) {
     var _moods$find, _e$alarm, _e$attachments;
     if (compact) {
@@ -6574,9 +6548,7 @@ var HabitsScreen = function HabitsScreen(_ref38) {
     className: "e-icon"
   }, "\uD83D\uDD04"), /*#__PURE__*/React.createElement("h3", null, "No habits yet"), /*#__PURE__*/React.createElement("p", null, "Build a consistent daily routine."), /*#__PURE__*/React.createElement("button", {
     className: "btn btn-primary",
-    onClick: function onClick() {
-      return setModal(true);
-    }
+    onClick: function onClick() { setEditItem(null); setModal(true); }
   }, "Add First Habit")) : habits.map(function (h) {
     var _h$alarm;
     var done = doneIds.includes(h.id);
@@ -6832,9 +6804,7 @@ var BucketListScreen = function BucketListScreen(_ref39) {
     className: "page-header"
   }, /*#__PURE__*/React.createElement("h1", null, "\u2B50 Bucket List"), /*#__PURE__*/React.createElement("button", {
     className: "btn btn-primary btn-sm",
-    onClick: function onClick() {
-      return setModal(true);
-    }
+    onClick: function onClick() { setEditItem(null); setModal(true); }
   }, "+ Add")), /*#__PURE__*/React.createElement("div", {
     className: "page-content"
   }, /*#__PURE__*/React.createElement("div", {
@@ -6857,9 +6827,7 @@ var BucketListScreen = function BucketListScreen(_ref39) {
     className: "e-icon"
   }, "\u2B50"), /*#__PURE__*/React.createElement("h3", null, "Your bucket list is empty"), /*#__PURE__*/React.createElement("button", {
     className: "btn btn-primary",
-    onClick: function onClick() {
-      return setModal(true);
-    }
+    onClick: function onClick() { setEditItem(null); setModal(true); }
   }, "Add First Item")), pending.map(function (item) {
     return /*#__PURE__*/React.createElement("div", {
       className: "card mb-8",
@@ -6927,9 +6895,7 @@ var BucketListScreen = function BucketListScreen(_ref39) {
       }
     }, "\u270F\uFE0F"), " ", /*#__PURE__*/React.createElement("button", {
       className: "btn btn-danger btn-sm btn-icon",
-      onClick: function onClick() {
-        return del(item.id);
-      }
+      onClick: function onClick(e) { e.stopPropagation(); del(item.id); }
     }, "\xD7"));
   }), done.length > 0 && /*#__PURE__*/React.createElement(React.Fragment, null, /*#__PURE__*/React.createElement("button", {
     className: "btn btn-secondary",
@@ -6974,9 +6940,7 @@ var BucketListScreen = function BucketListScreen(_ref39) {
       }
     }, "Completed: ", item.completedDate)), /*#__PURE__*/React.createElement("button", {
       className: "btn btn-danger btn-sm",
-      onClick: function onClick() {
-        return del(item.id);
-      }
+      onClick: function onClick(e) { e.stopPropagation(); del(item.id); }
     }, "\xD7")));
   }))), modal && /*#__PURE__*/React.createElement(Modal, {
     title: "Add Bucket List Item",
@@ -7154,9 +7118,7 @@ var TravelScreen = function TravelScreen(_ref40) {
     className: "e-icon"
   }, "\u2708\uFE0F"), /*#__PURE__*/React.createElement("h3", null, "No travel plans yet"), /*#__PURE__*/React.createElement("button", {
     className: "btn btn-primary",
-    onClick: function onClick() {
-      return setModal(true);
-    }
+    onClick: function onClick() { setEditItem(null); setModal(true); }
   }, "Add First Destination")) : plans.map(function (p) {
     var c = statusColor(p.status);
     return /*#__PURE__*/React.createElement("div", {
@@ -7407,9 +7369,7 @@ var BooksScreen = function BooksScreen(_ref41) {
     className: "e-icon"
   }, "\uD83D\uDCDA"), /*#__PURE__*/React.createElement("h3", null, "No books yet"), /*#__PURE__*/React.createElement("button", {
     className: "btn btn-primary",
-    onClick: function onClick() {
-      return setModal(true);
-    }
+    onClick: function onClick() { setEditItem(null); setModal(true); }
   }, "+ Add Book")) : books.map(function (b) {
     return /*#__PURE__*/React.createElement("div", {
       className: "card mb-8",
@@ -7480,9 +7440,7 @@ var BooksScreen = function BooksScreen(_ref41) {
       }
     }, "\u270F\uFE0F"), " ", /*#__PURE__*/React.createElement("button", {
       className: "btn btn-danger btn-sm btn-icon",
-      onClick: function onClick() {
-        return del(b.id);
-      }
+      onClick: function onClick(e) { e.stopPropagation(); del(b.id); }
     }, "\xD7"));
   })), modal && /*#__PURE__*/React.createElement(Modal, {
     title: "Add Book",
@@ -7670,9 +7628,7 @@ var ServicesScreen = function ServicesScreen(_ref42) {
     className: "e-icon"
   }, "\uD83D\uDCBC"), /*#__PURE__*/React.createElement("h3", null, "No services yet"), /*#__PURE__*/React.createElement("button", {
     className: "btn btn-primary",
-    onClick: function onClick() {
-      return setModal(true);
-    }
+    onClick: function onClick() { setEditItem(null); setModal(true); }
   }, "+ Add Service")) : services.map(function (s) {
     return /*#__PURE__*/React.createElement("div", {
       className: "card mb-8",
@@ -7714,9 +7670,7 @@ var ServicesScreen = function ServicesScreen(_ref42) {
       }
     }, "\u270F\uFE0F"), " ", /*#__PURE__*/React.createElement("button", {
       className: "btn btn-danger btn-sm btn-icon",
-      onClick: function onClick() {
-        return del(s.id);
-      }
+      onClick: function onClick(e) { e.stopPropagation(); del(s.id); }
     }, "\xD7"))), s.description && /*#__PURE__*/React.createElement("div", {
       style: {
         fontSize: 12,
@@ -8387,7 +8341,7 @@ var DocumentsScreen = function DocumentsScreen(_ref46) {
               /*#__PURE__*/React.createElement("div", {style:{display:'flex',gap:6,flexShrink:0}},
                 d.url && /*#__PURE__*/React.createElement("a", {href:d.url, target:"_blank", rel:"noopener noreferrer", className:"btn btn-secondary btn-sm"}, "\uD83D\uDD17"),
                 /*#__PURE__*/React.createElement("button", {className:"btn-edit", onClick:function(e){e.stopPropagation();setEditItem(d);setForm(Object.assign({},d,{tags:d.tags||'',attachments:d.attachments||[]}));setModal(true);}}, "\u270F\uFE0F"),
-                /*#__PURE__*/React.createElement("button", {className:"btn btn-danger btn-sm btn-icon", onClick:function(){del(d.id);}}, "\xD7")
+                /*#__PURE__*/React.createElement("button", {className:"btn btn-danger btn-sm btn-icon", onClick:function(e){e.stopPropagation();del(d.id);}}, "\xD7")
               )
             );
           })
@@ -8969,18 +8923,14 @@ var ResourcesScreen = function ResourcesScreen(_ref50) {
       }
     }, "\u270F\uFE0F"), " ", /*#__PURE__*/React.createElement("button", {
       className: "btn btn-danger btn-sm btn-icon",
-      onClick: function onClick() {
-        return del(r.id);
-      }
+      onClick: function onClick(e) { e.stopPropagation(); del(r.id); }
     }, "\xD7")));
   };
   return /*#__PURE__*/React.createElement("div", null, /*#__PURE__*/React.createElement("div", {
     className: "page-header"
   }, /*#__PURE__*/React.createElement("h1", null, "\uD83D\uDD27 Resources & Tools"), /*#__PURE__*/React.createElement("button", {
     className: "btn btn-primary btn-sm",
-    onClick: function onClick() {
-      return setModal(true);
-    }
+    onClick: function onClick() { setEditItem(null); setModal(true); }
   }, "+ Add Resource")), /*#__PURE__*/React.createElement("div", {
     className: "page-content"
   }, /*#__PURE__*/React.createElement("div", {
@@ -9010,9 +8960,7 @@ var ResourcesScreen = function ResourcesScreen(_ref50) {
     className: "e-icon"
   }, "\uD83D\uDD27"), /*#__PURE__*/React.createElement("h3", null, "No resources yet"), /*#__PURE__*/React.createElement("p", null, "Save your favorite tools, links, and resources."), /*#__PURE__*/React.createElement("button", {
     className: "btn btn-primary",
-    onClick: function onClick() {
-      return setModal(true);
-    }
+    onClick: function onClick() { setEditItem(null); setModal(true); }
   }, "+ Add Resource")) : /*#__PURE__*/React.createElement(React.Fragment, null, favs.length > 0 && /*#__PURE__*/React.createElement(React.Fragment, null, /*#__PURE__*/React.createElement("div", {
     className: "section-title"
   }, "\u2B50 Favourites"), favs.map(function (r) {
@@ -9335,9 +9283,7 @@ var ClientJourneyScreen = function ClientJourneyScreen(_ref52) {
         }
       }, item.note)), /*#__PURE__*/React.createElement("button", {
         className: "btn btn-danger btn-sm btn-icon",
-        onClick: function onClick() {
-          return del(item.id);
-        }
+        onClick: function onClick(e) { e.stopPropagation(); del(item.id); }
       }, "\xD7"), /*#__PURE__*/React.createElement("button", {
         className: "btn-edit",
         onClick: function onClick() {
@@ -9983,18 +9929,14 @@ var MarketingStrategyScreen = function MarketingStrategyScreen(_ref54) {
     }
   }, /*#__PURE__*/React.createElement("button", {
     className: "btn btn-primary btn-sm",
-    onClick: function onClick() {
-      return setModal(true);
-    }
+    onClick: function onClick() { setEditItem(null); setModal(true); }
   }, "+ New Campaign")), (data.campaigns || []).length === 0 ? /*#__PURE__*/React.createElement("div", {
     className: "empty-state"
   }, /*#__PURE__*/React.createElement("div", {
     className: "e-icon"
   }, "\uD83D\uDCE2"), /*#__PURE__*/React.createElement("h3", null, "No campaigns yet"), /*#__PURE__*/React.createElement("button", {
     className: "btn btn-primary",
-    onClick: function onClick() {
-      return setModal(true);
-    }
+    onClick: function onClick() { setEditItem(null); setModal(true); }
   }, "+ Create Campaign")) : (data.campaigns || []).map(function (c) {
     return /*#__PURE__*/React.createElement("div", {
       className: "card mb-8",
@@ -10215,9 +10157,7 @@ var OutfitPlannerScreen = function OutfitPlannerScreen(_ref55) {
     className: "page-header"
   }, /*#__PURE__*/React.createElement("h1", null, "\uD83D\uDC57 Outfit Planner"), /*#__PURE__*/React.createElement("button", {
     className: "btn btn-primary btn-sm",
-    onClick: function onClick() {
-      return setModal(true);
-    }
+    onClick: function onClick() { setEditItem(null); setModal(true); }
   }, "+ New Outfit")), /*#__PURE__*/React.createElement("div", {
     className: "tabs"
   }, seasons.map(function (s) {
@@ -10236,9 +10176,7 @@ var OutfitPlannerScreen = function OutfitPlannerScreen(_ref55) {
     className: "e-icon"
   }, "\uD83D\uDC57"), /*#__PURE__*/React.createElement("h3", null, "No outfits planned"), /*#__PURE__*/React.createElement("p", null, "Log your looks and plan your wardrobe."), /*#__PURE__*/React.createElement("button", {
     className: "btn btn-primary",
-    onClick: function onClick() {
-      return setModal(true);
-    }
+    onClick: function onClick() { setEditItem(null); setModal(true); }
   }, "+ Add Outfit")) : /*#__PURE__*/React.createElement("div", {
     style: {
       display: 'grid',
@@ -10295,9 +10233,7 @@ var OutfitPlannerScreen = function OutfitPlannerScreen(_ref55) {
         marginTop: 8,
         width: '100%'
       },
-      onClick: function onClick() {
-        return del(o.id);
-      }
+      onClick: function onClick(e) { e.stopPropagation(); del(o.id); }
     }, "Delete"));
   }))), modal && /*#__PURE__*/React.createElement(Modal, {
     title: "New Outfit",
@@ -10530,9 +10466,7 @@ var HouseholdScreen = function HouseholdScreen(_ref56) {
     className: "page-header"
   }, /*#__PURE__*/React.createElement("h1", null, "\uD83C\uDFE0 Household Planner"), /*#__PURE__*/React.createElement("button", {
     className: "btn btn-primary btn-sm",
-    onClick: function onClick() {
-      return setModal(true);
-    }
+    onClick: function onClick() { setEditItem(null); setModal(true); }
   }, "+ Add Chore")), /*#__PURE__*/React.createElement("div", {
     className: "tabs",
     style: {
@@ -10554,9 +10488,7 @@ var HouseholdScreen = function HouseholdScreen(_ref56) {
     className: "e-icon"
   }, "\uD83C\uDFE0"), /*#__PURE__*/React.createElement("h3", null, "No tasks here"), /*#__PURE__*/React.createElement("button", {
     className: "btn btn-primary",
-    onClick: function onClick() {
-      return setModal(true);
-    }
+    onClick: function onClick() { setEditItem(null); setModal(true); }
   }, "+ Add Chore")) : displayed.map(function (t) {
     var _t$alarm3;
     var done = doneTodayIds.includes(t.id);
@@ -10636,9 +10568,7 @@ var HouseholdScreen = function HouseholdScreen(_ref56) {
       }
     }, "\u270F\uFE0F"), " ", /*#__PURE__*/React.createElement("button", {
       className: "btn btn-danger btn-sm btn-icon",
-      onClick: function onClick() {
-        return del(t.id);
-      }
+      onClick: function onClick(e) { e.stopPropagation(); del(t.id); }
     }, "\xD7"));
   })), modal && /*#__PURE__*/React.createElement(Modal, {
     title: "Add Household Task",
@@ -10911,9 +10841,7 @@ var WorkoutPlannerScreen = function WorkoutPlannerScreen(_ref57) {
     className: "page-header"
   }, /*#__PURE__*/React.createElement("h1", null, "\uD83C\uDFCB\uFE0F Workout Planner"), /*#__PURE__*/React.createElement("button", {
     className: "btn btn-primary btn-sm",
-    onClick: function onClick() {
-      return setModal(true);
-    }
+    onClick: function onClick() { setEditItem(null); setModal(true); }
   }, "+ Log Workout")), /*#__PURE__*/React.createElement("div", {
     className: "tabs"
   }, ['Log', 'Templates'].map(function (t) {
@@ -10932,9 +10860,7 @@ var WorkoutPlannerScreen = function WorkoutPlannerScreen(_ref57) {
     className: "e-icon"
   }, "\uD83C\uDFCB\uFE0F"), /*#__PURE__*/React.createElement("h3", null, "No workouts logged yet"), /*#__PURE__*/React.createElement("button", {
     className: "btn btn-primary",
-    onClick: function onClick() {
-      return setModal(true);
-    }
+    onClick: function onClick() { setEditItem(null); setModal(true); }
   }, "+ Log Workout")) : logs.map(function (w) {
     return /*#__PURE__*/React.createElement("div", {
       className: "card mb-8",
@@ -11423,9 +11349,7 @@ var RecipesScreen = function RecipesScreen(_ref58) {
     className: "page-header"
   }, /*#__PURE__*/React.createElement("h1", null, "\uD83C\uDF7D Recipes & Groceries"), tab === 'Recipes' && /*#__PURE__*/React.createElement("button", {
     className: "btn btn-primary btn-sm",
-    onClick: function onClick() {
-      return setModal(true);
-    }
+    onClick: function onClick() { setEditItem(null); setModal(true); }
   }, "+ Recipe"), tab === 'Grocery' && /*#__PURE__*/React.createElement("button", {
     className: "btn btn-primary btn-sm",
     onClick: function onClick() {
@@ -11449,9 +11373,7 @@ var RecipesScreen = function RecipesScreen(_ref58) {
     className: "e-icon"
   }, "\uD83C\uDF7D"), /*#__PURE__*/React.createElement("h3", null, "No recipes yet"), /*#__PURE__*/React.createElement("button", {
     className: "btn btn-primary",
-    onClick: function onClick() {
-      return setModal(true);
-    }
+    onClick: function onClick() { setEditItem(null); setModal(true); }
   }, "+ Add Recipe")) : recipes.map(function (r) {
     return /*#__PURE__*/React.createElement("div", {
       className: "card mb-8",
@@ -11918,9 +11840,7 @@ var MedicationScreen = function MedicationScreen(_ref59) {
     className: "page-header"
   }, /*#__PURE__*/React.createElement("h1", null, "\uD83D\uDC8A Medication Tracker"), /*#__PURE__*/React.createElement("button", {
     className: "btn btn-primary btn-sm",
-    onClick: function onClick() {
-      return setModal(true);
-    }
+    onClick: function onClick() { setEditItem(null); setModal(true); }
   }, "+ Add Medication")), /*#__PURE__*/React.createElement("div", {
     className: "tabs"
   }, ['Medications', 'Daily Log'].map(function (t) {
@@ -11939,9 +11859,7 @@ var MedicationScreen = function MedicationScreen(_ref59) {
     className: "e-icon"
   }, "\uD83D\uDC8A"), /*#__PURE__*/React.createElement("h3", null, "No medications tracked"), /*#__PURE__*/React.createElement("button", {
     className: "btn btn-primary",
-    onClick: function onClick() {
-      return setModal(true);
-    }
+    onClick: function onClick() { setEditItem(null); setModal(true); }
   }, "+ Add Medication")) : meds.map(function (m) {
     var _m$alarm;
     return /*#__PURE__*/React.createElement("div", {
@@ -11985,9 +11903,7 @@ var MedicationScreen = function MedicationScreen(_ref59) {
       }
     }, "\u270F\uFE0F"), " ", /*#__PURE__*/React.createElement("button", {
       className: "btn btn-danger btn-sm btn-icon",
-      onClick: function onClick() {
-        return del(m.id);
-      }
+      onClick: function onClick(e) { e.stopPropagation(); del(m.id); }
     }, "\xD7"))), m.purpose && /*#__PURE__*/React.createElement("div", {
       style: {
         fontSize: 12,
