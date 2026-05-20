@@ -22,7 +22,7 @@
 <script>
 (function() {
   // ── Version ──────────────────────────────────────────────────────────────
-  window.LBP_VERSION = '4.12';
+  window.LBP_VERSION = '4.13';
 
   // ── PWA Install prompt ───────────────────────────────────────────────────
   window._installPrompt = null;
@@ -1021,6 +1021,7 @@ var RichTextEditor = function RichTextEditor(_ref6) {
     minHeight = _ref6$minHeight === void 0 ? 90 : _ref6$minHeight;
   var ref = useRef(null);
   var lastHtml = useRef(value || '');
+  var _toolbarBulletRef = useRef(false);
 
   // Only set innerHTML on mount or when value is externally reset to empty
   useEffect(function () {
@@ -1230,7 +1231,10 @@ var RichTextEditor = function RichTextEditor(_ref6) {
     className: "rte-btn",
     title: "Bulleted List",
     onClick: function onClick() {
-      return exec('insertUnorderedList');
+      _toolbarBulletRef.current = true;
+      exec('insertUnorderedList');
+      _toolbarBulletRef.current = false;
+      tick();
     }
   }, "\u2261 Bullets"), /*#__PURE__*/React.createElement("button", {
     type: "button",
@@ -1288,8 +1292,8 @@ var RichTextEditor = function RichTextEditor(_ref6) {
         }, 0);
         return;
       }
-      // Mobile: also catch insertUnorderedList (some Android keyboards)
-      if (e.nativeEvent && e.nativeEvent.inputType === 'insertUnorderedList') {
+      // Mobile: also catch insertUnorderedList (some Android keyboards — skip when triggered by toolbar)
+      if (e.nativeEvent && e.nativeEvent.inputType === 'insertUnorderedList' && !_toolbarBulletRef.current) {
         setTimeout(function() {
           if (!ref.current) return;
           var _uls2 = ref.current.querySelectorAll('ul:not(.rte-checklist)');
