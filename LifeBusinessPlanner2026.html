@@ -22,7 +22,7 @@
 <script>
 (function() {
   // ── Version ──────────────────────────────────────────────────────────────
-  window.LBP_VERSION = '4.23';
+  window.LBP_VERSION = '4.24';
 
   // ── PWA Install prompt ───────────────────────────────────────────────────
   window._installPrompt = null;
@@ -4215,8 +4215,9 @@ var TasksScreen = function TasksScreen(_ref21) {
       }
     }, /*#__PURE__*/React.createElement("div", {
       className: "task-check ".concat(t.status === 'DONE' ? 'done' : ''),
-      onClick: function onClick() {
-        return changeStatus(t.id, t.status === 'DONE' ? 'INBOX' : 'DONE');
+      onClick: function onClick(e) {
+        e.stopPropagation();
+        changeStatus(t.id, t.status === 'DONE' ? 'INBOX' : 'DONE');
       },
       style: {
         display: 'flex',
@@ -4277,8 +4278,10 @@ var TasksScreen = function TasksScreen(_ref21) {
     }, /*#__PURE__*/React.createElement("select", {
       value: t.status,
       onChange: function onChange(e) {
-        return changeStatus(t.id, e.target.value);
+        e.stopPropagation();
+        changeStatus(t.id, e.target.value);
       },
+      onClick: function onClick(e) { e.stopPropagation(); },
       style: {
         fontSize: 11,
         padding: '3px 6px',
@@ -4299,8 +4302,9 @@ var TasksScreen = function TasksScreen(_ref21) {
       }
     }, "\u270F\uFE0F"), " ", /*#__PURE__*/React.createElement("button", {
       className: "btn btn-danger btn-sm",
-      onClick: function onClick() {
-        return del(t.id);
+      onClick: function onClick(e) {
+        e.stopPropagation();
+        del(t.id);
       }
     }, "Delete")));
   })), modal && /*#__PURE__*/React.createElement(Modal, {
