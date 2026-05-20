@@ -22,7 +22,7 @@
 <script>
 (function() {
   // ── Version ──────────────────────────────────────────────────────────────
-  window.LBP_VERSION = '4.17';
+  window.LBP_VERSION = '4.18';
 
   // ── PWA Install prompt ───────────────────────────────────────────────────
   window._installPrompt = null;
@@ -3610,16 +3610,7 @@ var ProjectsScreen = function ProjectsScreen(_ref20) {
           fontSize: 12,
           marginLeft: 4
         }
-      }, "\uD83D\uDD14")), /*#__PURE__*/React.createElement(Progress, {
-        value: p.completion || 0,
-        color: c
-      }), /*#__PURE__*/React.createElement("div", {
-        style: {
-          fontSize: 11,
-          color: c,
-          marginTop: 3
-        }
-      }, p.completion || 0, "%"), p.dueDate && /*#__PURE__*/React.createElement("div", {
+      }, "\uD83D\uDD14")), (function(){ var _sl=(p.subtasks||[]).length,_sd=(p.subtasks||[]).filter(function(s){return s.done;}).length,_pct=_sl>0?Math.round(_sd/_sl*100):(p.completion||0); return React.createElement(React.Fragment,null,React.createElement(Progress,{value:_pct,color:c}),React.createElement("div",{style:{fontSize:11,color:c,marginTop:3}},_pct,"%")); })(), p.dueDate && /*#__PURE__*/React.createElement("div", {
         style: {
           fontSize: 10,
           color: 'var(--text-dim)',
@@ -3636,7 +3627,7 @@ var ProjectsScreen = function ProjectsScreen(_ref20) {
         }
       }, "\u2713 Mark Complete"));
     }));
-  })), displayed.map(function (p) {
+  })), (tab !== 'All' || pHighlight) && displayed.map(function (p) {
     var _p$alarm2;
     var c = statusColor(p.status);
     return /*#__PURE__*/React.createElement("div", {
@@ -13667,6 +13658,9 @@ var App = function App() {
   var totalOverdue = (data.tasks || []).filter(function (t) {
     return t.dueDate && t.dueDate < today() && t.status !== 'DONE';
   }).length;
+  var totalActiveProjects = (data.projects || []).filter(function (p) {
+    return ['PLANNING', 'IN_PROGRESS', 'CLIENT_REVIEW'].includes(p.status);
+  }).length;
   return /*#__PURE__*/React.createElement("div", {
     className: "app"
   }, /*#__PURE__*/React.createElement("div", {
@@ -13730,7 +13724,9 @@ var App = function App() {
         }
       }, emoji), " ", label, route === 'tasks' && totalOverdue > 0 && /*#__PURE__*/React.createElement("span", {
         className: "badge"
-      }, totalOverdue));
+      }, totalOverdue), route === 'projects' && totalActiveProjects > 0 && /*#__PURE__*/React.createElement("span", {
+        className: "badge", style: {background:'#6B3FA0'}
+      }, totalActiveProjects));
     }));
   })), /*#__PURE__*/React.createElement("main", {
     className: "content"
@@ -13793,7 +13789,9 @@ var App = function App() {
         }
       }, emoji), /*#__PURE__*/React.createElement("span", null, label), route === 'tasks' && totalOverdue > 0 && /*#__PURE__*/React.createElement("span", {
         className: "badge"
-      }, totalOverdue));
+      }, totalOverdue), route === 'projects' && totalActiveProjects > 0 && /*#__PURE__*/React.createElement("span", {
+        className: "badge", style: {background:'#6B3FA0'}
+      }, totalActiveProjects));
     }));
   }),
   /*#__PURE__*/React.createElement("div", {className:"nav-section", style:{marginTop:8}}, "\u2699\uFE0F Settings"),
