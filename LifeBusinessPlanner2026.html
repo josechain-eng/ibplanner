@@ -22,7 +22,7 @@
 <script>
 (function() {
   // ── Version ──────────────────────────────────────────────────────────────
-  window.LBP_VERSION = '4.29';
+  window.LBP_VERSION = '4.30';
 
   // ── PWA Install prompt ───────────────────────────────────────────────────
   window._installPrompt = null;
@@ -203,21 +203,23 @@
     'routineLogs','categories'];
 
   // Prune deletion tombstones older than 30 days to keep the blob lean
-  function _pruneTombstones(deletedIds) {
+  // Exposed on window so the React component script (separate <script> tag) can call it
+  window._pruneTombstones = function(deletedIds) {
     var cutoff = Date.now() - 30 * 24 * 60 * 60 * 1000;
     var pruned = {};
     Object.keys(deletedIds || {}).forEach(function(id) {
       if ((deletedIds[id] || 0) > cutoff) pruned[id] = deletedIds[id];
     });
     return pruned;
-  }
+  };
 
   // Stamp a deletion tombstone into the data blob so other devices never re-add this item
-  function _lbpRecordDel(d, id) {
+  // Exposed on window so the React component script (separate <script> tag) can call it
+  window._lbpRecordDel = function(d, id) {
     var dels = Object.assign({}, d._deletedIds || {});
     dels[id] = Date.now();
     return dels;
-  }
+  };
 
   // Smart merge: whichever side has the fresher global timestamp wins for EXISTING items.
   // Items that exist ONLY in the other side are always appended (never lost).
@@ -236,7 +238,7 @@
     var merged = Object.assign({}, base);
     // Combine tombstones from both sides — a deletion on either device is permanent
     var allDeleted = Object.assign({}, local._deletedIds || {}, cloud._deletedIds || {});
-    allDeleted = _pruneTombstones(allDeleted);
+    allDeleted = window._pruneTombstones(allDeleted);
     merged._deletedIds = allDeleted;
     var changed = Object.keys(allDeleted).length > Object.keys(base._deletedIds || {}).length;
     _SYNC_LISTS.forEach(function(k) {
@@ -492,7 +494,7 @@
         // Cloud is authoritative for existing items; preserve local-only new items.
         // Combine tombstones from both sides — a deletion on either device is permanent.
         var allDeleted = Object.assign({}, (local._deletedIds || {}), (json.data._deletedIds || {}));
-        allDeleted = _pruneTombstones(allDeleted);
+        allDeleted = window._pruneTombstones(allDeleted);
         var merged = Object.assign({}, json.data, { _deletedIds: allDeleted });
         _SYNC_LISTS.forEach(function(k) {
           var cloudArr = (json.data[k] || []);
