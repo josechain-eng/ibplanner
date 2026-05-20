@@ -22,7 +22,7 @@
 <script>
 (function() {
   // ── Version ──────────────────────────────────────────────────────────────
-  window.LBP_VERSION = '4.35';
+  window.LBP_VERSION = '4.36';
 
   // ── PWA Install prompt ───────────────────────────────────────────────────
   window._installPrompt = null;
@@ -76,10 +76,8 @@
         cbs.forEach(function(cb) { try { cb(window._gcalToken); } catch(e){} });
       }
     });
-    // Auto-reconnect silently if previously connected
-    if (localStorage.getItem('lbp_gcal_connected') === '1') {
-      try { window._gcalTokenClient.requestAccessToken({ prompt: '' }); } catch(e){}
-    }
+    // No auto-reconnect on load — on mobile it causes a full-page redirect to Google sign-in.
+    // Token is obtained on-demand via _gcalEnsureToken when a calendar action is triggered.
   };
 
   window._gcalConnect = function() {
@@ -345,6 +343,7 @@
     // Capture edit time immediately so the 2s-debounced push uses the right timestamp.
     var _editTime = Date.now();
     localStorage.setItem('lbp_last_save', _editTime.toString());
+    console.log('[LBP SYNC] User edit detected, editTime='+_editTime+', debouncing 2s...');
     _syncTimer = setTimeout(function() {
       _syncTimer = null;
       _pendingSyncData = null;
@@ -352,31 +351,31 @@
         var saveTime = Date.now();
         localStorage.setItem('lbp_last_save', saveTime.toString());
         var stamped = Object.assign({}, toSync, { _cloudSaveTime: saveTime });
+        console.log('[LBP SYNC] PUSHING to cloud, _cloudSaveTime='+saveTime);
         _workerFetch('/sync', {
           method: 'POST',
           headers: {'Content-Type':'application/json'},
           body: JSON.stringify({syncKey: syncKey, data: stamped})
-        });
+        }).then(function(r){ console.log('[LBP SYNC] Push result:', r && r.status); });
       };
-      // Stamp updatedAt on local items that changed vs. last cloud snapshot BEFORE merging.
-      // This is critical: without pre-stamping, cloud items that have any updatedAt (even old)
-      // would win over local edits that have no updatedAt yet, silently losing the user's work.
       var preStamped = _stampUpdatedAt(data, _editTime);
-      // Pull → smart merge (with pre-stamped local) → push
+      console.log('[LBP SYNC] Pulling cloud before push...');
       _workerFetch('/sync?key=' + encodeURIComponent(syncKey))
         .then(function(res) { return res && res.ok ? res.json() : null; })
         .then(function(json) {
           var cloudData = (json && json.data && json.data._cloudSaveTime) ? json.data : null;
           if (cloudData) _lastKnownCloudData = cloudData;
+          console.log('[LBP SYNC] Cloud cloudSaveTime='+(cloudData?cloudData._cloudSaveTime:'none')+' local lbp_last_save='+localStorage.getItem('lbp_last_save'));
           var merged = cloudData ? _mergeCloudData(preStamped, cloudData) : preStamped;
-          // If merge changed anything (cloud had newer items), update local and notify React
-          if (merged !== preStamped) {
+          var mergeChanged = merged !== preStamped;
+          console.log('[LBP SYNC] Merge changed local?', mergeChanged);
+          if (mergeChanged) {
             localStorage.setItem('lbp2026_data', JSON.stringify(merged));
             window.dispatchEvent(new Event('lbp_cloud_sync'));
           }
           _push(merged);
         })
-        .catch(function() { _push(preStamped); });
+        .catch(function(e) { console.warn('[LBP SYNC] Pull failed, pushing anyway:', e); _push(preStamped); });
     }, 2000);
   };
 
@@ -577,6 +576,7 @@
         var cloudSaveTime = json.data._cloudSaveTime || 0;
         var localLastSave = parseInt(localStorage.getItem('lbp_last_save') || '0', 10);
         var cloudIsNewer = cloudSaveTime > localLastSave;
+        console.log('[LBP PULL] cloudSaveTime='+cloudSaveTime+' localLastSave='+localLastSave+' cloudIsNewer='+cloudIsNewer+' force='+force);
 
         var merged;
         if (force) {
@@ -13442,9 +13442,7 @@ var App = function App() {
     var onCloudSync = function() {
       try {
         var fresh = JSON.parse(localStorage.getItem('lbp2026_data') || '{}');
-        // Signal to useStore that this setData comes from a cloud pull, not a user edit.
-        // useStore checks this flag during React's commit phase (timing-safe) and skips
-        // the cloud push.  Flag is consumed (cleared) by useStore's effect.
+        console.log('[LBP SYNC] onCloudSync: setData from pull, flag set, push will be blocked');
         window._lbpCloudPullUpdate = true;
         setData(fresh);
       } catch(_e) { window._lbpCloudPullUpdate = false; }
