@@ -22,7 +22,7 @@
 <script>
 (function() {
   // ── Version ──────────────────────────────────────────────────────────────
-  window.LBP_VERSION = '4.34';
+  window.LBP_VERSION = '4.35';
 
   // ── PWA Install prompt ───────────────────────────────────────────────────
   window._installPrompt = null;
@@ -228,6 +228,49 @@
   // cloudIsNewer=false → local wins for existing items  + cloud-only new items preserved
   //
   // This handles BOTH "new item added on other device" AND "existing item updated on other device".
+  // Returns true if two items differ in meaningful content (ignores updatedAt itself).
+  function _itemsContentDiffer(a, b) {
+    var ac = Object.assign({}, a); delete ac.updatedAt;
+    var bc = Object.assign({}, b); delete bc.updatedAt;
+    return JSON.stringify(ac) !== JSON.stringify(bc);
+  }
+
+  // Stamp updatedAt on items in toSync that differ from the last known cloud snapshot.
+  // Items that match the cloud version keep their existing updatedAt unchanged.
+  // Items that are new or changed get updatedAt = saveTime.
+  // This is called inside _push so every outbound payload has per-item timestamps.
+  function _stampUpdatedAt(toSync, saveTime) {
+    var snapshot = _lastKnownCloudData;
+    var result = Object.assign({}, toSync);
+    _SYNC_LISTS.forEach(function(k) {
+      var items = toSync[k];
+      if (!items || !items.length) return;
+      var cloudById = {};
+      if (snapshot && snapshot[k]) {
+        snapshot[k].forEach(function(i) { if (i && i.id) cloudById[i.id] = i; });
+      }
+      var anyNew = false;
+      var stamped = items.map(function(item) {
+        if (!item || !item.id) return item;
+        var cloudItem = cloudById[item.id];
+        // New item (not in cloud) or content changed vs cloud → stamp with saveTime
+        if (!cloudItem || _itemsContentDiffer(item, cloudItem)) {
+          anyNew = true;
+          return Object.assign({}, item, { updatedAt: saveTime });
+        }
+        // Unchanged — preserve existing updatedAt (or keep as-is if cloud also has none)
+        return item;
+      });
+      if (anyNew) result[k] = stamped;
+    });
+    return result;
+  }
+
+  // Smart merge: uses per-item updatedAt for conflict resolution when available,
+  // falls back to global device timestamp (cloudIsNewer) for items without updatedAt.
+  //
+  // cloudIsNewer=true  → use cloud as base for items with no updatedAt + pick newer per-item
+  // cloudIsNewer=false → use local as base for items with no updatedAt + pick newer per-item
   function _mergeCloudData(local, cloud) {
     if (!cloud) return local;
     var localLastSave = parseInt(localStorage.getItem('lbp_last_save') || '0', 10);
@@ -243,17 +286,33 @@
     var changed = Object.keys(allDeleted).length > Object.keys(base._deletedIds || {}).length;
     _SYNC_LISTS.forEach(function(k) {
       var baseArr  = base[k]  || [];
-      // First: remove any base items that are tombstoned on EITHER side.
-      // (e.g. local wins but cloud tombstoned an item — must honour the deletion)
+      // Step 1: remove any base items tombstoned on EITHER side
       var filteredBase = baseArr.filter(function(i) { return i && i.id && !allDeleted[i.id]; });
       if (filteredBase.length !== baseArr.length) { merged[k] = filteredBase; changed = true; }
       var currentBase = merged[k] || filteredBase;
-      // Second: append items that exist only on the other side and are not tombstoned.
       var otherArr = other[k] || [];
-      if (!otherArr.length) return;
-      var baseIds = new Set(currentBase.map(function(i) { return i && i.id; }));
+      // Build lookup for per-item resolution
+      var otherById = {};
+      otherArr.forEach(function(i) { if (i && i.id) otherById[i.id] = i; });
+      // Step 2: per-item updatedAt resolution — if other side has a NEWER version, use it.
+      // This fixes the case where the global cloudIsNewer picks the wrong winner for a
+      // specific item (e.g. cloud is globally newer but local has a more recent edit to p1).
+      var anyItemWon = false;
+      var resolved = currentBase.map(function(baseItem) {
+        if (!baseItem || !baseItem.id) return baseItem;
+        var otherItem = otherById[baseItem.id];
+        if (!otherItem) return baseItem;
+        var baseUpd  = baseItem.updatedAt  || 0;
+        var otherUpd = otherItem.updatedAt || 0;
+        if (otherUpd > baseUpd) { anyItemWon = true; return otherItem; }
+        return baseItem;
+      });
+      if (anyItemWon) { merged[k] = resolved; changed = true; }
+      var currentResolved = merged[k] || resolved;
+      // Step 3: append items that exist only on the other side and are not tombstoned
+      var baseIds = new Set(currentResolved.map(function(i) { return i && i.id; }));
       var extras  = otherArr.filter(function(i) { return i && i.id && !baseIds.has(i.id) && !allDeleted[i.id]; });
-      if (extras.length) { merged[k] = currentBase.concat(extras); changed = true; }
+      if (extras.length) { merged[k] = currentResolved.concat(extras); changed = true; }
     });
     return changed ? merged : base;
   }
@@ -283,9 +342,9 @@
     if (!syncKey || !window.LBP_WORKER_URL) return;
     clearTimeout(_syncTimer);
     _pendingSyncData = data;
-    // Claim "local is current" now so the merge correctly treats this device's
-    // in-flight edits as newer than any cloud data that predates this moment.
-    localStorage.setItem('lbp_last_save', Date.now().toString());
+    // Capture edit time immediately so the 2s-debounced push uses the right timestamp.
+    var _editTime = Date.now();
+    localStorage.setItem('lbp_last_save', _editTime.toString());
     _syncTimer = setTimeout(function() {
       _syncTimer = null;
       _pendingSyncData = null;
@@ -299,21 +358,25 @@
           body: JSON.stringify({syncKey: syncKey, data: stamped})
         });
       };
-      // Pull → smart merge → push
+      // Stamp updatedAt on local items that changed vs. last cloud snapshot BEFORE merging.
+      // This is critical: without pre-stamping, cloud items that have any updatedAt (even old)
+      // would win over local edits that have no updatedAt yet, silently losing the user's work.
+      var preStamped = _stampUpdatedAt(data, _editTime);
+      // Pull → smart merge (with pre-stamped local) → push
       _workerFetch('/sync?key=' + encodeURIComponent(syncKey))
         .then(function(res) { return res && res.ok ? res.json() : null; })
         .then(function(json) {
           var cloudData = (json && json.data && json.data._cloudSaveTime) ? json.data : null;
           if (cloudData) _lastKnownCloudData = cloudData;
-          var merged = cloudData ? _mergeCloudData(data, cloudData) : data;
-          // If merge changed anything (cloud had newer data or new items), update local
-          if (merged !== data) {
+          var merged = cloudData ? _mergeCloudData(preStamped, cloudData) : preStamped;
+          // If merge changed anything (cloud had newer items), update local and notify React
+          if (merged !== preStamped) {
             localStorage.setItem('lbp2026_data', JSON.stringify(merged));
             window.dispatchEvent(new Event('lbp_cloud_sync'));
           }
           _push(merged);
         })
-        .catch(function() { _push(data); });
+        .catch(function() { _push(preStamped); });
     }, 2000);
   };
 
@@ -324,9 +387,11 @@
     _syncTimer = null;
     var syncKey = localStorage.getItem('lbp_sync_key');
     if (!syncKey || !window.LBP_WORKER_URL) return;
-    var toFlush = _mergeCloudData(_pendingSyncData, _lastKnownCloudData);
-    _pendingSyncData = null;
     var saveTime = Date.now();
+    // Pre-stamp before merge (same as _cloudSync timer — ensures local edits win per-item)
+    var preStamped = _stampUpdatedAt(_pendingSyncData, saveTime);
+    var toFlush = _mergeCloudData(preStamped, _lastKnownCloudData);
+    _pendingSyncData = null;
     localStorage.setItem('lbp_last_save', saveTime.toString());
     var stamped = Object.assign({}, toFlush, { _cloudSaveTime: saveTime });
     var payload = JSON.stringify({ syncKey: syncKey, data: stamped });
