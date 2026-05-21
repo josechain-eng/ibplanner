@@ -22,7 +22,7 @@
 <script>
 (function() {
   // ── Version ──────────────────────────────────────────────────────────────
-  window.LBP_VERSION = '4.37';
+  window.LBP_VERSION = '4.39';
 
   // ── PWA Install prompt ───────────────────────────────────────────────────
   window._installPrompt = null;
@@ -198,7 +198,7 @@
     'resources','documents','campaigns','clientJourney','outfits','householdTasks',
     'workouts','workoutTemplates','recipes','groceryItems','medications',
     'medicationLogs','skinLogs','skinProducts','clients','transactions',
-    'routineLogs','categories'];
+    'routineLogs','categories','brainstorm'];
 
   // Prune deletion tombstones older than 30 days to keep the blob lean
   // Exposed on window so the React component script (separate <script> tag) can call it
@@ -2585,7 +2585,7 @@ var HomeScreen = function HomeScreen(_ref14) {
     return g.targetDate && g.targetDate < todayStr && !['COMPLETED','PAUSED'].includes(g.status);
   });
   var activePjs = projects.filter(function (p) {
-    return ['PLANNING', 'IN_PROGRESS', 'CLIENT_REVIEW'].includes(p.status);
+    return ['PLANNING', 'IN_PROGRESS', 'CLIENT_REVIEW', 'AWAITING_APPROVAL'].includes(p.status);
   });
   var activeTasks = tasks.filter(function (t) { return t.status !== 'DONE'; });
   var thisMonth = new Date().getMonth() + 1;
@@ -2947,8 +2947,8 @@ var HomeScreen = function HomeScreen(_ref14) {
   }, "+ Add Project")) : /*#__PURE__*/React.createElement("div", {
     style: { marginBottom: 16 }
   }, activePjs.map(function (p) {
-    var c = p.status === 'IN_PROGRESS' ? '#4CAF50' : p.status === 'CLIENT_REVIEW' ? '#FF9800' : '#9C27B0';
-    var pct = p.status==='PLANNING'?25:p.status==='IN_PROGRESS'?50:p.status==='CLIENT_REVIEW'?75:p.status==='DONE'?100:0;
+    var c = p.status === 'IN_PROGRESS' ? '#4CAF50' : (p.status === 'CLIENT_REVIEW'||p.status==='AWAITING_APPROVAL') ? '#FF9800' : '#9C27B0';
+    var pct = p.status==='PLANNING'?25:p.status==='IN_PROGRESS'?50:(p.status==='CLIENT_REVIEW'||p.status==='AWAITING_APPROVAL')?75:p.status==='DONE'?100:0;
     return /*#__PURE__*/React.createElement("div", {
       className: "task-item",
       key: p.id,
@@ -3182,12 +3182,12 @@ var HomeScreen = function HomeScreen(_ref14) {
   }, /*#__PURE__*/React.createElement("div", {style:{padding:"8px 0"}},
     /*#__PURE__*/React.createElement("div", {style:{display:"flex",gap:8,alignItems:"center",marginBottom:12,flexWrap:"wrap"}},
       /*#__PURE__*/React.createElement(Chip, {label: viewProject.status ? viewProject.status.replace(/_/g,' ') : '',
-        color: ({"IN_PROGRESS":"#4CAF50","CLIENT_REVIEW":"#FF9800","DONE":"#2196F3","PLANNING":"#9C27B0","ON_HOLD":"#795548"})[viewProject.status]||'#6B3FA0'}),
+        color: ({"IN_PROGRESS":"#4CAF50","CLIENT_REVIEW":"#FF9800","AWAITING_APPROVAL":"#FF9800","DONE":"#2196F3","PLANNING":"#9C27B0","ON_HOLD":"#795548"})[viewProject.status]||'#6B3FA0'}),
       viewProject.dueDate && /*#__PURE__*/React.createElement("span",{style:{fontSize:12,color:"var(--text-dim)"}}, "\uD83D\uDCC5 ", viewProject.dueDate),
-      viewProject.budget && /*#__PURE__*/React.createElement("span",{style:{fontSize:12,color:"var(--text-dim)"}}, "\uD83D\uDCB0 $", viewProject.budget)
+      (viewProject.campaignBudget||viewProject.budget) && /*#__PURE__*/React.createElement("span",{style:{fontSize:12,color:"var(--text-dim)"}}, "\uD83D\uDCB0 $", viewProject.campaignBudget||viewProject.budget)
     ),
-    /*#__PURE__*/React.createElement(Progress, {value: (viewProject.status==='PLANNING'?25:viewProject.status==='IN_PROGRESS'?50:viewProject.status==='CLIENT_REVIEW'?75:viewProject.status==='DONE'?100:0), color: '#4CAF50'}),
-    /*#__PURE__*/React.createElement("div", {style:{fontSize:11,color:"var(--text-dim)",marginTop:2,marginBottom:10}}, (viewProject.status==='PLANNING'?25:viewProject.status==='IN_PROGRESS'?50:viewProject.status==='CLIENT_REVIEW'?75:viewProject.status==='DONE'?100:0) + "% complete"),
+    /*#__PURE__*/React.createElement(Progress, {value: (viewProject.status==='PLANNING'?25:viewProject.status==='IN_PROGRESS'?50:(viewProject.status==='CLIENT_REVIEW'||viewProject.status==='AWAITING_APPROVAL')?75:viewProject.status==='DONE'?100:0), color: '#4CAF50'}),
+    /*#__PURE__*/React.createElement("div", {style:{fontSize:11,color:"var(--text-dim)",marginTop:2,marginBottom:10}}, (viewProject.status==='PLANNING'?25:viewProject.status==='IN_PROGRESS'?50:(viewProject.status==='CLIENT_REVIEW'||viewProject.status==='AWAITING_APPROVAL')?75:viewProject.status==='DONE'?100:0) + "% complete"),
     viewProject.description && /*#__PURE__*/React.createElement("div", {style:{fontSize:13,lineHeight:1.6}}, /*#__PURE__*/React.createElement(RichContent,{html:viewProject.description}))
   )),
   alarmEditItem && /*#__PURE__*/React.createElement(Modal, {
@@ -3454,8 +3454,7 @@ var GoalsScreen = function GoalsScreen(_ref19) {
       name: '',
       description: '',
       type: 'OTHER',
-      pricing: 'FIXED',
-      budget: '',
+      department: '', approvalStatus: 'PENDING', tenantId: '', campaignBudget: '',
       dueDate: '',
       status: 'PLANNING',
       completion: 0,
@@ -3565,8 +3564,7 @@ var ProjectsScreen = function ProjectsScreen(_ref20) {
       name: '',
       description: '',
       type: 'OTHER',
-      pricing: 'FIXED',
-      budget: '',
+      department: '', approvalStatus: 'PENDING', tenantId: '', campaignBudget: '',
       dueDate: '',
       status: 'PLANNING',
       completion: 0,
@@ -3680,8 +3678,7 @@ var ProjectsScreen = function ProjectsScreen(_ref20) {
       name: '',
       description: '',
       type: 'OTHER',
-      pricing: 'FIXED',
-      budget: '',
+      department: '', approvalStatus: 'PENDING', tenantId: '', campaignBudget: '',
       dueDate: '',
       status: 'PLANNING',
       completion: 0,
@@ -3718,6 +3715,7 @@ var ProjectsScreen = function ProjectsScreen(_ref20) {
   var statusColor = function statusColor(s) {
     return {
       'IN_PROGRESS': '#4CAF50',
+      'AWAITING_APPROVAL': '#FF9800',
       'CLIENT_REVIEW': '#FF9800',
       'DONE': '#9C27B0',
       'PLANNING': '#2196F3',
@@ -3734,8 +3732,7 @@ var ProjectsScreen = function ProjectsScreen(_ref20) {
       name: '',
       description: '',
       type: 'OTHER',
-      pricing: 'FIXED',
-      budget: '',
+      department: '', approvalStatus: 'PENDING', tenantId: '', campaignBudget: '',
       dueDate: '',
       status: 'PLANNING',
       completion: 0,
@@ -3748,7 +3745,7 @@ var ProjectsScreen = function ProjectsScreen(_ref20) {
     }
   }, "+ New Project")), /*#__PURE__*/React.createElement("div", {
     className: "tabs"
-  }, ['All', 'PLANNING', 'IN_PROGRESS', 'CLIENT_REVIEW', 'DONE', 'ARCHIVED'].map(function (t) {
+  }, ['All', 'PLANNING', 'IN_PROGRESS', 'AWAITING_APPROVAL', 'DONE', 'ARCHIVED'].map(function (t) {
     return /*#__PURE__*/React.createElement("div", {
       key: t,
       className: "tab ".concat(tab === t ? 'active' : ''),
@@ -3826,7 +3823,7 @@ var ProjectsScreen = function ProjectsScreen(_ref20) {
         fontSize: 11,
         color: 'var(--text-dim)'
       }
-    }, p.type, " \u2022 ", p.pricing)), /*#__PURE__*/React.createElement("div", {
+    }, p.type, p.department ? " \u2022 " + p.department : '')), /*#__PURE__*/React.createElement("div", {
       style: {
         display: 'flex',
         gap: 6
@@ -3870,13 +3867,13 @@ var ProjectsScreen = function ProjectsScreen(_ref20) {
         color: c,
         fontWeight: 700
       }
-    }, statusToCompletion(p.status), "%")), p.budget && /*#__PURE__*/React.createElement("div", {
+    }, statusToCompletion(p.status), "%")), p.campaignBudget && /*#__PURE__*/React.createElement("div", {
       style: {
         fontSize: 11,
         color: '#4CAF50',
         marginTop: 4
       }
-    }, "\uD83D\uDCB0 Budget: $", Number(p.budget).toLocaleString()), (p.subtasks && p.subtasks.length > 0) && /*#__PURE__*/React.createElement("div", {style:{fontSize:11,color:'var(--text-dim)',marginTop:4}}, "\uD83D\uDCCB Subtasks: ", (p.subtasks||[]).filter(function(s){return s.done;}).length, "/", (p.subtasks||[]).length), (function(){
+    }, "\uD83D\uDCB0 Budget: $", Number(p.campaignBudget).toLocaleString()), (p.subtasks && p.subtasks.length > 0) && /*#__PURE__*/React.createElement("div", {style:{fontSize:11,color:'var(--text-dim)',marginTop:4}}, "\uD83D\uDCCB Subtasks: ", (p.subtasks||[]).filter(function(s){return s.done;}).length, "/", (p.subtasks||[]).length), (function(){
       var lt = (data.tasks||[]).filter(function(t){return t.projectId===p.id;});
       if (!lt.length) return null;
       return React.createElement('div', {style:{marginTop:8}},
@@ -3955,7 +3952,7 @@ var ProjectsScreen = function ProjectsScreen(_ref20) {
         status: e.target.value
       }));
     }
-  }, ['PLANNING', 'IN_PROGRESS', 'CLIENT_REVIEW', 'DONE', 'ARCHIVED'].map(function (s) {
+  }, ['PLANNING', 'IN_PROGRESS', 'AWAITING_APPROVAL', 'DONE', 'ARCHIVED'].map(function (s) {
     return /*#__PURE__*/React.createElement("option", {
       key: s
     }, s);
@@ -3968,32 +3965,44 @@ var ProjectsScreen = function ProjectsScreen(_ref20) {
         type: e.target.value
       }));
     }
-  }, ['BRANDING', 'GRAPHIC_DESIGN', 'WEB_DESIGN', 'MARKETING', 'CONSULTING', 'VIDEO', 'OTHER'].map(function (t) {
+  }, ['Marketing', 'Product', 'HHRR', 'Logistics', 'Franchise', 'Finance', 'Store', 'Other'].map(function (t) {
     return /*#__PURE__*/React.createElement("option", {
       key: t
     }, t);
-  }))), /*#__PURE__*/React.createElement("div", {
+  })), /*#__PURE__*/React.createElement("div", {
     className: "form-group"
-  }, /*#__PURE__*/React.createElement("label", null, "Pricing"), /*#__PURE__*/React.createElement("select", {
-    value: form.pricing,
+  }, /*#__PURE__*/React.createElement("label", null, "Department / Requester"), /*#__PURE__*/React.createElement("input", {
+    value: form.department||'',
+    placeholder: "e.g. Management, Tenants, Marketing…",
     onChange: function onChange(e) {
-      return setForm(_objectSpread(_objectSpread({}, form), {}, {
-        pricing: e.target.value
-      }));
+      return setForm(_objectSpread(_objectSpread({}, form), {}, {department: e.target.value}));
     }
-  }, ['FIXED', 'HOURLY', 'RETAINER'].map(function (p) {
-    return /*#__PURE__*/React.createElement("option", {
-      key: p
-    }, p);
+  })), /*#__PURE__*/React.createElement("div", {
+    className: "form-group"
+  }, /*#__PURE__*/React.createElement("label", null, "Approval Status"), /*#__PURE__*/React.createElement("select", {
+    value: form.approvalStatus||'PENDING',
+    onChange: function onChange(e) {
+      return setForm(_objectSpread(_objectSpread({}, form), {}, {approvalStatus: e.target.value}));
+    }
+  }, ['PENDING', 'APPROVED', 'NEEDS_REVISION'].map(function(a){
+    return /*#__PURE__*/React.createElement("option", {key:a, value:a}, a.replace('_',' '));
   }))), /*#__PURE__*/React.createElement("div", {
     className: "form-group"
-  }, /*#__PURE__*/React.createElement("label", null, "Budget ($)"), /*#__PURE__*/React.createElement("input", {
-    type: "number",
-    value: form.budget,
+  }, /*#__PURE__*/React.createElement("label", null, "Linked Tenant / Store"), /*#__PURE__*/React.createElement("select", {
+    value: form.tenantId||'',
     onChange: function onChange(e) {
-      return setForm(_objectSpread(_objectSpread({}, form), {}, {
-        budget: e.target.value
-      }));
+      return setForm(_objectSpread(_objectSpread({}, form), {}, {tenantId: e.target.value}));
+    }
+  }, [/*#__PURE__*/React.createElement("option", {key:'none', value:''},'— None —')].concat(
+    (data.clients||[]).map(function(c){ return /*#__PURE__*/React.createElement("option",{key:c.id,value:c.id},c.name); })
+  ))), /*#__PURE__*/React.createElement("div", {
+    className: "form-group"
+  }, /*#__PURE__*/React.createElement("label", null, "Campaign Budget ($)"), /*#__PURE__*/React.createElement("input", {
+    type: "number",
+    value: form.campaignBudget||'',
+    placeholder: "0",
+    onChange: function onChange(e) {
+      return setForm(_objectSpread(_objectSpread({}, form), {}, {campaignBudget: e.target.value}));
     }
   })), /*#__PURE__*/React.createElement("div", {
     className: "form-group"
@@ -13041,6 +13050,162 @@ var CategoryTagInput = function(props) {
   );
 };
 
+// ─── BrainstormScreen ──────────────────────────────────────────
+var BrainstormScreen = function(props) {
+  var data = props.data, setData = props.setData;
+  var AREAS = ['Branding','Marketing','Events','HR','Technology','Sales','Negotiation','Product','Finance','Other'];
+  var AREA_COLORS = {Branding:'#E91E63',Marketing:'#FF9800',Events:'#9C27B0',HR:'#2196F3',Technology:'#00BCD4',Sales:'#4CAF50',Negotiation:'#C9A84C',Product:'#6B3FA0',Finance:'#D4658F',Other:'#607D8B'};
+  var AREA_EMOJIS = {Branding:'🎨',Marketing:'📢',Events:'🎉',HR:'👥',Technology:'💻',Sales:'💼',Negotiation:'🤝',Product:'📦',Finance:'💰',Other:'💡'};
+  var SYSTEM_PROMPTS = {
+    Branding:'You are a strategic branding consultant for Ventura Mall, a leading shopping center in Panama. Help brainstorm creative ideas for brand identity, visual language, positioning, seasonal campaigns, and brand experiences that attract and retain shoppers. Be specific, creative, and actionable.',
+    Marketing:'You are a marketing strategist for Ventura Mall. Help brainstorm campaign ideas, promotions, seasonal events, advertising strategies, influencer partnerships, and marketing activations to drive foot traffic and boost tenant sales. Be specific and creative.',
+    Events:'You are an events specialist for Ventura Mall. Help brainstorm event concepts, activations, themed experiences, community events, entertainment programs, pop-ups, and seasonal celebrations that attract visitors and create buzz.',
+    HR:'You are an HR consultant for Ventura Mall. Help brainstorm ideas for team culture, recruitment strategies, staff training programs, employee engagement, performance management, internal communication, and organizational development.',
+    Technology:'You are a retail technology consultant for Ventura Mall. Help brainstorm ideas for digital innovation, customer experience technology, data analytics, loyalty apps, digital signage, operational automation, and smart mall initiatives.',
+    Sales:'You are a sales and business development strategist for Ventura Mall. Help brainstorm ideas for increasing tenant sales, attracting new brands and tenants, partnership opportunities, revenue diversification, and commercial growth.',
+    Negotiation:'You are a negotiation coach specializing in retail and commercial real estate. Help prepare negotiation strategies, talking points, and approaches for tenant agreements, vendor contracts, sponsorships, and strategic partnerships.',
+    Product:'You are a product and service innovation consultant for Ventura Mall. Help brainstorm new customer-facing services, loyalty programs, convenience offerings, premium experiences, and value-added initiatives.',
+    Finance:'You are a financial strategy advisor for Ventura Mall. Help brainstorm ideas for budget optimization, revenue diversification, cost reduction, ROI improvement, and financial planning for marketing and operations.',
+    Other:'You are a strategic business consultant for Ventura Mall. Help brainstorm creative solutions and innovative ideas across all areas of mall management, brand strategy, operations, and business growth.'
+  };
+  var _bs1=useState(null),_bs2=_slicedToArray(_bs1,2),activeId=_bs2[0],setActiveId=_bs2[1];
+  var _bs3=useState(''),_bs4=_slicedToArray(_bs3,2),input=_bs4[0],setInput=_bs4[1];
+  var _bs5=useState(false),_bs6=_slicedToArray(_bs5,2),loading=_bs6[0],setLoading=_bs6[1];
+  var _bs7=useState('All'),_bs8=_slicedToArray(_bs7,2),areaFilter=_bs8[0],setAreaFilter=_bs8[1];
+  var _bs9=useState(false),_bs10=_slicedToArray(_bs9,2),newModal=_bs10[0],setNewModal=_bs10[1];
+  var _bs11=useState(''),_bs12=_slicedToArray(_bs11,2),newTitle=_bs12[0],setNewTitle=_bs12[1];
+  var _bs13=useState('Marketing'),_bs14=_slicedToArray(_bs13,2),newArea=_bs14[0],setNewArea=_bs14[1];
+  var _bs15=useState(''),_bs16=_slicedToArray(_bs15,2),errMsg=_bs16[0],setErrMsg=_bs16[1];
+  var chatRef=React.useRef(null);
+  var sessions=data.brainstorm||[];
+  var filtered=areaFilter==='All'?sessions:sessions.filter(function(s){return s.area===areaFilter;});
+  var active=sessions.find(function(s){return s.id===activeId;})||null;
+  var createSession=function(){
+    if(!newTitle.trim()) return;
+    var s={id:uid(),title:newTitle.trim(),area:newArea,messages:[],createdAt:Date.now(),updatedAt:Date.now()};
+    setData(function(d){return Object.assign({},d,{brainstorm:[s].concat(d.brainstorm||[])});});
+    setActiveId(s.id);setNewModal(false);setNewTitle('');setNewArea('Marketing');
+  };
+  var sendMessage=function(){
+    var text=input.trim();
+    if(!text||loading||!active) return;
+    if(!window.LBP_WORKER_URL){setErrMsg('Worker URL not configured. Open ☁️ Cloud Settings.');return;}
+    setErrMsg('');
+    var userMsg={role:'user',content:text,ts:Date.now()};
+    var updatedMessages=(active.messages||[]).concat([userMsg]);
+    setData(function(d){return Object.assign({},d,{brainstorm:(d.brainstorm||[]).map(function(s){return s.id===active.id?Object.assign({},s,{messages:updatedMessages,updatedAt:Date.now()}):s;})});});
+    setInput('');setLoading(true);
+    var apiMessages=updatedMessages.map(function(m){return{role:m.role,content:m.content};});
+    fetch(window.LBP_WORKER_URL+'/chat',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({messages:apiMessages,systemPrompt:SYSTEM_PROMPTS[active.area]||SYSTEM_PROMPTS.Other,area:active.area})})
+      .then(function(r){return r.json();})
+      .then(function(res){
+        setLoading(false);
+        if(res.error){setErrMsg('Error: '+res.error);return;}
+        var aMsg={role:'assistant',content:res.content,ts:Date.now()};
+        setData(function(d){return Object.assign({},d,{brainstorm:(d.brainstorm||[]).map(function(s){return s.id===active.id?Object.assign({},s,{messages:updatedMessages.concat([aMsg]),updatedAt:Date.now()}):s;})});});
+      })
+      .catch(function(e){setLoading(false);setErrMsg('Network error: '+(e&&e.message?e.message:'Could not reach Worker'));});
+  };
+  var exportSession=function(s){
+    var lines=['# '+s.title+' ('+s.area+')','Created: '+new Date(s.createdAt).toLocaleString(),'','---',''];
+    (s.messages||[]).forEach(function(m){lines.push((m.role==='user'?'You: ':'Claude: ')+m.content,'');});
+    var blob=new Blob([lines.join('\n')],{type:'text/plain'});
+    var url=URL.createObjectURL(blob);var a=document.createElement('a');
+    a.href=url;a.download=s.title.replace(/[^a-z0-9]/gi,'_')+'.txt';a.click();URL.revokeObjectURL(url);
+  };
+  var deleteSession=function(id){
+    setData(function(d){return Object.assign({},d,{brainstorm:(d.brainstorm||[]).filter(function(s){return s.id!==id;})});});
+    if(activeId===id) setActiveId(null);
+  };
+  React.useEffect(function(){if(chatRef.current) chatRef.current.scrollTop=chatRef.current.scrollHeight;},[active&&active.messages&&active.messages.length]);
+  var handleKey=function(e){if(e.key==='Enter'&&!e.shiftKey){e.preventDefault();sendMessage();}};
+  return React.createElement('div',null,
+    React.createElement('div',{className:'page-header'},
+      React.createElement('h1',null,'💡 Ideas Lab'),
+      React.createElement('button',{className:'btn btn-primary btn-sm',onClick:function(){setNewModal(true);}},'＋ New Session')
+    ),
+    React.createElement('div',{className:'page-content'},
+      React.createElement('div',{style:{display:'flex',gap:16,height:'calc(100vh - 150px)',minHeight:400}},
+        React.createElement('div',{style:{width:210,flexShrink:0,display:'flex',flexDirection:'column',gap:8}},
+          React.createElement('select',{value:areaFilter,onChange:function(e){setAreaFilter(e.target.value);},style:{fontSize:12,marginBottom:4}},
+            [React.createElement('option',{key:'All',value:'All'},'All Areas')].concat(
+              AREAS.map(function(a){return React.createElement('option',{key:a,value:a},AREA_EMOJIS[a]+' '+a);})
+            )
+          ),
+          React.createElement('div',{style:{flex:1,overflowY:'auto',display:'flex',flexDirection:'column',gap:6}},
+            filtered.length===0&&React.createElement('div',{style:{color:'var(--text-dim)',fontSize:12,textAlign:'center',paddingTop:20}},'No sessions yet.\nCreate one!'),
+            filtered.map(function(s){
+              var c=AREA_COLORS[s.area]||'#6B3FA0';var isAct=s.id===activeId;
+              return React.createElement('div',{key:s.id,onClick:function(){setActiveId(s.id);},style:{background:isAct?'rgba(107,63,160,.25)':'var(--card)',border:'1px solid '+(isAct?'var(--purple-light)':'var(--border)'),borderRadius:10,padding:'8px 10px',cursor:'pointer',borderLeft:'3px solid '+c}},
+                React.createElement('div',{style:{fontSize:11,fontWeight:700,color:c,marginBottom:2}},AREA_EMOJIS[s.area]+' '+s.area),
+                React.createElement('div',{style:{fontSize:12,fontWeight:600,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}},s.title),
+                React.createElement('div',{style:{fontSize:10,color:'var(--text-muted)',marginTop:2}},(s.messages||[]).length+' messages')
+              );
+            })
+          )
+        ),
+        React.createElement('div',{style:{flex:1,display:'flex',flexDirection:'column',minWidth:0}},
+          !active
+            ?React.createElement('div',{style:{flex:1,display:'flex',flexDirection:'column',alignItems:'center',justifyContent:'center',color:'var(--text-dim)',textAlign:'center',gap:12}},
+              React.createElement('div',{style:{fontSize:56}},'💡'),
+              React.createElement('div',{style:{fontSize:16,fontWeight:700}},'Your AI Brainstorming Partner'),
+              React.createElement('div',{style:{fontSize:13,maxWidth:300}},'Select a session or create a new one. Claude will help you generate ideas tailored to Ventura Mall.'),
+              React.createElement('button',{className:'btn btn-primary',onClick:function(){setNewModal(true);}},'＋ New Session')
+            )
+            :React.createElement(React.Fragment,null,
+              React.createElement('div',{style:{display:'flex',alignItems:'center',gap:8,marginBottom:10,flexWrap:'wrap'}},
+                React.createElement('span',{style:{background:(AREA_COLORS[active.area]||'#6B3FA0')+'20',color:AREA_COLORS[active.area]||'#6B3FA0',border:'1px solid '+(AREA_COLORS[active.area]||'#6B3FA0')+'40',borderRadius:6,padding:'2px 8px',fontSize:12,fontWeight:700}},AREA_EMOJIS[active.area]+' '+active.area),
+                React.createElement('span',{style:{fontWeight:700,fontSize:14,flex:1,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}},active.title),
+                React.createElement('button',{className:'btn btn-secondary btn-sm',onClick:function(){exportSession(active);}},'⬇ Export'),
+                React.createElement('button',{className:'btn btn-danger btn-sm',onClick:function(){if(window.confirm('Delete this session?')) deleteSession(active.id);}},'🗑')
+              ),
+              errMsg&&React.createElement('div',{style:{background:'rgba(244,67,54,.15)',border:'1px solid rgba(244,67,54,.4)',borderRadius:8,padding:'8px 12px',fontSize:12,color:'#f88',marginBottom:8}},errMsg),
+              React.createElement('div',{ref:chatRef,style:{flex:1,overflowY:'auto',display:'flex',flexDirection:'column',gap:10,padding:'4px 2px',marginBottom:10}},
+                (active.messages||[]).length===0&&React.createElement('div',{style:{color:'var(--text-dim)',fontSize:13,textAlign:'center',padding:'30px 16px'}},
+                  '👋 Hi! I\'m ready to help you brainstorm '+active.area+' ideas for Ventura Mall. Ask me anything!'
+                ),
+                (active.messages||[]).map(function(m,i){
+                  var isUser=m.role==='user';
+                  return React.createElement('div',{key:i,style:{display:'flex',flexDirection:isUser?'row-reverse':'row',gap:8,alignItems:'flex-start'}},
+                    React.createElement('div',{style:{background:isUser?'rgba(107,63,160,.35)':'var(--card)',border:'1px solid '+(isUser?'rgba(107,63,160,.5)':'var(--border)'),borderRadius:isUser?'14px 14px 4px 14px':'14px 14px 14px 4px',padding:'10px 13px',maxWidth:'82%',fontSize:13,lineHeight:1.55,whiteSpace:'pre-wrap',wordBreak:'break-word'}},m.content)
+                  );
+                }),
+                loading&&React.createElement('div',{style:{display:'flex',gap:8,alignItems:'center'}},
+                  React.createElement('div',{style:{background:'var(--card)',border:'1px solid var(--border)',borderRadius:'14px 14px 14px 4px',padding:'10px 16px',fontSize:18,color:'var(--text-dim)',letterSpacing:4}},'●●●')
+                )
+              ),
+              React.createElement('div',{style:{display:'flex',gap:8,alignItems:'flex-end'}},
+                React.createElement('textarea',{value:input,onChange:function(e){setInput(e.target.value);},onKeyDown:handleKey,placeholder:'Ask Claude something… (Enter to send, Shift+Enter for new line)',disabled:loading,style:{flex:1,resize:'none',minHeight:46,maxHeight:130,fontSize:13,borderRadius:10,padding:'10px 12px',background:'var(--surface)',border:'1px solid var(--border)',color:'var(--text)',fontFamily:'inherit',outline:'none'}}),
+                React.createElement('button',{className:'btn btn-primary',onClick:sendMessage,disabled:loading||!input.trim(),style:{height:46,minWidth:70,flexShrink:0,fontSize:14}},loading?'…':'▶ Send')
+              )
+            )
+        )
+      )
+    ),
+    newModal&&React.createElement(Modal,{title:'New Brainstorm Session',onClose:function(){setNewModal(false);},
+      footer:React.createElement(React.Fragment,null,
+        React.createElement('button',{className:'btn btn-secondary',onClick:function(){setNewModal(false);}}, 'Cancel'),
+        React.createElement('button',{className:'btn btn-primary',onClick:createSession,disabled:!newTitle.trim()}, 'Create Session')
+      )
+    },
+      React.createElement('div',{className:'form-group'},
+        React.createElement('label',null,'Session Title *'),
+        React.createElement('input',{value:newTitle,onChange:function(e){setNewTitle(e.target.value);},placeholder:'e.g. Q3 Campaign Ideas, Christmas Activation…',autoFocus:true,onKeyDown:function(e){if(e.key==='Enter') createSession();}})
+      ),
+      React.createElement('div',{className:'form-group'},
+        React.createElement('label',null,'Focus Area'),
+        React.createElement('select',{value:newArea,onChange:function(e){setNewArea(e.target.value);}},
+          AREAS.map(function(a){return React.createElement('option',{key:a,value:a},AREA_EMOJIS[a]+' '+a);})
+        )
+      ),
+      React.createElement('div',{style:{fontSize:12,color:'var(--text-dim)',marginTop:4,padding:'8px 12px',background:'var(--card)',borderRadius:8,lineHeight:1.5}},
+        React.createElement('strong',null,'Claude context: '),
+        (SYSTEM_PROMPTS[newArea]||'').slice(0,130)+'…'
+      )
+    )
+  );
+};
+
 // ─── SearchScreen ───────────────────────────────────────────────
 var SearchScreen = function(_ref_s){
   var data=_ref_s.data,navigate=_ref_s.navigate;
@@ -13053,22 +13218,47 @@ var SearchScreen = function(_ref_s){
   var allTags=Object.keys(tagsSet).sort();
   var qL=(q||'').toLowerCase().trim();
   var results=[];
+  var FIELD_LABELS={description:'description',content:'content',note:'note',type:'type',status:'status',department:'department',approvalStatus:'approval',industry:'industry',priority:'priority',dueDate:'due date',area:'area',destination:'destination',country:'country',author:'author',notes:'notes'};
   var check=function(items,label,route,tf){(items||[]).forEach(function(item){
     var title=item[tf||'title']||item.name||'';
-    var desc=(item.description||item.content||item.note||'').toLowerCase();
     var cat=item.category||'';var tags2=item.tags||[];
-    var mQ=!qL||title.toLowerCase().indexOf(qL)>=0||desc.indexOf(qL)>=0||cat.toLowerCase().indexOf(qL)>=0||tags2.some(function(t){return t.toLowerCase().indexOf(qL)>=0;});
     var mC=!fCat||cat===fCat;var mT=!fTag||tags2.indexOf(fTag)>=0;
-    if(mQ&&mC&&mT&&(qL||fCat||fTag))results.push({id:item.id,title:title||'(untitled)',cat:cat,tags:tags2,label:label,route:route});
+    if(!mC||!mT) return;
+    if(!qL&&(fCat||fTag)){results.push({id:item.id,title:title||'(untitled)',cat:cat,tags:tags2,label:label,route:route,matchField:''});return;}
+    if(!qL) return;
+    var matchField='';
+    if(title.toLowerCase().indexOf(qL)>=0){matchField='';}
+    else {
+      var found=false;
+      var skipFields={id:1,updatedAt:1,createdAt:1,alarm:1,subtasks:1,_deletedIds:1};
+      Object.keys(item).forEach(function(k){
+        if(found||skipFields[k]) return;
+        var v=item[k];
+        if(typeof v==='string'&&v&&v.toLowerCase().indexOf(qL)>=0){found=true;matchField=FIELD_LABELS[k]||k;}
+        else if(Array.isArray(v)){
+          v.forEach(function(entry){
+            if(found) return;
+            if(typeof entry==='string'&&entry.toLowerCase().indexOf(qL)>=0){found=true;matchField=k;}
+            else if(entry&&typeof entry==='object'){
+              ['name','filename','title','type','url'].forEach(function(f){
+                if(!found&&entry[f]&&String(entry[f]).toLowerCase().indexOf(qL)>=0){found=true;matchField='attachment: '+f;}
+              });
+            }
+          });
+        }
+      });
+      if(!found) return;
+    }
+    results.push({id:item.id,title:title||'(untitled)',cat:cat,tags:tags2,label:label,route:route,matchField:matchField});
   });};
-  var tC={'Task':'#C9A84C','Goal':'#9C68D6','Project':'#4CAF50','Habit':'#FF9800','Journal':'#2196F3','Routine':'#E91E63','Meeting':'#00BCD4','Content':'#FF5722','Client':'#9C27B0','Recipe':'#8BC34A','Book':'#607D8B'};
-  if(qL||fCat||fTag){check(data.tasks,'Task','tasks','title');check(data.goals,'Goal','goals','title');check(data.projects,'Project','projects','name');check(data.habits,'Habit','habits','name');check(data.journal,'Journal','journal','title');check(data.routines,'Routine','routines','name');check(data.meetings,'Meeting','meetings','title');check(data.content,'Content','content','title');check(data.clients,'Client','clients','name');check(data.recipes,'Recipe','recipes','name');check(data.books,'Book','books','title');}
+  var tC={'Task':'#C9A84C','Goal':'#9C68D6','Project':'#4CAF50','Habit':'#FF9800','Journal':'#2196F3','Routine':'#E91E63','Meeting':'#00BCD4','Content':'#FF5722','Client':'#9C27B0','Recipe':'#8BC34A','Book':'#607D8B','Session':'#6B3FA0'};
+  if(qL||fCat||fTag){check(data.tasks,'Task','tasks','title');check(data.goals,'Goal','goals','title');check(data.projects,'Project','projects','name');check(data.habits,'Habit','habits','name');check(data.journal,'Journal','journal','title');check(data.routines,'Routine','routines','name');check(data.meetings,'Meeting','meetings','title');check(data.content,'Content','content','title');check(data.clients,'Client','clients','name');check(data.recipes,'Recipe','recipes','name');check(data.books,'Book','books','title');check(data.brainstorm,'Session','brainstorm','title');}
   var active=qL||fCat||fTag;
   return /*#__PURE__*/React.createElement('div',null,
     /*#__PURE__*/React.createElement('div',{className:'page-header'},/*#__PURE__*/React.createElement('h1',null,'🔍 Search')),
     /*#__PURE__*/React.createElement('div',{className:'page-content'},
       /*#__PURE__*/React.createElement('div',{style:{display:'flex',gap:8,marginBottom:14,flexWrap:'wrap'}},
-        /*#__PURE__*/React.createElement('input',{value:q,onChange:function(e){setQ(e.target.value);},placeholder:'Search keywords…',autoFocus:true,style:{flex:'1 1 200px',fontSize:14}}),
+        /*#__PURE__*/React.createElement('input',{value:q,onChange:function(e){setQ(e.target.value);},placeholder:'Search across titles, descriptions, notes, types, attachments…',autoFocus:true,style:{flex:'1 1 200px',fontSize:14}}),
         /*#__PURE__*/React.createElement('select',{value:fCat,onChange:function(e){setFCat(e.target.value);},style:{flex:'0 1 150px'}},
           /*#__PURE__*/React.createElement('option',{value:''},'All categories'),
           allCats.map(function(c){return /*#__PURE__*/React.createElement('option',{key:c,value:c},c);})),
@@ -13077,9 +13267,10 @@ var SearchScreen = function(_ref_s){
           allTags.map(function(t){return /*#__PURE__*/React.createElement('option',{key:t,value:t},'#'+t);})),
         active&&/*#__PURE__*/React.createElement('button',{className:'btn btn-secondary btn-sm',onClick:function(){setQ('');setFCat('');setFTag('');}},'× Clear')
       ),
+      active&&/*#__PURE__*/React.createElement('div',{style:{fontSize:12,color:'var(--text-muted)',marginBottom:10}},results.length+' result'+(results.length===1?'':'s')+' found'),
       !active&&/*#__PURE__*/React.createElement('div',{style:{color:'var(--text-dim)',textAlign:'center',padding:'50px 0'}},
         /*#__PURE__*/React.createElement('div',{style:{fontSize:48,marginBottom:12}},'🔍'),
-        /*#__PURE__*/React.createElement('div',{style:{fontSize:14}},'Type a keyword, pick a category or tag to search all your data.')
+        /*#__PURE__*/React.createElement('div',{style:{fontSize:14}},'Searches titles, descriptions, notes, types, statuses, attachments and all other fields.')
       ),
       active&&results.length===0&&/*#__PURE__*/React.createElement('div',{style:{color:'var(--text-dim)',textAlign:'center',padding:'30px 0',fontSize:14}},'No results found.'),
       results.map(function(r,i){
@@ -13088,7 +13279,8 @@ var SearchScreen = function(_ref_s){
           /*#__PURE__*/React.createElement('span',{style:{background:c+'20',color:c,border:'1px solid '+c+'40',borderRadius:6,padding:'2px 7px',fontSize:11,fontWeight:700,whiteSpace:'nowrap',flexShrink:0}},r.label),
           /*#__PURE__*/React.createElement('div',{style:{flex:1,minWidth:0}},
             /*#__PURE__*/React.createElement('div',{style:{fontWeight:600,fontSize:13,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}},r.title),
-            (r.cat||r.tags.length>0)&&/*#__PURE__*/React.createElement('div',{style:{display:'flex',gap:4,marginTop:3,flexWrap:'wrap'}},
+            /*#__PURE__*/React.createElement('div',{style:{display:'flex',gap:4,marginTop:3,flexWrap:'wrap'}},
+              r.matchField&&/*#__PURE__*/React.createElement('span',{style:{background:'rgba(33,150,243,.15)',color:'#64b5f6',padding:'1px 6px',borderRadius:8,fontSize:10}},'in: '+r.matchField),
               r.cat&&/*#__PURE__*/React.createElement('span',{style:{background:'rgba(201,168,76,.2)',color:'var(--gold)',padding:'1px 6px',borderRadius:8,fontSize:10}},r.cat),
               r.tags.map(function(t){return /*#__PURE__*/React.createElement('span',{key:t,style:{background:'rgba(107,63,160,.2)',color:'var(--purple-light)',padding:'1px 6px',borderRadius:8,fontSize:10}},'#'+t);}))
           ),
@@ -13487,17 +13679,19 @@ var App = function App() {
     return function() { window.removeEventListener('lbp_gcal_event_id', onGcalId); };
   }, []);
 
-  // Auto-pull from Google Calendar on load and every 15 min
+  // Auto-pull from Google Calendar every 15 min — NO pull on load.
+  // requestAccessToken({ prompt: '' }) on load causes a full-page redirect on mobile
+  // (or an account-chooser popup on desktop) on every refresh. The token is obtained
+  // on-demand when the user opens Meetings or clicks "Sync" in Cloud Settings instead.
   useEffect(function() {
     var doPull = function() {
-      if (localStorage.getItem('lbp_gcal_connected') === '1' && window._gcalPull) {
+      // Only pull if a token is already live — never trigger a new auth flow silently
+      if (localStorage.getItem('lbp_gcal_connected') === '1' && window._gcalPull && window._gcalToken && window._gcalTokenExpiry > Date.now()) {
         window._gcalPull(setData);
       }
     };
-    // Delay initial pull so GIS library has time to load and auth silently
-    var initTimer = setTimeout(doPull, 5000);
     var iv = setInterval(doPull, 15 * 60 * 1000);
-    return function() { clearTimeout(initTimer); clearInterval(iv); };
+    return function() { clearInterval(iv); };
   }, []);
 
   var fireAlarmOnce = useCallback(function (title, body, current, total, intervalMin, sound, vibration) {
@@ -13663,6 +13857,9 @@ var App = function App() {
     label: '🔍 Search',
     items: [['search','search','Global Search']]
   }, {
+    label: '💡 Ideas Lab',
+    items: [['brainstorm','💡','Brainstorm & AI']]
+  }, {
     label: '✨ Dream Life',
     items: [['travel', '✈️', 'Travel Planner'], ['bucketlist', '⭐', 'Bucket List'], ['books', '📚', 'Book Library'], ['outfits', '👗', 'Outfit Planner'], ['household', '🏠', 'Household']]
   }, {
@@ -13768,6 +13965,8 @@ var App = function App() {
           navigate: navigate,
           modules: [['journal', 'Journal', '📓', '#6B3FA0', 'Daily reflections'], ['habits', 'Habit Tracker', '🔄', '#4CAF50', 'Build daily habits'], ['workout', 'Workout Planner', '🏋️', '#9C27B0', 'Log workouts'], ['recipes', 'Recipes & Groceries', '🍽', '#FF9800', 'Meal planning'], ['medication', 'Medication Tracker', '💊', '#F44336', 'Track medications'], ['skin', 'Skin Tracker', '✨', '#E91E63', 'Skin health log']]
         });
+      case 'brainstorm':
+        return /*#__PURE__*/React.createElement(BrainstormScreen, props);
       case 'search':
         return /*#__PURE__*/React.createElement(SearchScreen, props);
       default:
@@ -13781,7 +13980,7 @@ var App = function App() {
     return t.dueDate && t.dueDate < today() && t.status !== 'DONE';
   }).length;
   var totalActiveProjects = (data.projects || []).filter(function (p) {
-    return ['PLANNING', 'IN_PROGRESS', 'CLIENT_REVIEW'].includes(p.status);
+    return ['PLANNING', 'IN_PROGRESS', 'CLIENT_REVIEW', 'AWAITING_APPROVAL'].includes(p.status);
   }).length;
   return /*#__PURE__*/React.createElement("div", {
     className: "app"
