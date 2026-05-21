@@ -22,7 +22,7 @@
 <script>
 (function() {
   // ── Version ──────────────────────────────────────────────────────────────
-  window.LBP_VERSION = '4.40';
+  window.LBP_VERSION = '4.41';
 
   // ── PWA Install prompt ───────────────────────────────────────────────────
   window._installPrompt = null;
@@ -13076,8 +13076,14 @@ var BrainstormScreen = function(props) {
   var _bs11=useState(''),_bs12=_slicedToArray(_bs11,2),newTitle=_bs12[0],setNewTitle=_bs12[1];
   var _bs13=useState('Marketing'),_bs14=_slicedToArray(_bs13,2),newArea=_bs14[0],setNewArea=_bs14[1];
   var _bs15=useState(''),_bs16=_slicedToArray(_bs15,2),errMsg=_bs16[0],setErrMsg=_bs16[1];
+  var _bs17=useState(false),_bs18=_slicedToArray(_bs17,2),profileOpen=_bs18[0],setProfileOpen=_bs18[1];
+  var _bs19=useState(data.brainstormProfile||''),_bs20=_slicedToArray(_bs19,2),profileDraft=_bs20[0],setProfileDraft=_bs20[1];
   var chatRef=React.useRef(null);
   var sessions=data.brainstorm||[];
+  var saveProfile=function(){
+    setData(function(d){return Object.assign({},d,{brainstormProfile:profileDraft});});
+    setProfileOpen(false);
+  };
   var filtered=areaFilter==='All'?sessions:sessions.filter(function(s){return s.area===areaFilter;});
   var active=sessions.find(function(s){return s.id===activeId;})||null;
   var createSession=function(){
@@ -13096,7 +13102,10 @@ var BrainstormScreen = function(props) {
     setData(function(d){return Object.assign({},d,{brainstorm:(d.brainstorm||[]).map(function(s){return s.id===active.id?Object.assign({},s,{messages:updatedMessages,updatedAt:Date.now()}):s;})});});
     setInput('');setLoading(true);
     var apiMessages=updatedMessages.map(function(m){return{role:m.role,content:m.content};});
-    fetch(window.LBP_WORKER_URL+'/chat',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({messages:apiMessages,systemPrompt:SYSTEM_PROMPTS[active.area]||SYSTEM_PROMPTS.Other,area:active.area})})
+    var profile=data.brainstormProfile||'';
+    var areaPrompt=SYSTEM_PROMPTS[active.area]||SYSTEM_PROMPTS.Other;
+    var fullPrompt=profile?('USER PROFILE:\n'+profile+'\n\nKeep this context in mind for all your responses.\n\n---\n\n'+areaPrompt):areaPrompt;
+    fetch(window.LBP_WORKER_URL+'/chat',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({messages:apiMessages,systemPrompt:fullPrompt,area:active.area})})
       .then(function(r){return r.json();})
       .then(function(res){
         setLoading(false);
@@ -13122,7 +13131,31 @@ var BrainstormScreen = function(props) {
   return React.createElement('div',null,
     React.createElement('div',{className:'page-header'},
       React.createElement('h1',null,'💡 Ideas Lab'),
-      React.createElement('button',{className:'btn btn-primary btn-sm',onClick:function(){setNewModal(true);}},'＋ New Session')
+      React.createElement('div',{style:{display:'flex',gap:8,alignItems:'center'}},
+        React.createElement('button',{className:'btn btn-secondary btn-sm',onClick:function(){setProfileDraft(data.brainstormProfile||'');setProfileOpen(true);},title:'Set your profile so Claude knows who you are'},
+          (data.brainstormProfile?'👤 My Profile ✓':'👤 My Profile')
+        ),
+        React.createElement('button',{className:'btn btn-primary btn-sm',onClick:function(){setNewModal(true);}},'＋ New Session')
+      )
+    ),
+    profileOpen&&React.createElement('div',{style:{background:'var(--card)',border:'1px solid var(--purple-light)',borderRadius:12,padding:16,marginBottom:16}},
+      React.createElement('div',{style:{display:'flex',alignItems:'center',justifyContent:'space-between',marginBottom:10}},
+        React.createElement('strong',{style:{fontSize:14}},'👤 My Profile — Claude Context'),
+        React.createElement('button',{className:'btn btn-secondary btn-sm',onClick:function(){setProfileOpen(false);}}, 'Cancel')
+      ),
+      React.createElement('div',{style:{fontSize:12,color:'var(--text-dim)',marginBottom:8,lineHeight:1.5}},
+        'Write a short paragraph about yourself and your work. Claude will read this before every response so it can tailor its ideas to your specific situation.'
+      ),
+      React.createElement('textarea',{
+        value:profileDraft,
+        onChange:function(e){setProfileDraft(e.target.value);},
+        placeholder:'Example: I am the Brand Manager at Ventura Mall in Panama City. I manage marketing campaigns, tenant relations, events, and brand strategy for a 150-store shopping center. My main goals are increasing foot traffic, improving tenant sales, and building a strong lifestyle brand for the mall.',
+        style:{width:'100%',minHeight:100,fontSize:13,borderRadius:8,padding:'10px 12px',background:'var(--surface)',border:'1px solid var(--border)',color:'var(--text)',fontFamily:'inherit',resize:'vertical',boxSizing:'border-box'}
+      }),
+      React.createElement('div',{style:{display:'flex',gap:8,marginTop:10,justifyContent:'flex-end'}},
+        profileDraft&&React.createElement('button',{className:'btn btn-danger btn-sm',onClick:function(){setProfileDraft('');setData(function(d){return Object.assign({},d,{brainstormProfile:''});});setProfileOpen(false);}}, 'Clear Profile'),
+        React.createElement('button',{className:'btn btn-primary',onClick:saveProfile,disabled:!profileDraft.trim()}, 'Save Profile')
+      )
     ),
     React.createElement('div',{className:'page-content'},
       React.createElement('div',{style:{display:'flex',gap:16,height:'calc(100vh - 150px)',minHeight:400}},
