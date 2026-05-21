@@ -22,7 +22,7 @@
 <script>
 (function() {
   // ── Version ──────────────────────────────────────────────────────────────
-  window.LBP_VERSION = '4.41';
+  window.LBP_VERSION = '4.42';
 
   // ── PWA Install prompt ───────────────────────────────────────────────────
   window._installPrompt = null;
@@ -4902,6 +4902,10 @@ var FinanceScreen = function FinanceScreen(_ref25) {
     _useState56 = _slicedToArray(_useState55, 2),
     form = _useState56[0],
     setForm = _useState56[1];
+  var _useState57 = useState(null),
+    _useState58 = _slicedToArray(_useState57, 2),
+    editItem = _useState58[0],
+    setEditItem = _useState58[1];
   var allTx = data.transactions || [];
   var monthTx = allTx.filter(function (t) {
     return t.month === selMonth && t.year === new Date().getFullYear();
@@ -4981,7 +4985,7 @@ var FinanceScreen = function FinanceScreen(_ref25) {
     className: "page-header"
   }, /*#__PURE__*/React.createElement("h1", null, "\uD83D\uDCB0 Financial Overview"), /*#__PURE__*/React.createElement("button", {
     className: "btn btn-primary btn-sm",
-    onClick: function onClick() { setEditItem(null); setModal(true); }
+    onClick: function onClick() { setEditItem(null); setForm({title:'',amount:'',type:'INCOME',category:'',invoiceNumber:'',isPaid:false,notes:''}); setModal(true); }
   }, "+ Add")), /*#__PURE__*/React.createElement("div", {
     className: "page-content"
   }, /*#__PURE__*/React.createElement("div", {
@@ -5156,7 +5160,7 @@ var FinanceScreen = function FinanceScreen(_ref25) {
       onClick: function onClick(e) { e.stopPropagation(); del(t.id); }
     }, "\xD7"));
   })), modal && /*#__PURE__*/React.createElement(Modal, {
-    title: "Add Transaction",
+    title: editItem ? "Edit Transaction" : "Add Transaction",
     onClose: function onClose() {
       setModal(false); setEditItem(null);
     },
