@@ -22,7 +22,7 @@
 <script>
 (function() {
   // ── Version ──────────────────────────────────────────────────────────────
-  window.LBP_VERSION = '4.43';
+  window.LBP_VERSION = '4.44';
 
   // ── PWA Install prompt ───────────────────────────────────────────────────
   window._installPrompt = null;
@@ -3461,6 +3461,7 @@ var GoalsScreen = function GoalsScreen(_ref19) {
       category: '',
       tags: [],
       subtasks: [],
+      attachments: [],
       alarm: defaultAlarm()
     });
     },
@@ -3571,6 +3572,7 @@ var ProjectsScreen = function ProjectsScreen(_ref20) {
       category: '',
       tags: [],
       subtasks: [],
+      attachments: [],
       alarm: defaultAlarm()
     }),
     _useState32 = _slicedToArray(_useState31, 2),
@@ -3685,6 +3687,7 @@ var ProjectsScreen = function ProjectsScreen(_ref20) {
       category: '',
       tags: [],
       subtasks: [],
+      attachments: [],
       alarm: defaultAlarm()
     });
     setModal(false);
@@ -3739,6 +3742,7 @@ var ProjectsScreen = function ProjectsScreen(_ref20) {
       category: '',
       tags: [],
       subtasks: [],
+      attachments: [],
       alarm: defaultAlarm()
     });
       setModal(true);
@@ -4014,7 +4018,7 @@ var ProjectsScreen = function ProjectsScreen(_ref20) {
         dueDate: e.target.value
       }));
     }
-  })), /*#__PURE__*/React.createElement("hr", {className:"divider"}), /*#__PURE__*/React.createElement("div", {className:"form-group"}, /*#__PURE__*/React.createElement("div", {style:{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:8}},   /*#__PURE__*/React.createElement("label", {style:{margin:0}}, "📋 Subtasks"),   /*#__PURE__*/React.createElement("button", {className:"btn btn-primary btn-sm",     onClick:function(){setSubtaskForm(defaultSubtaskForm());setEditSubtask(null);setSubtaskModal(true);}},     "+ Add Subtask")), (form.subtasks||[]).length === 0 && /*#__PURE__*/React.createElement("div",   {style:{fontSize:12,color:"var(--text-dim)",textAlign:"center",padding:"8px 0"}},   "No subtasks yet"), (form.subtasks||[]).map(function(st){   return React.createElement("div", {key:st.id, style:{display:"flex",alignItems:"center",gap:6,padding:"5px 0",borderBottom:"1px solid var(--border)"}},     React.createElement("input",{type:"checkbox",checked:st.done||false,       onChange:function(){setForm(_objectSpread(_objectSpread({},form),{},{subtasks:(form.subtasks||[]).map(function(x){return x.id===st.id?_objectSpread(_objectSpread({},x),{},{done:!x.done}):x;})}));},       style:{width:14,height:14,accentColor:"#9C68D6",flexShrink:0}}),     React.createElement("div",{style:{flex:1,minWidth:0}},       React.createElement("div",{style:{fontSize:12,fontWeight:600,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap",         color:st.done?"var(--text-dim)":"var(--text)",textDecoration:st.done?"line-through":"none"}},st.title),       React.createElement("div",{style:{display:"flex",gap:6,marginTop:2}},         st.priority && React.createElement("span",{style:{fontSize:10,color:"var(--text-dim)"}},st.priority),         st.dueDate && React.createElement("span",{style:{fontSize:10,color:"var(--text-dim)"}},st.dueDate))),     React.createElement("button",{onClick:function(){setSubtaskForm(Object.assign({},st));setEditSubtask(st);setSubtaskModal(true);},       style:{background:"none",border:"none",color:"var(--purple-light)",cursor:"pointer",fontSize:14,padding:"0 4px"}}, "✏"),     React.createElement("button",{onClick:function(){setForm(_objectSpread(_objectSpread({},form),{},{subtasks:(form.subtasks||[]).filter(function(x){return x.id!==st.id;})}));},       style:{background:"none",border:"none",color:"var(--text-dim)",cursor:"pointer",fontSize:14,padding:"0 4px"}}, "×")); })), /*#__PURE__*/React.createElement(CategoryTagInput,{category:form.category||'',tags:Array.isArray(form.tags)?form.tags:[],allCategories:(data.categories||['Personal','Work','Home','Health','Finance','Learning','Creative']),onChange:function(c,t){setForm(function(f){return Object.assign({},f,{category:c,tags:t});});},onAddCategory:function(v){setData(function(d){return Object.assign({},d,{categories:(d.categories||[]).concat([v])});});}}), /*#__PURE__*/React.createElement(AlarmPanel, {
+  })), /*#__PURE__*/React.createElement("hr", {className:"divider"}), /*#__PURE__*/React.createElement("div", {className:"form-group"}, /*#__PURE__*/React.createElement("div", {style:{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:8}},   /*#__PURE__*/React.createElement("label", {style:{margin:0}}, "📋 Subtasks"),   /*#__PURE__*/React.createElement("button", {className:"btn btn-primary btn-sm",     onClick:function(){setSubtaskForm(defaultSubtaskForm());setEditSubtask(null);setSubtaskModal(true);}},     "+ Add Subtask")), (form.subtasks||[]).length === 0 && /*#__PURE__*/React.createElement("div",   {style:{fontSize:12,color:"var(--text-dim)",textAlign:"center",padding:"8px 0"}},   "No subtasks yet"), (form.subtasks||[]).map(function(st){   return React.createElement("div", {key:st.id, style:{display:"flex",alignItems:"center",gap:6,padding:"5px 0",borderBottom:"1px solid var(--border)"}},     React.createElement("input",{type:"checkbox",checked:st.done||false,       onChange:function(){setForm(_objectSpread(_objectSpread({},form),{},{subtasks:(form.subtasks||[]).map(function(x){return x.id===st.id?_objectSpread(_objectSpread({},x),{},{done:!x.done}):x;})}));},       style:{width:14,height:14,accentColor:"#9C68D6",flexShrink:0}}),     React.createElement("div",{style:{flex:1,minWidth:0}},       React.createElement("div",{style:{fontSize:12,fontWeight:600,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap",         color:st.done?"var(--text-dim)":"var(--text)",textDecoration:st.done?"line-through":"none"}},st.title),       React.createElement("div",{style:{display:"flex",gap:6,marginTop:2}},         st.priority && React.createElement("span",{style:{fontSize:10,color:"var(--text-dim)"}},st.priority),         st.dueDate && React.createElement("span",{style:{fontSize:10,color:"var(--text-dim)"}},st.dueDate))),     React.createElement("button",{onClick:function(){setSubtaskForm(Object.assign({},st));setEditSubtask(st);setSubtaskModal(true);},       style:{background:"none",border:"none",color:"var(--purple-light)",cursor:"pointer",fontSize:14,padding:"0 4px"}}, "✏"),     React.createElement("button",{onClick:function(){setForm(_objectSpread(_objectSpread({},form),{},{subtasks:(form.subtasks||[]).filter(function(x){return x.id!==st.id;})}));},       style:{background:"none",border:"none",color:"var(--text-dim)",cursor:"pointer",fontSize:14,padding:"0 4px"}}, "×")); })), /*#__PURE__*/React.createElement("hr", {className:"divider"}), /*#__PURE__*/React.createElement(MediaAttachments, {attachments:form.attachments||[], onChange:function(a){setForm(function(f){return Object.assign({},f,{attachments:a});});}}), /*#__PURE__*/React.createElement(CategoryTagInput,{category:form.category||'',tags:Array.isArray(form.tags)?form.tags:[],allCategories:(data.categories||['Personal','Work','Home','Health','Finance','Learning','Creative']),onChange:function(c,t){setForm(function(f){return Object.assign({},f,{category:c,tags:t});});},onAddCategory:function(v){setData(function(d){return Object.assign({},d,{categories:(d.categories||[]).concat([v])});});}}), /*#__PURE__*/React.createElement(AlarmPanel, {
     alarm: form.alarm,
     onChange: function onChange(a) {
       return setForm(_objectSpread(_objectSpread({}, form), {}, {
