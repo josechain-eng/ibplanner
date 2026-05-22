@@ -22,7 +22,7 @@
 <script>
 (function() {
   // ── Version ──────────────────────────────────────────────────────────────
-  window.LBP_VERSION = '4.42';
+  window.LBP_VERSION = '4.43';
 
   // ── PWA Install prompt ───────────────────────────────────────────────────
   window._installPrompt = null;
@@ -4897,7 +4897,10 @@ var FinanceScreen = function FinanceScreen(_ref25) {
       category: '',
       invoiceNumber: '',
       isPaid: false,
-      notes: ''
+      notes: '',
+      date: today(),
+      establishment: '',
+      attachments: []
     }),
     _useState56 = _slicedToArray(_useState55, 2),
     form = _useState56[0],
@@ -4942,7 +4945,6 @@ var FinanceScreen = function FinanceScreen(_ref25) {
             id: uid(),
             month: selMonth,
             year: d.getFullYear(),
-            date: today(),
             createdAt: now()
           })])
         });
@@ -4955,7 +4957,10 @@ var FinanceScreen = function FinanceScreen(_ref25) {
       category: '',
       invoiceNumber: '',
       isPaid: false,
-      notes: ''
+      notes: '',
+      date: today(),
+      establishment: '',
+      attachments: []
     });
     setModal(false);
     setEditItem(null);
@@ -4985,7 +4990,7 @@ var FinanceScreen = function FinanceScreen(_ref25) {
     className: "page-header"
   }, /*#__PURE__*/React.createElement("h1", null, "\uD83D\uDCB0 Financial Overview"), /*#__PURE__*/React.createElement("button", {
     className: "btn btn-primary btn-sm",
-    onClick: function onClick() { setEditItem(null); setForm({title:'',amount:'',type:'INCOME',category:'',invoiceNumber:'',isPaid:false,notes:''}); setModal(true); }
+    onClick: function onClick() { setEditItem(null); setForm({title:'',amount:'',type:'INCOME',category:'',invoiceNumber:'',isPaid:false,notes:'',date:today(),establishment:'',attachments:[]}); setModal(true); }
   }, "+ Add")), /*#__PURE__*/React.createElement("div", {
     className: "page-content"
   }, /*#__PURE__*/React.createElement("div", {
@@ -5095,7 +5100,7 @@ var FinanceScreen = function FinanceScreen(_ref25) {
   }, "\uD83D\uDCB0"), /*#__PURE__*/React.createElement("h3", null, "No transactions this month"), /*#__PURE__*/React.createElement("button", {
     className: "btn btn-primary",
     onClick: function onClick() {
-      setEditItem(null); setForm({title:'',amount:'',type:'INCOME',category:'',invoiceNumber:'',isPaid:false,notes:''});
+      setEditItem(null); setForm({title:'',amount:'',type:'INCOME',category:'',invoiceNumber:'',isPaid:false,notes:'',date:today(),establishment:'',attachments:[]});
       setModal(true);
     }
   }, "+ Add Transaction")) : displayed.map(function (t) {
@@ -5126,7 +5131,7 @@ var FinanceScreen = function FinanceScreen(_ref25) {
         fontSize: 11,
         color: 'var(--text-dim)'
       }
-    }, t.date, t.category ? " \u2022 ".concat(t.category) : '')), /*#__PURE__*/React.createElement("div", {
+    }, t.date, t.establishment ? ' \u2022 ' + t.establishment : '', t.category ? ' \u2022 ' + t.category : '')), /*#__PURE__*/React.createElement("div", {
       style: {
         textAlign: 'right'
       }
@@ -5219,6 +5224,17 @@ var FinanceScreen = function FinanceScreen(_ref25) {
       }));
     },
     placeholder: "Salary, Freelance, Rent\u2026"
+  })), /*#__PURE__*/React.createElement("div", {
+    style: {display:'grid', gridTemplateColumns:'1fr 1fr', gap:8}
+  }, /*#__PURE__*/React.createElement("div", {className:"form-group"}, /*#__PURE__*/React.createElement("label", null, "Date"), /*#__PURE__*/React.createElement("input", {
+    type: "date",
+    value: form.date||today(),
+    onChange: function onChange(e) { return setForm(_objectSpread(_objectSpread({}, form), {}, {date: e.target.value})); }
+  }))), form.type === 'EXPENSE' && /*#__PURE__*/React.createElement("div", {className:"form-group"
+  }, /*#__PURE__*/React.createElement("label", null, "Establishment / Paid To"), /*#__PURE__*/React.createElement("input", {
+    value: form.establishment||'',
+    placeholder: "e.g. Supermercado Rey, Amazon, El Trapiche\u2026",
+    onChange: function onChange(e) { return setForm(_objectSpread(_objectSpread({}, form), {}, {establishment: e.target.value})); }
   })), form.type === 'INCOME' && /*#__PURE__*/React.createElement("div", {
     className: "form-group"
   }, /*#__PURE__*/React.createElement("label", null, "Invoice #"), /*#__PURE__*/React.createElement("input", {
@@ -5255,7 +5271,11 @@ var FinanceScreen = function FinanceScreen(_ref25) {
         notes: e.target.value
       }));
     }
-  }))));
+  })), /*#__PURE__*/React.createElement("hr", {className:"divider"}),
+  /*#__PURE__*/React.createElement(MediaAttachments, {
+    attachments: form.attachments||[],
+    onChange: function onChange(a) { return setForm(_objectSpread(_objectSpread({}, form), {}, {attachments: a})); }
+  })));
 };
 
 // ─── MEETINGS ──────────────────────────────────────────
