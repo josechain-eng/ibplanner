@@ -22,7 +22,7 @@
 <script>
 (function() {
   // ── Version ──────────────────────────────────────────────────────────────
-  window.LBP_VERSION = '4.44';
+  window.LBP_VERSION = '4.45';
 
   // ── PWA Install prompt ───────────────────────────────────────────────────
   window._installPrompt = null;
@@ -2016,6 +2016,14 @@ var _lbpIDB = (function() {
 })();
 window._lbpIDB = _lbpIDB;
 
+// Request persistent storage so browser never evicts IDB data under memory pressure
+if (navigator.storage && navigator.storage.persist) {
+  navigator.storage.persist().then(function(granted) {
+    if (!granted) console.warn('[LBP] Persistent storage NOT granted — IDB may be evicted by browser');
+    else console.log('[LBP] Persistent storage granted — IDB is safe from eviction');
+  });
+}
+
 var MAX_FILE_SIZE = 50 * 1024 * 1024; // 50 MB (stored in IndexedDB, not localStorage)
 
 var MediaAttachments = function MediaAttachments(_ref10) {
@@ -2048,6 +2056,18 @@ var MediaAttachments = function MediaAttachments(_ref10) {
     fileData = _useState20[0],
     setFileData = _useState20[1];
   var chunksRef = useRef([]);
+  var _useState_lf = useState(false), _useState_lf2 = _slicedToArray(_useState_lf, 2), showLinkForm = _useState_lf2[0], setShowLinkForm = _useState_lf2[1];
+  var _useState_lu = useState(''), _useState_lu2 = _slicedToArray(_useState_lu, 2), linkUrl = _useState_lu2[0], setLinkUrl = _useState_lu2[1];
+  var _useState_ln = useState(''), _useState_ln2 = _slicedToArray(_useState_ln, 2), linkName = _useState_ln2[0], setLinkName = _useState_ln2[1];
+  var addLink = function() {
+    var url = linkUrl.trim();
+    if (!url) return;
+    if (!/^https?:\/\//i.test(url)) url = 'https://' + url;
+    var name = linkName.trim() || url.replace(/^https?:\/\//,'').split('/')[0];
+    var att = { id: uid(), type: 'link', url: url, name: name, mimeType: 'link' };
+    onChange([].concat(_toConsumableArray(attachments), [att]));
+    setLinkUrl(''); setLinkName(''); setShowLinkForm(false);
+  };
 
   // Load file data from IDB whenever attachment list changes
   useEffect(function() {
@@ -2198,7 +2218,7 @@ var MediaAttachments = function MediaAttachments(_ref10) {
     });
   };
   var typeIcon = function typeIcon(t) {
-    return t === 'image' ? '🖼' : t === 'audio' ? '🎵' : t === 'video' ? '🎥' : '📎';
+    return t === 'image' ? '🖼' : t === 'audio' ? '🎵' : t === 'video' ? '🎥' : t === 'link' ? '🔗' : '📎';
   };
   return /*#__PURE__*/React.createElement(React.Fragment, null, /*#__PURE__*/React.createElement("div", {
     className: "attach-section"
@@ -2232,7 +2252,22 @@ var MediaAttachments = function MediaAttachments(_ref10) {
   }, "📎 Other File"), /*#__PURE__*/React.createElement("input", {
     ref: fileRef, type: "file", multiple: true, style: { display: 'none' },
     onChange: function onChange(e) { return handleFiles(e, 'file'); }
-  })), recording && /*#__PURE__*/React.createElement("div", {
+  }), /*#__PURE__*/React.createElement("button", {
+    type: "button", className: "attach-btn", onClick: function() { setShowLinkForm(function(v){return !v;}); }
+  }, "🔗 Add Link")), showLinkForm && /*#__PURE__*/React.createElement("div", {
+    style: { display:'flex', gap:6, alignItems:'flex-end', flexWrap:'wrap', padding:'8px 10px', background:'var(--card)', border:'1px solid var(--border)', borderRadius:10, marginBottom:8 }
+  },
+    /*#__PURE__*/React.createElement("div", { style:{flex:'1 1 200px', minWidth:0} },
+      /*#__PURE__*/React.createElement("div", { style:{fontSize:11, color:'var(--text-dim)', marginBottom:3} }, "URL (Google Drive, OneDrive, Dropbox, web…)"),
+      /*#__PURE__*/React.createElement("input", { value:linkUrl, onChange:function(e){setLinkUrl(e.target.value);}, placeholder:"https://drive.google.com/...", style:{width:'100%', fontSize:12, padding:'6px 8px'}, onKeyDown:function(e){if(e.key==='Enter') addLink();} })
+    ),
+    /*#__PURE__*/React.createElement("div", { style:{flex:'1 1 140px', minWidth:0} },
+      /*#__PURE__*/React.createElement("div", { style:{fontSize:11, color:'var(--text-dim)', marginBottom:3} }, "Label (optional)"),
+      /*#__PURE__*/React.createElement("input", { value:linkName, onChange:function(e){setLinkName(e.target.value);}, placeholder:"e.g. Contract Q2 2026", style:{width:'100%', fontSize:12, padding:'6px 8px'}, onKeyDown:function(e){if(e.key==='Enter') addLink();} })
+    ),
+    /*#__PURE__*/React.createElement("button", { className:"btn btn-primary btn-sm", onClick:addLink, disabled:!linkUrl.trim(), style:{flexShrink:0} }, "Add"),
+    /*#__PURE__*/React.createElement("button", { className:"btn btn-secondary btn-sm", onClick:function(){setShowLinkForm(false);setLinkUrl('');setLinkName('');}, style:{flexShrink:0} }, "Cancel")
+  ), recording && /*#__PURE__*/React.createElement("div", {
     style: { display: 'flex', alignItems: 'center', gap: 8, padding: '8px 12px', background: 'rgba(244,67,54,.1)', border: '1px solid rgba(244,67,54,.3)', borderRadius: 8, marginBottom: 8 }
   }, /*#__PURE__*/React.createElement("span", {
     style: { color: 'var(--red)', fontSize: 12 }
@@ -2241,6 +2276,17 @@ var MediaAttachments = function MediaAttachments(_ref10) {
   }, "Stop")), attachments.length > 0 && /*#__PURE__*/React.createElement("div", {
     className: "media-grid"
   }, attachments.map(function(a) {
+    if (a.type === 'link') {
+      return /*#__PURE__*/React.createElement("div", {
+        key: a.id, className: "media-thumb",
+        onClick: function() { window.open(a.url, '_blank'); },
+        style: { cursor: 'pointer', background: 'rgba(107,63,160,.12)', border: '1px solid var(--purple-light)' }
+      },
+        /*#__PURE__*/React.createElement("div", { className: "m-icon" }, '🔗'),
+        /*#__PURE__*/React.createElement("div", { className: "m-name", style:{color:'var(--purple-light)', fontSize:9, padding:'0 4px'} }, a.name),
+        /*#__PURE__*/React.createElement("button", { className: "m-del", onClick: function(e) { e.stopPropagation(); removeItem(a.id); } }, "\xD7")
+      );
+    }
     var src = getData(a);
     return /*#__PURE__*/React.createElement("div", {
       key: a.id, className: "media-thumb",
