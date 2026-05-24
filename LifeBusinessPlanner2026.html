@@ -22,7 +22,7 @@
 <script>
 (function() {
   // ── Version ──────────────────────────────────────────────────────────────
-  window.LBP_VERSION = '4.45';
+  window.LBP_VERSION = '4.47';
 
   // ── PWA Install prompt ───────────────────────────────────────────────────
   window._installPrompt = null;
@@ -970,20 +970,27 @@
                 color: var(--text-dim); cursor: pointer; font-size: 12px; font-weight: 500;
                 transition: all .15s; }
   .attach-btn:hover { background: var(--card-hover); border-color: var(--purple); color: var(--text); }
-  .media-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(90px, 1fr)); gap: 8px; margin-top: 6px; }
-  .media-thumb { position: relative; border-radius: 10px; overflow: hidden; aspect-ratio: 1;
-                 background: var(--surface2); border: 1px solid var(--border);
-                 display: flex; align-items: center; justify-content: center; flex-direction: column; gap: 4px; }
-  .media-thumb img { width: 100%; height: 100%; object-fit: cover; display: block; }
-  .media-thumb .m-icon { font-size: 26px; }
-  .media-thumb .m-name { font-size: 9px; color: var(--text-dim); text-align: center;
-                          padding: 0 4px; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; width: 100%; }
-  .media-thumb .m-del { position: absolute; top: 3px; right: 3px; background: rgba(244,67,54,.85);
-                         border: none; color: #fff; border-radius: 50%; width: 18px; height: 18px;
-                         font-size: 11px; cursor: pointer; display: flex; align-items: center; justify-content: center;
-                         font-weight: 700; line-height: 1; }
-  .media-thumb .m-play { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center;
-                          background: rgba(0,0,0,.4); font-size: 28px; cursor: pointer; }
+  .attach-list { display: flex; flex-direction: column; gap: 4px; margin-top: 6px; }
+  .attach-row { display: flex; align-items: center; gap: 8px; padding: 7px 10px;
+                background: var(--card); border: 1px solid var(--border); border-radius: 8px;
+                cursor: pointer; transition: background .15s, border-color .15s; user-select: none; }
+  .attach-row:hover { background: var(--card-hover); border-color: var(--purple); }
+  .attach-row .ar-icon { font-size: 17px; flex-shrink: 0; line-height: 1; }
+  .attach-row .ar-name { font-size: 12px; color: var(--text-primary); flex: 1;
+                          overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
+  .attach-row .ar-del { background: none; border: none; color: var(--text-dim); cursor: pointer;
+                         font-size: 16px; flex-shrink: 0; padding: 0 2px; line-height: 1; }
+  .attach-row .ar-del:hover { color: var(--red); }
+  /* keep media-thumb for journal read-only view */
+  .media-grid { display: flex; flex-direction: column; gap: 4px; margin-top: 6px; }
+  .media-thumb { display: flex; align-items: center; gap: 8px; padding: 7px 10px;
+                 background: var(--card); border: 1px solid var(--border); border-radius: 8px; cursor: pointer; }
+  .media-thumb .m-icon { font-size: 17px; flex-shrink: 0; }
+  .media-thumb .m-name { font-size: 12px; color: var(--text-primary); flex: 1;
+                          overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
+  .media-thumb .m-del { background: none; border: none; color: var(--text-dim); cursor: pointer;
+                         font-size: 16px; flex-shrink: 0; padding: 0 2px; line-height: 1; }
+  .media-thumb .m-del:hover { color: var(--red); }
   audio { width: 100%; margin-top: 4px; border-radius: 6px; }
   video { width: 100%; border-radius: 8px; margin-top: 6px; max-height: 220px; }
 
@@ -2026,6 +2033,115 @@ if (navigator.storage && navigator.storage.persist) {
 
 var MAX_FILE_SIZE = 50 * 1024 * 1024; // 50 MB (stored in IndexedDB, not localStorage)
 
+// ═══════════════════════════════════════════════════════
+// READ-ONLY ATTACHMENT LIST — loads from IDB, open/share
+// ═══════════════════════════════════════════════════════
+var ReadOnlyAttachments = function ReadOnlyAttachments(_ref_roa) {
+  var attachments = _ref_roa.attachments || [];
+  var _roa1 = useState({}), _roa2 = _slicedToArray(_roa1, 2), fileData = _roa2[0], setFileData = _roa2[1];
+  var _roa3 = useState(null), _roa4 = _slicedToArray(_roa3, 2), viewItem = _roa4[0], setViewItem = _roa4[1];
+
+  useEffect(function() {
+    if (!attachments.length) return;
+    var cancelled = false;
+    Promise.all(attachments.map(function(a) {
+      if (a.type === 'link') return Promise.resolve([a.id, null]);
+      if (a.data) return Promise.resolve([a.id, a.data]);
+      return _lbpIDB.get(a.id).then(function(d) { return [a.id, d]; });
+    })).then(function(pairs) {
+      if (cancelled) return;
+      var map = {};
+      pairs.forEach(function(p) { if (p[1]) map[p[0]] = p[1]; });
+      setFileData(map);
+    });
+    return function() { cancelled = true; };
+  }, [attachments]);
+
+  var getData = function(a) { return fileData[a.id] || a.data || null; };
+
+  if (!attachments.length) return null;
+  return /*#__PURE__*/React.createElement(React.Fragment, null,
+    /*#__PURE__*/React.createElement("div", { className: "attach-list" },
+      attachments.map(function(a) {
+        if (a.type === 'link') {
+          return /*#__PURE__*/React.createElement("div", {
+            key: a.id, className: "attach-row",
+            onClick: function() { window.open(a.url, '_blank'); }
+          },
+            /*#__PURE__*/React.createElement("span", { className: "ar-icon" }, '🔗'),
+            /*#__PURE__*/React.createElement("span", { className: "ar-name", style:{color:'var(--purple-light)'} }, a.name)
+          );
+        }
+        var src = getData(a);
+        return /*#__PURE__*/React.createElement("div", {
+          key: a.id, className: "attach-row",
+          onClick: function() { setViewItem(Object.assign({}, a, { _src: src })); }
+        },
+          a.type === 'image' && src
+            ? /*#__PURE__*/React.createElement("img", { src: src, alt: a.name, style:{width:18,height:18,objectFit:'cover',borderRadius:3,flexShrink:0} })
+            : /*#__PURE__*/React.createElement("span", { className: "ar-icon" }, typeIcon(a.type, a.mimeType)),
+          /*#__PURE__*/React.createElement("span", { className: "ar-name" }, a.name)
+        );
+      })
+    ),
+    viewItem && /*#__PURE__*/React.createElement("div", {
+      className: "modal-bg",
+      onClick: function(e) { if (e.target === e.currentTarget) setViewItem(null); }
+    }, /*#__PURE__*/React.createElement("div", {
+      style: { background:'var(--surface)', borderRadius:16, padding:20, maxWidth:360, width:'92vw', display:'flex', flexDirection:'column', gap:12, maxHeight:'90vh', overflowY:'auto' },
+      onClick: function(e) { e.stopPropagation(); }
+    },
+      viewItem.type === 'image' && viewItem._src && /*#__PURE__*/React.createElement("img", { src:viewItem._src, alt:viewItem.name, style:{width:'100%',maxHeight:260,objectFit:'contain',borderRadius:10} }),
+      viewItem.type === 'audio' && viewItem._src && /*#__PURE__*/React.createElement("audio", { controls:true, src:viewItem._src, style:{width:'100%'} }),
+      viewItem.type === 'video' && viewItem._src && /*#__PURE__*/React.createElement("video", { controls:true, src:viewItem._src, style:{width:'100%',maxHeight:220,borderRadius:8} }),
+      (viewItem.type === 'file' || !viewItem._src) && /*#__PURE__*/React.createElement("div", { style:{textAlign:'center',fontSize:52,padding:'12px 0'} }, typeIcon(viewItem.type, viewItem.mimeType)),
+      /*#__PURE__*/React.createElement("div", { style:{fontSize:13,fontWeight:600,wordBreak:'break-all',textAlign:'center',color:'var(--text)'} }, viewItem.name),
+      viewItem._src ? /*#__PURE__*/React.createElement("div", { style:{display:'flex',gap:8,flexWrap:'wrap',justifyContent:'center'} },
+        /*#__PURE__*/React.createElement("button", {
+          className: "btn btn-secondary btn-sm",
+          onClick: function() {
+            try {
+              var arr=viewItem._src.split(','); var mime=((arr[0].match(/:(.*?);/)||[])[1])||'application/octet-stream';
+              var bstr=atob(arr[1]); var n=bstr.length; var u8=new Uint8Array(n);
+              while(n--) u8[n]=bstr.charCodeAt(n);
+              var blob=new Blob([u8],{type:mime}); var burl=URL.createObjectURL(blob);
+              window.open(burl,'_blank');
+              setTimeout(function(){URL.revokeObjectURL(burl);},30000);
+            } catch(e) { window.open(viewItem._src,'_blank'); }
+          }
+        }, '🔗 Open'),
+        /*#__PURE__*/React.createElement("button", {
+          className: "btn btn-secondary btn-sm",
+          onClick: function() {
+            var a2=document.createElement('a'); a2.href=viewItem._src; a2.download=viewItem.name||'file';
+            document.body.appendChild(a2); a2.click(); document.body.removeChild(a2);
+          }
+        }, '⬇️ Download'),
+        typeof navigator.share === 'function' && /*#__PURE__*/React.createElement("button", {
+          className: "btn btn-primary btn-sm",
+          onClick: function() {
+            try {
+              var arr=viewItem._src.split(','); var mime=((arr[0].match(/:(.*?);/)||[])[1])||'application/octet-stream';
+              var bstr=atob(arr[1]); var n=bstr.length; var u8=new Uint8Array(n);
+              while(n--) u8[n]=bstr.charCodeAt(n);
+              var file=new File([u8],viewItem.name||'file',{type:mime});
+              if(navigator.canShare&&navigator.canShare({files:[file]})){
+                navigator.share({files:[file],title:viewItem.name}).catch(function(){});
+              } else { navigator.share({title:viewItem.name,text:viewItem.name}).catch(function(){}); }
+            } catch(e) { window.open(viewItem._src,'_blank'); }
+          }
+        }, '📤 Share'),
+        /*#__PURE__*/React.createElement("button", { className:"btn btn-secondary btn-sm", onClick:function(){setViewItem(null);} }, '✕ Close')
+      ) : /*#__PURE__*/React.createElement(React.Fragment, null,
+        /*#__PURE__*/React.createElement("p", { style:{fontSize:12,color:'var(--text-dim)',textAlign:'center',margin:'4px 0 8px'} }, 'File stored on the device where it was uploaded. Open the app on that device to access it.'),
+        /*#__PURE__*/React.createElement("div", { style:{display:'flex',gap:8,justifyContent:'center'} },
+          /*#__PURE__*/React.createElement("button", { className:"btn btn-secondary btn-sm", onClick:function(){setViewItem(null);} }, '✕ Close')
+        )
+      )
+    ))
+  );
+};
+
 var MediaAttachments = function MediaAttachments(_ref10) {
   var _ref10$attachments = _ref10.attachments,
     attachments = _ref10$attachments === void 0 ? [] : _ref10$attachments,
@@ -2217,8 +2333,19 @@ var MediaAttachments = function MediaAttachments(_ref10) {
       onChange([].concat(_toConsumableArray(attachments), [att]));
     });
   };
-  var typeIcon = function typeIcon(t) {
-    return t === 'image' ? '🖼' : t === 'audio' ? '🎵' : t === 'video' ? '🎥' : t === 'link' ? '🔗' : '📎';
+  var typeIcon = function typeIcon(t, mime) {
+    if (t === 'image') return '🖼';
+    if (t === 'audio') return '🎵';
+    if (t === 'video') return '🎥';
+    if (t === 'link') return '🔗';
+    var m = mime || '';
+    if (m.includes('pdf')) return '📄';
+    if (m.includes('sheet') || m.includes('excel') || m.includes('csv')) return '📊';
+    if (m.includes('word') || m.includes('wordprocessing')) return '📝';
+    if (m.includes('presentation') || m.includes('powerpoint')) return '📋';
+    if (m.includes('zip') || m.includes('compressed') || m.includes('rar')) return '🗜';
+    if (m.includes('text/') || m.includes('txt')) return '📃';
+    return '📎';
   };
   return /*#__PURE__*/React.createElement(React.Fragment, null, /*#__PURE__*/React.createElement("div", {
     className: "attach-section"
@@ -2274,34 +2401,32 @@ var MediaAttachments = function MediaAttachments(_ref10) {
   }, "● Recording…"), /*#__PURE__*/React.createElement("button", {
     className: "btn btn-danger btn-sm", onClick: stopRecording
   }, "Stop")), attachments.length > 0 && /*#__PURE__*/React.createElement("div", {
-    className: "media-grid"
+    className: "attach-list"
   }, attachments.map(function(a) {
     if (a.type === 'link') {
       return /*#__PURE__*/React.createElement("div", {
-        key: a.id, className: "media-thumb",
-        onClick: function() { window.open(a.url, '_blank'); },
-        style: { cursor: 'pointer', background: 'rgba(107,63,160,.12)', border: '1px solid var(--purple-light)' }
+        key: a.id, className: "attach-row",
+        onClick: function() { window.open(a.url, '_blank'); }
       },
-        /*#__PURE__*/React.createElement("div", { className: "m-icon" }, '🔗'),
-        /*#__PURE__*/React.createElement("div", { className: "m-name", style:{color:'var(--purple-light)', fontSize:9, padding:'0 4px'} }, a.name),
-        /*#__PURE__*/React.createElement("button", { className: "m-del", onClick: function(e) { e.stopPropagation(); removeItem(a.id); } }, "\xD7")
+        /*#__PURE__*/React.createElement("span", { className: "ar-icon" }, '🔗'),
+        /*#__PURE__*/React.createElement("span", { className: "ar-name", style:{color:'var(--purple-light)'} }, a.name),
+        /*#__PURE__*/React.createElement("button", { className: "ar-del", onClick: function(e) { e.stopPropagation(); removeItem(a.id); } }, "\xD7")
       );
     }
     var src = getData(a);
     return /*#__PURE__*/React.createElement("div", {
-      key: a.id, className: "media-thumb",
-      onClick: function() { setViewItem(Object.assign({}, a, { _src: src })); },
-      style: { cursor: 'pointer' }
-    }, a.type === 'image' && src ? /*#__PURE__*/React.createElement("img", {
-      src: src, alt: a.name, style: { pointerEvents: 'none' }
-    }) : /*#__PURE__*/React.createElement(React.Fragment, null, /*#__PURE__*/React.createElement("div", {
-      className: "m-icon"
-    }, typeIcon(a.type)), /*#__PURE__*/React.createElement("div", {
-      className: "m-name"
-    }, a.name)), /*#__PURE__*/React.createElement("button", {
-      className: "m-del",
-      onClick: function(e) { e.stopPropagation(); return removeItem(a.id); }
-    }, "\xD7"));
+      key: a.id, className: "attach-row",
+      onClick: function() { setViewItem(Object.assign({}, a, { _src: src })); }
+    },
+      a.type === 'image' && src
+        ? /*#__PURE__*/React.createElement("img", { src: src, alt: a.name, style:{width:18,height:18,objectFit:'cover',borderRadius:3,flexShrink:0} })
+        : /*#__PURE__*/React.createElement("span", { className: "ar-icon" }, typeIcon(a.type, a.mimeType)),
+      /*#__PURE__*/React.createElement("span", { className: "ar-name" }, a.name),
+      /*#__PURE__*/React.createElement("button", {
+        className: "ar-del",
+        onClick: function(e) { e.stopPropagation(); removeItem(a.id); }
+      }, "\xD7")
+    );
   })), attachments.filter(function(a) { return a.type === 'audio'; }).map(function(a) {
     var src = getData(a);
     return src ? /*#__PURE__*/React.createElement("div", {
@@ -2329,12 +2454,21 @@ var MediaAttachments = function MediaAttachments(_ref10) {
     }),
     viewItem.type === 'audio' && viewItem._src && /*#__PURE__*/React.createElement("audio", { controls:true, src:viewItem._src, style:{width:'100%'} }),
     viewItem.type === 'video' && viewItem._src && /*#__PURE__*/React.createElement("video", { controls:true, src:viewItem._src, style:{width:'100%', maxHeight:220, borderRadius:8} }),
-    (viewItem.type === 'file' || !viewItem._src) && /*#__PURE__*/React.createElement("div", { style:{textAlign:'center', fontSize:52, padding:'12px 0'} }, typeIcon(viewItem.type)),
+    (viewItem.type === 'file' || !viewItem._src) && /*#__PURE__*/React.createElement("div", { style:{textAlign:'center', fontSize:52, padding:'12px 0'} }, typeIcon(viewItem.type, viewItem.mimeType)),
     /*#__PURE__*/React.createElement("div", { style:{fontSize:13, fontWeight:600, wordBreak:'break-all', textAlign:'center', color:'var(--text)'} }, viewItem.name),
     viewItem._src ? /*#__PURE__*/React.createElement("div", { style:{display:'flex', gap:8, flexWrap:'wrap', justifyContent:'center'} },
       /*#__PURE__*/React.createElement("button", {
         className: "btn btn-secondary btn-sm",
-        onClick: function() { window.open(viewItem._src, '_blank'); }
+        onClick: function() {
+          try {
+            var arr=viewItem._src.split(','); var mime=((arr[0].match(/:(.*?);/)||[])[1])||'application/octet-stream';
+            var bstr=atob(arr[1]); var n=bstr.length; var u8=new Uint8Array(n);
+            while(n--) u8[n]=bstr.charCodeAt(n);
+            var blob=new Blob([u8],{type:mime}); var burl=URL.createObjectURL(blob);
+            window.open(burl,'_blank');
+            setTimeout(function(){URL.revokeObjectURL(burl);},30000);
+          } catch(e) { window.open(viewItem._src,'_blank'); }
+        }
       }, "🔗 Open"),
       /*#__PURE__*/React.createElement("button", {
         className: "btn btn-secondary btn-sm",
@@ -2364,10 +2498,13 @@ var MediaAttachments = function MediaAttachments(_ref10) {
       /*#__PURE__*/React.createElement("button", {
         className: "btn btn-secondary btn-sm", onClick: function() { setViewItem(null); }
       }, "✕ Close")
-    ) : /*#__PURE__*/React.createElement("div", { style:{display:'flex', gap:8, justifyContent:'center'} },
-      /*#__PURE__*/React.createElement("button", {
-        className: "btn btn-secondary btn-sm", onClick: function() { setViewItem(null); }
-      }, "✕ Close")
+    ) : /*#__PURE__*/React.createElement(React.Fragment, null,
+      /*#__PURE__*/React.createElement("p", { style:{fontSize:12,color:'var(--text-dim)',textAlign:'center',margin:'4px 0 8px'} }, 'File stored on the device where it was uploaded. Open the app on that device to access it.'),
+      /*#__PURE__*/React.createElement("div", { style:{display:'flex', gap:8, justifyContent:'center'} },
+        /*#__PURE__*/React.createElement("button", {
+          className: "btn btn-secondary btn-sm", onClick: function() { setViewItem(null); }
+        }, "✕ Close")
+      )
     )
   )));
 };
@@ -3234,7 +3371,11 @@ var HomeScreen = function HomeScreen(_ref14) {
     ),
     /*#__PURE__*/React.createElement(Progress, {value: (viewProject.status==='PLANNING'?25:viewProject.status==='IN_PROGRESS'?50:(viewProject.status==='CLIENT_REVIEW'||viewProject.status==='AWAITING_APPROVAL')?75:viewProject.status==='DONE'?100:0), color: '#4CAF50'}),
     /*#__PURE__*/React.createElement("div", {style:{fontSize:11,color:"var(--text-dim)",marginTop:2,marginBottom:10}}, (viewProject.status==='PLANNING'?25:viewProject.status==='IN_PROGRESS'?50:(viewProject.status==='CLIENT_REVIEW'||viewProject.status==='AWAITING_APPROVAL')?75:viewProject.status==='DONE'?100:0) + "% complete"),
-    viewProject.description && /*#__PURE__*/React.createElement("div", {style:{fontSize:13,lineHeight:1.6}}, /*#__PURE__*/React.createElement(RichContent,{html:viewProject.description}))
+    viewProject.description && /*#__PURE__*/React.createElement("div", {style:{fontSize:13,lineHeight:1.6}}, /*#__PURE__*/React.createElement(RichContent,{html:viewProject.description})),
+    (viewProject.attachments||[]).length > 0 && /*#__PURE__*/React.createElement("div", {style:{marginTop:12}},
+      /*#__PURE__*/React.createElement("div", {style:{fontSize:12,color:'var(--text-dim)',marginBottom:6}}, '📎 Attachments (' + (viewProject.attachments||[]).length + ')'),
+      /*#__PURE__*/React.createElement(ReadOnlyAttachments, { attachments: viewProject.attachments||[] })
+    )
   )),
   alarmEditItem && /*#__PURE__*/React.createElement(Modal, {
     title: "\uD83D\uDD14 Edit Alarm — " + (alarmEditItem.title || alarmEditItem.name || 'Alarm'),
@@ -6482,46 +6623,9 @@ var JournalScreen = function JournalScreen(_ref31) {
       color: 'var(--text-dim)',
       marginBottom: 6
     }
-  }, "Attachments (", viewEntry.attachments.length, ")"), /*#__PURE__*/React.createElement("div", {
-    className: "media-grid"
-  }, viewEntry.attachments.map(function (a) {
-    return /*#__PURE__*/React.createElement("div", {
-      key: a.id,
-      className: "media-thumb"
-    }, a.type === 'image' ? /*#__PURE__*/React.createElement("img", {
-      src: a.data,
-      alt: a.name
-    }) : /*#__PURE__*/React.createElement(React.Fragment, null, /*#__PURE__*/React.createElement("div", {
-      className: "m-icon"
-    }, a.type === 'audio' ? '🎵' : a.type === 'video' ? '🎬' : '📎'), /*#__PURE__*/React.createElement("div", {
-      className: "m-name"
-    }, a.name)));
-  })), viewEntry.attachments.filter(function (a) {
-    return a.type === 'audio';
-  }).map(function (a) {
-    return /*#__PURE__*/React.createElement("audio", {
-      key: a.id,
-      controls: true,
-      src: a.data,
-      style: {
-        width: '100%',
-        marginTop: 6
-      }
-    });
-  }), viewEntry.attachments.filter(function (a) {
-    return a.type === 'video';
-  }).map(function (a) {
-    return /*#__PURE__*/React.createElement("video", {
-      key: a.id,
-      controls: true,
-      src: a.data,
-      style: {
-        width: '100%',
-        borderRadius: 8,
-        marginTop: 6
-      }
-    });
-  }))), modal && /*#__PURE__*/React.createElement(Modal, {
+  }, "Attachments (", viewEntry.attachments.length, ")"),
+    /*#__PURE__*/React.createElement(ReadOnlyAttachments, { attachments: viewEntry.attachments })
+  )), modal && /*#__PURE__*/React.createElement(Modal, {
     title: editEntry ? ("\u270F\uFE0F Edit " + (editEntry.entryType === "note" ? "Note" : "Journal Entry")) : (form.entryType === "note" ? "\uD83D\uDCDD New Note" : "\uD83D\uDCD3 Today's Entry"),
     onClose: function onClose() {
       resetForm(); setEditEntry(null);
