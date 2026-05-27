@@ -22,7 +22,7 @@
 <script>
 (function() {
   // ── Version ──────────────────────────────────────────────────────────────
-  window.LBP_VERSION = '4.47';
+  window.LBP_VERSION = '4.48';
 
   // ── PWA Install prompt ───────────────────────────────────────────────────
   window._installPrompt = null;
@@ -13565,6 +13565,19 @@ var SyncSettingsButton = function SyncSettingsButton(_ref_ssb) {
     }
   };
 
+  var rebuildRegistry = function() {
+    var url = workerUrl;
+    if (!url) return;
+    setConnStatus('Rebuilding registry…');
+    fetch(url + '/rebuild-registry')
+      .then(function(r){ return r.json(); })
+      .then(function(d){
+        if (d.ok) setConnStatus('✅ Registry OK — ' + (d.syncKeys||[]).length + ' key(s) found' + (d.wasEmpty ? ' (was empty, now fixed)' : ''));
+        else setConnStatus('❌ ' + (d.error||'Unknown error'));
+      })
+      .catch(function(){ setConnStatus('❌ Could not reach Worker'); });
+  };
+
   var checkCloudAlarms = function() {
     var sk = syncKey;
     var url = workerUrl;
@@ -13726,7 +13739,11 @@ var SyncSettingsButton = function SyncSettingsButton(_ref_ssb) {
               /*#__PURE__*/React.createElement('button', {
                 onClick: checkCloudAlarms,
                 style:{background:'rgba(59,130,246,0.15)',border:'1px solid rgba(59,130,246,0.4)',borderRadius:8,padding:'5px 10px',color:'#60a5fa',cursor:'pointer',fontSize:11,whiteSpace:'nowrap'}
-              }, '🔍 Check Alarms')
+              }, '🔍 Check Alarms'),
+              /*#__PURE__*/React.createElement('button', {
+                onClick: rebuildRegistry,
+                style:{background:'rgba(251,191,36,0.15)',border:'1px solid rgba(251,191,36,0.4)',borderRadius:8,padding:'5px 10px',color:'#fbbf24',cursor:'pointer',fontSize:11,whiteSpace:'nowrap'}
+              }, '🔧 Fix Registry')
             )
           ),
           /*#__PURE__*/React.createElement('div', { style:{borderTop:'1px solid rgba(255,255,255,0.1)',paddingTop:12,marginTop:12} },
