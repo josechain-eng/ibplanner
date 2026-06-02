@@ -22,7 +22,7 @@
 <script>
 (function() {
   // ── Version ──────────────────────────────────────────────────────────────
-  window.LBP_VERSION = '4.60';
+  window.LBP_VERSION = '4.62';
 
   // ── PWA Install prompt ───────────────────────────────────────────────────
   window._installPrompt = null;
@@ -195,19 +195,41 @@
   // ── Gmail search for Meeting Prep ──────────────────────────────────────
   // Searches Gmail for emails related to a meeting/client and returns snippets
   // Requires gmail.readonly scope (included in LBP_GCAL_SCOPE above)
-  window._gmailSearchMeeting = function(clientName, meetingTitle, callback) {
+  window._gmailSearchMeeting = function(clientName, meetingTitle, contactPerson, callback) {
     window._gcalEnsureToken(function(token) {
       if (!token) { callback(null); return; }
-      // Build search query: client name + meeting keywords, last 90 days
-      var keywords = [];
-      if (clientName) keywords.push(clientName.split(' ')[0]); // first name/word
+      // Build Gmail search query: client as anchor (AND), topic keywords use OR
+      // Good title example: "Construcción Tienda Ventura Sur" with client "Mango"
+      // → query: Mango (Construcción OR Tienda OR Ventura) newer_than:90d
+      var stopWords = new Set(['para','con','del','los','las','una','que','por','como','sobre','esta','este','reunion','meeting','call','follow','update','weekly','review','con','the','and','for','with','from','about','sin','sus','son','ser','han','hay','fue','era']);
+      var topicKeywords = [];
       if (meetingTitle) {
-        meetingTitle.split(/\s+/).slice(0, 3).forEach(function(w) {
-          if (w.length > 3) keywords.push(w);
+        meetingTitle.split(/\s+/).forEach(function(w) {
+          var clean = w.toLowerCase().replace(/[^a-záéíóúüñ]/gi, '');
+          if (clean.length > 3 && !stopWords.has(clean)) topicKeywords.push(w);
         });
       }
-      if (!keywords.length) { callback(null); return; }
-      var q = keywords.join(' OR ') + ' newer_than:90d';
+      // Limit to 5 most specific keywords
+      topicKeywords = topicKeywords.slice(0, 5);
+
+      var q;
+      var clientFirst = clientName ? clientName.split(' ')[0] : '';
+
+      if (contactPerson && contactPerson.trim()) {
+        // Contact-specific search: from: or to: the person, plus client as anchor
+        var cp = contactPerson.trim();
+        var contactQ = '(from:' + cp + ' OR to:' + cp + ' OR ' + cp + ')';
+        q = clientFirst ? clientFirst + ' ' + contactQ + ' newer_than:90d' : contactQ + ' newer_than:90d';
+      } else if (clientFirst && topicKeywords.length) {
+        // No contact: client AND topic keywords (existing behavior)
+        q = clientFirst + ' (' + topicKeywords.join(' OR ') + ') newer_than:90d';
+      } else if (clientFirst) {
+        q = clientFirst + ' newer_than:90d';
+      } else if (topicKeywords.length) {
+        q = topicKeywords.join(' AND ') + ' newer_than:90d';
+      } else {
+        callback(null); return;
+      }
       var listUrl = 'https://www.googleapis.com/gmail/v1/users/me/messages?maxResults=6&q=' + encodeURIComponent(q);
       fetch(listUrl, { headers: { 'Authorization': 'Bearer ' + token } })
         .then(function(r) { return r.ok ? r.json() : null; })
@@ -5887,10 +5909,10 @@ var MeetingsScreen = function MeetingsScreen(_ref26) {
     }, "\u270F\uFE0F"), " ", /*#__PURE__*/React.createElement("button",{className:"btn btn-secondary btn-sm",style:{fontSize:10},title:"AI Prep",
       onClick:function(e){e.stopPropagation();if(!window.LBP_WORKER_URL)return;setMePrepItem(m);setMePrepRes(null);setMePrepLoad(true);
         var cli=(data.clients||[]).find(function(c){return c.id===m.clientId;})||null;
-        var baseContent='Reunión: '+m.title+'\nFecha: '+m.date+' '+m.startTime+(m.endTime?' - '+m.endTime:'')+(cli?'\nCliente: '+cli.name+(cli.businessName?' ('+cli.businessName+')':''):'')+(m.agenda?'\nAgenda: '+m.agenda:'')+(m.notes?'\nNotas: '+m.notes:'');
+        var baseContent='Reunión: '+m.title+'\nFecha: '+m.date+' '+m.startTime+(m.endTime?' - '+m.endTime:'')+(cli?'\nCliente: '+cli.name+(cli.businessName?' ('+cli.businessName+')':''):'')+(m.contact?'\nContacto: '+m.contact:'')+(m.agenda?'\nAgenda: '+m.agenda:'')+(m.notes?'\nNotas: '+m.notes:'');
         var sendPrep=function(content){fetch(window.LBP_WORKER_URL+'/chat',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({messages:[{role:'user',content:content}],systemPrompt:'Eres un asistente ejecutivo experto. Genera un brief de preparación para esta reunión con 6 secciones:\n1) Temas clave a cubrir\n2) Preguntas estratégicas a hacer\n3) Contexto del cliente/empresa\n4) Correos relevantes (si los hay)\n5) Resultado esperado de la reunión\n6) Riesgo potencial o punto de atención\nSé específico, concreto y práctico. Usa el idioma del título de la reunión.'})}).then(function(r){return r.json();}).then(function(res){setMePrepLoad(false);setMePrepRes(res.content||('Error'));}).catch(function(){setMePrepLoad(false);setMePrepRes('Error de red');});};
         if(window._gmailSearchMeeting&&localStorage.getItem('lbp_gcal_connected')==='1'){
-          window._gmailSearchMeeting(cli?cli.name:'',m.title,function(emails){
+          window._gmailSearchMeeting(cli?cli.name:'',m.title,m.contact||'',function(emails){
             var emailCtx='';
             if(emails&&emails.length){emailCtx='\n\nCorreos relevantes encontrados ('+emails.length+'):\n'+emails.map(function(e){return '- Asunto: '+e.subject+'\n  De: '+e.from.replace(/<[^>]+>/g,'').trim()+'\n  Extracto: '+e.snippet.slice(0,120);}).join('\n');}
             sendPrep(baseContent+emailCtx);
@@ -5921,7 +5943,7 @@ var MeetingsScreen = function MeetingsScreen(_ref26) {
     className: "page-header"
   }, /*#__PURE__*/React.createElement("h1", null, "\uD83D\uDCC5 Meetings & Events"), /*#__PURE__*/React.createElement("button", {
     className: "btn btn-primary btn-sm",
-    onClick: function onClick() { setEditItem(null); setForm({title:'',date:today(),startTime:'09:00',endTime:'10:00',isOnline:false,location:'',agenda:'',notes:'',alarm:meetingAlarmDefault(today(),'09:00')}); setModal(true); }
+    onClick: function onClick() { setEditItem(null); setForm({title:'',date:today(),startTime:'09:00',endTime:'10:00',isOnline:false,location:'',agenda:'',notes:'',contact:'',alarm:meetingAlarmDefault(today(),'09:00')}); setModal(true); }
   }, "+ New")), /*#__PURE__*/React.createElement("div", {
     className: "page-content"
   },
@@ -6058,6 +6080,14 @@ var MeetingsScreen = function MeetingsScreen(_ref26) {
       }));
     }
   }),
+  /*#__PURE__*/React.createElement("div", {className:"form-group"},
+    /*#__PURE__*/React.createElement("label", null, "\uD83D\uDC64 Contacto (persona en la reuni\u00f3n)"),
+    /*#__PURE__*/React.createElement("input", {
+      value: form.contact||'',
+      onChange: function(e){setForm(_objectSpread(_objectSpread({},form),{},{contact:e.target.value}));},
+      placeholder: "Nombre o email — p.ej. Habib, habib@ck.com"
+    })
+  ),
   /*#__PURE__*/React.createElement('div',{style:{display:'flex',justifyContent:'flex-end',marginBottom:4}},
     /*#__PURE__*/React.createElement('button',{className:'btn btn-secondary btn-sm',style:{fontSize:10},disabled:meAiLoad||(!form.notes&&!form.agenda),
       onClick:function(){if(!window.LBP_WORKER_URL)return;setMeAiLoad(true);setMeAiTasks(null);setMeAiSel([]);
