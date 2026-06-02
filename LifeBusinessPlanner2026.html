@@ -22,7 +22,7 @@
 <script>
 (function() {
   // ── Version ──────────────────────────────────────────────────────────────
-  window.LBP_VERSION = '4.58';
+  window.LBP_VERSION = '4.60';
 
   // ── PWA Install prompt ───────────────────────────────────────────────────
   window._installPrompt = null;
@@ -3596,6 +3596,14 @@ var GoalsScreen = function GoalsScreen(_ref19) {
       });
     });
   };
+  var jRecOpen=function(entry){setJRecEntry(entry||null);setJRecModal(true);setJRecFinal('');setJRecInterim('');setJRecActive(false);setJRecSumRes(null);setJRecExtTasks(null);setJRecExtSel([]);setJRecLinkId('');setJRecLinkType(null);jRecRunRef.current=false;if(jRecSRRef.current){try{jRecSRRef.current.abort();}catch(e){}jRecSRRef.current=null;}};
+  var jRecClose=function(){jRecRunRef.current=false;if(jRecSRRef.current){try{jRecSRRef.current.abort();}catch(e){}jRecSRRef.current=null;}setJRecActive(false);setJRecModal(false);setJRecEntry(null);};
+  var jRecStart=function(){var SR=window.SpeechRecognition||window.webkitSpeechRecognition;if(!SR){alert('Grabaci\u00f3n requiere Chrome.');return;}if(jRecSRRef.current){try{jRecSRRef.current.abort();}catch(e){}}var sr=new SR();jRecSRRef.current=sr;sr.continuous=true;sr.interimResults=true;sr.lang='es';sr.onresult=function(e){var fin='',intr='';for(var i=e.resultIndex;i<e.results.length;i++){if(e.results[i].isFinal)fin+=e.results[i][0].transcript+' ';else intr+=e.results[i][0].transcript;}if(fin)setJRecFinal(function(p){return p+fin;});setJRecInterim(intr);};sr.onend=function(){if(jRecRunRef.current){try{sr.start();}catch(e){}}else{setJRecActive(false);setJRecInterim('');}};sr.onerror=function(e){if(e.error!=='aborted')setJRecInterim('[Error: '+e.error+']');};jRecRunRef.current=true;try{sr.start();}catch(e){alert('Error al iniciar: '+e.message);}setJRecActive(true);};
+  var jRecStop=function(){jRecRunRef.current=false;if(jRecSRRef.current){try{jRecSRRef.current.stop();}catch(e){}jRecSRRef.current=null;}setJRecInterim('');};
+  var jRecGenSummary=function(){if(!window.LBP_WORKER_URL||!jRecFinal.trim())return;setJRecSumLoad(true);setJRecSumRes(null);setJRecExtTasks(null);var en=jRecEntry||{};var isNote=(en.entryType||'journal')==='note';var ctx=(isNote?'Nota':'Diario')+': '+(en.title||en.date||'Sin t\u00edtulo')+(en.date?'\nFecha: '+en.date:'')+'\n\nGrabaci\u00f3n:\n'+jRecFinal;var sp=isNote?'Analiza esta grabaci\u00f3n de pensamientos e ideas. Resumen con:\n\uD83E\uDDE0 Ideas principales\n\uD83D\uDCA1 Insights clave\n\u2705 Acciones (si las hay)\n\uD83D\uDCDD Puntos para recordar\n\nSe conciso. Usa el idioma de la grabaci\u00f3n.':'Analiza esta grabaci\u00f3n de diario personal. Resumen con:\n\uD83D\uDCAD Reflexiones principales\n\uD83D\uDE0A Estado emocional detectado\n\uD83D\uDCA1 Insights y aprendizajes\n\u2705 Compromisos o acciones\n\uD83D\uDD1C Pr\u00f3ximos pasos\n\nSe emp\u00e1tico y conciso. Usa el idioma de la grabaci\u00f3n.';fetch(window.LBP_WORKER_URL+'/chat',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({messages:[{role:'user',content:ctx}],systemPrompt:sp})}).then(function(r){return r.json();}).then(function(res){setJRecSumLoad(false);setJRecSumRes(res.content||('Error: '+(res.error||'')));}).catch(function(){setJRecSumLoad(false);setJRecSumRes('Error de red');});};
+  var jRecSaveEntry=function(){if(!jRecEntry||!jRecSumRes)return;var note='\n\n--- Resumen de Grabaci\u00f3n ---\n'+jRecSumRes;setData(function(d){return Object.assign({},d,{journal:(d.journal||[]).map(function(e){return e.id===jRecEntry.id?Object.assign({},e,{content:(e.content||'')+note}):e;})});});alert('\u2705 Resumen guardado en la entrada');};
+  var jRecDoLink=function(){if(!jRecLinkId||!jRecLinkType||!jRecSumRes)return;var note='\n\n--- Resumen vinculado ---\n'+jRecSumRes;if(jRecLinkType==='task'){setData(function(d){return Object.assign({},d,{tasks:(d.tasks||[]).map(function(t){return t.id===jRecLinkId?Object.assign({},t,{description:(t.description||'')+note}):t;})});});alert('\u2705 Vinculado a la tarea');}else{setData(function(d){return Object.assign({},d,{projects:(d.projects||[]).map(function(p){return p.id===jRecLinkId?Object.assign({},p,{description:(p.description||'')+note}):p;})});});alert('\u2705 Vinculado al proyecto');}setJRecLinkId('');setJRecLinkType(null);};
+  var jRecExtractTasks=function(){if(!jRecSumRes||!window.LBP_WORKER_URL)return;setJRecSumLoad(true);fetch(window.LBP_WORKER_URL+'/chat',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({messages:[{role:'user',content:'Extrae las acciones o tareas de este resumen:\n\n'+jRecSumRes}],systemPrompt:'Extrae los action items. Responde SOLO con JSON array. Ejemplo: ["Llamar","Revisar"]. Usa el idioma del texto.'})}).then(function(r){return r.json();}).then(function(res){setJRecSumLoad(false);try{var t=res.content||'';var si=t.indexOf('[');var ei=t.lastIndexOf(']')+1;if(si>=0&&ei>si){var a=JSON.parse(t.slice(si,ei));setJRecExtTasks(a);setJRecExtSel(a.map(function(_,i){return i;}));}else{setJRecExtTasks([]);}}catch(e){setJRecExtTasks([]);}}).catch(function(){setJRecSumLoad(false);});};
   return /*#__PURE__*/React.createElement("div", null, /*#__PURE__*/React.createElement("div", {
     className: "page-header"
   }, /*#__PURE__*/React.createElement("h1", null, "\uD83C\uDFAF Goals & Vision"), /*#__PURE__*/React.createElement("button", {
@@ -5754,6 +5762,17 @@ var MeetingsScreen = function MeetingsScreen(_ref26) {
   var _meAI7=useState(false),_meAI8=_slicedToArray(_meAI7,2),mePrepLoad=_meAI8[0],setMePrepLoad=_meAI8[1];
   var _meAI9=useState(null),_meAI10=_slicedToArray(_meAI9,2),mePrepRes=_meAI10[0],setMePrepRes=_meAI10[1];
   var _meAI11=useState(null),_meAI12=_slicedToArray(_meAI11,2),mePrepItem=_meAI12[0],setMePrepItem=_meAI12[1];
+  var _recS1=useState(false),_recS2=_slicedToArray(_recS1,2),recModal=_recS2[0],setRecModal=_recS2[1];
+  var _recS3=useState(null),_recS4=_slicedToArray(_recS3,2),recMeeting=_recS4[0],setRecMeeting=_recS4[1];
+  var _recS5=useState(false),_recS6=_slicedToArray(_recS5,2),recActive=_recS6[0],setRecActive=_recS6[1];
+  var _recS7=useState(''),_recS8=_slicedToArray(_recS7,2),recFinal=_recS8[0],setRecFinal=_recS8[1];
+  var _recS9=useState(''),_recS10=_slicedToArray(_recS9,2),recInterim=_recS10[0],setRecInterim=_recS10[1];
+  var _recS11=useState(false),_recS12=_slicedToArray(_recS11,2),recSumLoad=_recS12[0],setRecSumLoad=_recS12[1];
+  var _recS13=useState(null),_recS14=_slicedToArray(_recS13,2),recSumRes=_recS14[0],setRecSumRes=_recS14[1];
+  var _recS15=useState(null),_recS16=_slicedToArray(_recS15,2),recExtTasks=_recS16[0],setRecExtTasks=_recS16[1];
+  var _recS17=useState([]),_recS18=_slicedToArray(_recS17,2),recExtSel=_recS18[0],setRecExtSel=_recS18[1];
+  var recSRRef=useRef(null);
+  var recRunRef=useRef(false);
   useEffect(function() {
     var pe = window._lbpPendingEdit;
     if (pe && pe.type === 'meetings') {
@@ -5824,6 +5843,13 @@ var MeetingsScreen = function MeetingsScreen(_ref26) {
       });
     });
   };
+  var recOpen=function(m){setRecMeeting(m||null);setRecModal(true);setRecFinal('');setRecInterim('');setRecActive(false);setRecSumRes(null);setRecExtTasks(null);setRecExtSel([]);recRunRef.current=false;if(recSRRef.current){try{recSRRef.current.abort();}catch(e){}recSRRef.current=null;}};
+  var recClose=function(){recRunRef.current=false;if(recSRRef.current){try{recSRRef.current.abort();}catch(e){}recSRRef.current=null;}setRecActive(false);setRecModal(false);setRecMeeting(null);};
+  var recStart=function(){var SR=window.SpeechRecognition||window.webkitSpeechRecognition;if(!SR){alert('Grabación requiere Chrome o un navegador Chromium.');return;}if(recSRRef.current){try{recSRRef.current.abort();}catch(e){}}var sr=new SR();recSRRef.current=sr;sr.continuous=true;sr.interimResults=true;sr.lang='es';sr.onresult=function(e){var fin='',intr='';for(var i=e.resultIndex;i<e.results.length;i++){if(e.results[i].isFinal)fin+=e.results[i][0].transcript+' ';else intr+=e.results[i][0].transcript;}if(fin)setRecFinal(function(p){return p+fin;});setRecInterim(intr);};sr.onend=function(){if(recRunRef.current){try{sr.start();}catch(e){}}else{setRecActive(false);setRecInterim('');}};sr.onerror=function(e){if(e.error!=='aborted')setRecInterim('[Error: '+e.error+']');};recRunRef.current=true;try{sr.start();}catch(e){alert('No se pudo iniciar la grabación: '+e.message);}setRecActive(true);};
+  var recStop=function(){recRunRef.current=false;if(recSRRef.current){try{recSRRef.current.stop();}catch(e){}recSRRef.current=null;}setRecInterim('');};
+  var recGenSummary=function(){if(!window.LBP_WORKER_URL||!recFinal.trim())return;setRecSumLoad(true);setRecSumRes(null);setRecExtTasks(null);var m=recMeeting||{};var ctx='Reunión: '+(m.title||'Sin título')+(m.date?'\nFecha: '+m.date:'')+(m.agenda?'\nAgenda: '+m.agenda:'')+'\n\nTranscripción:\n'+recFinal;fetch(window.LBP_WORKER_URL+'/chat',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({messages:[{role:'user',content:ctx}],systemPrompt:'Eres un asistente ejecutivo. Analiza la transcripción y genera un summary ejecutivo estructurado con estas secciones:\n📌 Puntos clave discutidos\n✅ Decisiones tomadas\n📋 Action items\n🔜 Próximos pasos\n⚠️ Temas pendientes\n\nSé conciso y específico. Usa el idioma de la transcripción.'})}).then(function(r){return r.json();}).then(function(res){setRecSumLoad(false);setRecSumRes(res.content||('Error: '+(res.error||'')));}).catch(function(){setRecSumLoad(false);setRecSumRes('Error de red');});};
+  var recSaveNotes=function(){if(!recMeeting||!recSumRes)return;var note='\n\n--- Summary de Reunión ---\n'+recSumRes;setData(function(d){return Object.assign({},d,{meetings:(d.meetings||[]).map(function(m){return m.id===recMeeting.id?Object.assign({},m,{notes:(m.notes||'')+note}):m;})});});};
+  var recExtractFromSummary=function(){if(!recSumRes||!window.LBP_WORKER_URL)return;setRecSumLoad(true);fetch(window.LBP_WORKER_URL+'/chat',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({messages:[{role:'user',content:'Extrae los action items de este summary:\n\n'+recSumRes}],systemPrompt:'Extrae los action items. Responde SOLO con JSON array de strings. Ejemplo: ["Enviar propuesta","Agendar call"]. Usa el idioma del texto.'})}).then(function(r){return r.json();}).then(function(res){setRecSumLoad(false);try{var t=res.content||'';var si=t.indexOf('[');var ei=t.lastIndexOf(']')+1;if(si>=0&&ei>si){var a=JSON.parse(t.slice(si,ei));setRecExtTasks(a);setRecExtSel(a.map(function(_,i){return i;}));}else{setRecExtTasks([]);}}catch(e){setRecExtTasks([]);}}).catch(function(){setRecSumLoad(false);});};
   var MeetCard = function MeetCard(_ref27) {
     var m = _ref27.m;
     return /*#__PURE__*/React.createElement("div", {
@@ -5871,7 +5897,7 @@ var MeetingsScreen = function MeetingsScreen(_ref26) {
           });
         }else{sendPrep(baseContent);}
       }
-    },mePrepLoad&&mePrepItem&&mePrepItem.id===m.id?'⏳':'🤖'), " ", /*#__PURE__*/React.createElement("button", {
+    },mePrepLoad&&mePrepItem&&mePrepItem.id===m.id?'⏳':'🤖'), " ", /*#__PURE__*/React.createElement("button",{className:"btn btn-secondary btn-sm",style:{fontSize:10},title:"Grabar reunión",onClick:function(e){e.stopPropagation();recOpen(m);}}, '🎙️'), " ", /*#__PURE__*/React.createElement("button", {
       className: "btn btn-danger btn-sm",
       onClick: function onClick(e) { e.stopPropagation(); del(m.id); }
     }, "Delete")), m.isOnline ? /*#__PURE__*/React.createElement("div", {
@@ -6057,6 +6083,9 @@ var MeetingsScreen = function MeetingsScreen(_ref26) {
     },'\u2705 Agregar '+meAiSel.length+' tarea'+(meAiSel.length!==1?'s':''))
   ),
   meAiTasks&&meAiTasks.length===0&&/*#__PURE__*/React.createElement('div',{style:{fontSize:12,color:'var(--text-dim)',textAlign:'center',padding:'4px 0'}},"Sin tareas en las notas"),
+  /*#__PURE__*/React.createElement('div',{style:{marginBottom:8}},
+    /*#__PURE__*/React.createElement('button',{className:'btn btn-secondary btn-sm',style:{fontSize:10,width:'100%'},title:'Grabar esta reunión en tiempo real',onClick:function(){recOpen(editItem?editItem:Object.assign({},form,{id:'form_'+Date.now()}));}}, '🎙️ Grabar Reunión')
+  ),
   /*#__PURE__*/React.createElement(AlarmPanel, {
     alarm: form.alarm,
     onChange: function onChange(a) {
@@ -6066,6 +6095,52 @@ var MeetingsScreen = function MeetingsScreen(_ref26) {
     },
     label: form.title || 'Meeting'
   }), editItem && editItem.id && /*#__PURE__*/React.createElement(JournalLinksSection, {data:data,setData:setData,itemType:'meeting',itemId:editItem.id})),
+  recModal&&recMeeting&&/*#__PURE__*/React.createElement(Modal,{
+    title:'🎙️ Reunión — '+(recMeeting.title||'Sin título'),
+    onClose:recClose,
+    footer:/*#__PURE__*/React.createElement(React.Fragment,null,
+      !recActive&&recFinal&&!recSumRes&&!recSumLoad&&/*#__PURE__*/React.createElement('button',{className:'btn btn-primary',onClick:recGenSummary},'✨ Generar Summary'),
+      recSumRes&&!recExtTasks&&/*#__PURE__*/React.createElement('button',{className:'btn btn-secondary',onClick:recExtractFromSummary},recSumLoad?'⏳':'✅ Extraer Tareas'),
+      recSumRes&&/*#__PURE__*/React.createElement('button',{className:'btn btn-secondary',onClick:recSaveNotes},'💾 Guardar en Notas'),
+      recSumRes&&/*#__PURE__*/React.createElement('button',{className:'btn btn-secondary',onClick:function(){try{navigator.clipboard.writeText(recSumRes);}catch(e){}}},'📋 Copiar'),
+      /*#__PURE__*/React.createElement('button',{className:'btn btn-secondary',onClick:recClose},'Cerrar')
+    )
+  },/*#__PURE__*/React.createElement('div',{style:{padding:'4px 0'}},
+    recMeeting.date&&/*#__PURE__*/React.createElement('div',{style:{fontSize:11,color:'var(--text-dim)',marginBottom:10}},recMeeting.date+(recMeeting.startTime?' · '+recMeeting.startTime:'')+(recMeeting.agenda?' · '+recMeeting.agenda.slice(0,50):'')),
+    /*#__PURE__*/React.createElement('div',{style:{display:'flex',gap:8,alignItems:'center',marginBottom:10}},
+      !recActive
+        ?/*#__PURE__*/React.createElement('button',{className:'btn btn-primary',onClick:recStart},'▶ Iniciar')
+        :/*#__PURE__*/React.createElement('button',{className:'btn btn-danger',onClick:recStop},'⏹ Detener'),
+      recActive&&/*#__PURE__*/React.createElement('span',{style:{fontSize:12,color:'#ef4444',fontWeight:700,display:'flex',alignItems:'center',gap:4}},
+        /*#__PURE__*/React.createElement('span',{style:{width:8,height:8,borderRadius:'50%',background:'#ef4444',display:'inline-block'}},''),
+        ' Grabando...'
+      ),
+      !recActive&&recFinal&&/*#__PURE__*/React.createElement('span',{style:{fontSize:11,color:'var(--text-dim)'}},Math.round(recFinal.trim().split(/\s+/).length)+' palabras')
+    ),
+    /*#__PURE__*/React.createElement('div',{style:{background:'var(--surface)',border:'1px solid var(--border)',borderRadius:8,padding:'8px 10px',minHeight:80,maxHeight:180,overflowY:'auto',fontSize:12,lineHeight:1.6,marginBottom:10,whiteSpace:'pre-wrap'}},
+      recFinal||recInterim
+        ?/*#__PURE__*/React.createElement(React.Fragment,null,
+            /*#__PURE__*/React.createElement('span',null,recFinal),
+            recInterim&&/*#__PURE__*/React.createElement('span',{style:{color:'var(--text-dim)',fontStyle:'italic'}},recInterim)
+          )
+        :/*#__PURE__*/React.createElement('span',{style:{color:'var(--text-dim)',fontStyle:'italic'}},'Presiona ▶ Iniciar y comienza a hablar...')
+    ),
+    recSumLoad&&/*#__PURE__*/React.createElement('div',{style:{textAlign:'center',padding:'10px 0',color:'var(--purple-light)',fontSize:13}},'⏳ Generando summary ejecutivo...'),
+    recSumRes&&/*#__PURE__*/React.createElement('div',{style:{background:'rgba(107,63,160,0.08)',border:'1px solid var(--purple-light)',borderRadius:10,padding:'10px 12px',fontSize:12,lineHeight:1.7,whiteSpace:'pre-wrap',maxHeight:220,overflowY:'auto'}},
+      /*#__PURE__*/React.createElement('div',{style:{fontSize:12,fontWeight:700,color:'var(--purple-light)',marginBottom:6}},'📝 Summary Ejecutivo'),
+      /*#__PURE__*/React.createElement('span',null,recSumRes)
+    ),
+    recExtTasks&&recExtTasks.length>0&&/*#__PURE__*/React.createElement('div',{style:{marginTop:10,background:'rgba(107,63,160,0.05)',border:'1px solid var(--border)',borderRadius:8,padding:'8px 10px'}},
+      /*#__PURE__*/React.createElement('div',{style:{fontSize:11,fontWeight:700,color:'var(--purple-light)',marginBottom:6}},'✅ Action Items'),
+      recExtTasks.map(function(t,i){return /*#__PURE__*/React.createElement('div',{key:i,style:{display:'flex',alignItems:'center',gap:6,marginBottom:3}},
+        /*#__PURE__*/React.createElement('input',{type:'checkbox',checked:recExtSel.indexOf(i)!==-1,onChange:function(){setRecExtSel(function(s){return s.indexOf(i)!==-1?s.filter(function(x){return x!==i;}):[].concat(s,[i]);});},style:{width:13,height:13,accentColor:'#9C68D6'}}),
+        /*#__PURE__*/React.createElement('span',{style:{fontSize:11}},t)
+      );}),
+      recExtSel.length>0&&/*#__PURE__*/React.createElement('button',{className:'btn btn-primary btn-sm',style:{marginTop:6,width:'100%'},
+        onClick:function(){var dd=tomorrowStr();var nT=recExtSel.map(function(i){return {id:uid(),title:recExtTasks[i],status:'INBOX',priority:'MEDIUM',dueDate:dd,createdAt:Date.now(),alarm:defaultTaskAlarm()};});setData(function(d){return Object.assign({},d,{tasks:(d.tasks||[]).concat(nT)});});setRecExtSel([]);setRecExtTasks(null);alert('✅ '+nT.length+' tarea'+(nT.length!==1?'s':'')+' añadida'+(nT.length!==1?'s':'')+' a Tasks');}
+      },'+ Agregar '+recExtSel.length+' tarea'+(recExtSel.length!==1?'s':'')+' a Tasks')
+    )
+  )),
   mePrepItem&&mePrepRes&&/*#__PURE__*/React.createElement(Modal,{
     title:'🤖 Prep — '+(mePrepItem.title||'Meeting'),
     onClose:function(){setMePrepItem(null);setMePrepRes(null);},
@@ -6585,6 +6660,19 @@ var JournalScreen = function JournalScreen(_ref31) {
   var _useStateJTF = useState('All'), _useStateJTFA = _slicedToArray(_useStateJTF, 2), jTypeFilter = _useStateJTFA[0], setJTypeFilter = _useStateJTFA[1];
   var _jIns1=useState(false),_jIns2=_slicedToArray(_jIns1,2),jInsLoad=_jIns2[0],setJInsLoad=_jIns2[1];
   var _jIns3=useState(null),_jIns4=_slicedToArray(_jIns3,2),jInsRes=_jIns4[0],setJInsRes=_jIns4[1];
+  var _jRec1=useState(false),_jRec2=_slicedToArray(_jRec1,2),jRecModal=_jRec2[0],setJRecModal=_jRec2[1];
+  var _jRec3=useState(null),_jRec4=_slicedToArray(_jRec3,2),jRecEntry=_jRec4[0],setJRecEntry=_jRec4[1];
+  var _jRec5=useState(false),_jRec6=_slicedToArray(_jRec5,2),jRecActive=_jRec6[0],setJRecActive=_jRec6[1];
+  var _jRec7=useState(''),_jRec8=_slicedToArray(_jRec7,2),jRecFinal=_jRec8[0],setJRecFinal=_jRec8[1];
+  var _jRec9=useState(''),_jRec10=_slicedToArray(_jRec9,2),jRecInterim=_jRec10[0],setJRecInterim=_jRec10[1];
+  var _jRec11=useState(false),_jRec12=_slicedToArray(_jRec11,2),jRecSumLoad=_jRec12[0],setJRecSumLoad=_jRec12[1];
+  var _jRec13=useState(null),_jRec14=_slicedToArray(_jRec13,2),jRecSumRes=_jRec14[0],setJRecSumRes=_jRec14[1];
+  var _jRec15=useState(null),_jRec16=_slicedToArray(_jRec15,2),jRecExtTasks=_jRec16[0],setJRecExtTasks=_jRec16[1];
+  var _jRec17=useState([]),_jRec18=_slicedToArray(_jRec17,2),jRecExtSel=_jRec18[0],setJRecExtSel=_jRec18[1];
+  var _jRec19=useState(''),_jRec20=_slicedToArray(_jRec19,2),jRecLinkId=_jRec20[0],setJRecLinkId=_jRec20[1];
+  var _jRec21=useState(null),_jRec22=_slicedToArray(_jRec21,2),jRecLinkType=_jRec22[0],setJRecLinkType=_jRec22[1];
+  var jRecSRRef=useRef(null);
+  var jRecRunRef=useRef(false);
   var entries = _toConsumableArray(data.journal || []).sort(function (a, b) {
     return b.date.localeCompare(a.date);
   }).filter(function(e){
@@ -6740,7 +6828,8 @@ var JournalScreen = function JournalScreen(_ref31) {
         /*#__PURE__*/React.createElement("span", {style:{fontSize:10,padding:"2px 6px",borderRadius:8,background:e.entryType==="note"?"var(--surface2)":"rgba(107,63,160,0.3)",color:"var(--text-dim)",flexShrink:0}},
           e.entryType === "note" ? "Note" : "Journal"
         ),
-        (e.alarm && e.alarm.enabled) && /*#__PURE__*/React.createElement("span", {style:{fontSize:11,flexShrink:0}}, "🔔")
+        (e.alarm && e.alarm.enabled) && /*#__PURE__*/React.createElement("span", {style:{fontSize:11,flexShrink:0}}, "🔔"),
+      /*#__PURE__*/React.createElement("button",{className:"btn btn-secondary btn-sm",style:{fontSize:10,padding:'1px 5px',marginLeft:2},title:"Grabar",onClick:function(ev){ev.stopPropagation();jRecOpen(e);}}, '🎙️')
       );
     }
     return /*#__PURE__*/React.createElement("div", {
@@ -6799,7 +6888,7 @@ var JournalScreen = function JournalScreen(_ref31) {
         fontSize: 12,
         color: 'var(--text-dim)'
       }
-    }, "\uD83D\uDCCE", e.attachments.length), /*#__PURE__*/React.createElement("span", {style:{fontSize:10,padding:"2px 7px",borderRadius:8,background:e.entryType==="note"?"var(--surface2)":"rgba(107,63,160,0.3)",color:"var(--text-dim)",flexShrink:0}}, e.entryType==="note"?"📝 Note":"📓 Journal"), /*#__PURE__*/React.createElement("button", {
+    }, "\uD83D\uDCCE", e.attachments.length), /*#__PURE__*/React.createElement("span", {style:{fontSize:10,padding:"2px 7px",borderRadius:8,background:e.entryType==="note"?"var(--surface2)":"rgba(107,63,160,0.3)",color:"var(--text-dim)",flexShrink:0}}, e.entryType==="note"?"📝 Note":"📓 Journal"), /*#__PURE__*/React.createElement("button",{className:"btn btn-secondary btn-sm btn-icon",style:{fontSize:10,padding:'1px 5px'},title:"Grabar",onClick:function(ev){ev.stopPropagation();jRecOpen(e);}}, '🎙️'), /*#__PURE__*/React.createElement("button", {
       className: "btn btn-secondary btn-sm btn-icon", style:{fontSize:12},
       onClick: function onClick(ev) {
         ev.stopPropagation();
@@ -6834,6 +6923,68 @@ var JournalScreen = function JournalScreen(_ref31) {
       }
     }, "\uD83D\uDE4F ", e.gratitude));
   })),
+  jRecModal&&jRecEntry&&/*#__PURE__*/React.createElement(Modal,{
+    title:'🎙️ '+(jRecEntry.entryType==='note'?'Nota':'Diario')+' — '+(jRecEntry.title||jRecEntry.date||'Nueva entrada'),
+    onClose:jRecClose,
+    footer:/*#__PURE__*/React.createElement(React.Fragment,null,
+      !jRecActive&&jRecFinal&&!jRecSumRes&&!jRecSumLoad&&/*#__PURE__*/React.createElement('button',{className:'btn btn-primary',onClick:jRecGenSummary},'✨ Generar Resumen'),
+      jRecSumRes&&!jRecExtTasks&&/*#__PURE__*/React.createElement('button',{className:'btn btn-secondary',onClick:jRecExtractTasks},jRecSumLoad?'⏳':'✅ Extraer Tareas'),
+      jRecSumRes&&jRecEntry&&jRecEntry.id&&!jRecEntry.id.startsWith('form_')&&/*#__PURE__*/React.createElement('button',{className:'btn btn-secondary',onClick:jRecSaveEntry},'💾 Guardar en Entrada'),
+      jRecSumRes&&/*#__PURE__*/React.createElement('button',{className:'btn btn-secondary',onClick:function(){try{navigator.clipboard.writeText(jRecSumRes);}catch(e){}}},'📋 Copiar'),
+      /*#__PURE__*/React.createElement('button',{className:'btn btn-secondary',onClick:jRecClose},'Cerrar')
+    )
+  },/*#__PURE__*/React.createElement('div',{style:{padding:'4px 0'}},
+    jRecEntry.date&&/*#__PURE__*/React.createElement('div',{style:{fontSize:11,color:'var(--text-dim)',marginBottom:10}},jRecEntry.date+(jRecEntry.title&&jRecEntry.date?' · ':'')+((jRecEntry.title||'').slice(0,50))),
+    /*#__PURE__*/React.createElement('div',{style:{display:'flex',gap:8,alignItems:'center',marginBottom:10}},
+      !jRecActive
+        ?/*#__PURE__*/React.createElement('button',{className:'btn btn-primary',onClick:jRecStart},'\u25b6 Iniciar')
+        :/*#__PURE__*/React.createElement('button',{className:'btn btn-danger',onClick:jRecStop},'\u23f9 Detener'),
+      jRecActive&&/*#__PURE__*/React.createElement('span',{style:{fontSize:12,color:'#ef4444',fontWeight:700,display:'flex',alignItems:'center',gap:4}},
+        /*#__PURE__*/React.createElement('span',{style:{width:8,height:8,borderRadius:'50%',background:'#ef4444',display:'inline-block'}},''),
+        ' Grabando...'
+      ),
+      !jRecActive&&jRecFinal&&/*#__PURE__*/React.createElement('span',{style:{fontSize:11,color:'var(--text-dim)'}},jRecFinal.trim().split(' ').filter(function(w){return w.length>0;}).length+' palabras')
+    ),
+    /*#__PURE__*/React.createElement('div',{style:{background:'var(--surface)',border:'1px solid var(--border)',borderRadius:8,padding:'8px 10px',minHeight:70,maxHeight:160,overflowY:'auto',fontSize:12,lineHeight:1.6,marginBottom:10,whiteSpace:'pre-wrap'}},
+      jRecFinal||jRecInterim
+        ?/*#__PURE__*/React.createElement(React.Fragment,null,
+            /*#__PURE__*/React.createElement('span',null,jRecFinal),
+            jRecInterim&&/*#__PURE__*/React.createElement('span',{style:{color:'var(--text-dim)',fontStyle:'italic'}},jRecInterim)
+          )
+        :/*#__PURE__*/React.createElement('span',{style:{color:'var(--text-dim)',fontStyle:'italic'}},'Presiona \u25b6 Iniciar y comienza a hablar...')
+    ),
+    jRecSumLoad&&/*#__PURE__*/React.createElement('div',{style:{textAlign:'center',padding:'10px 0',color:'var(--purple-light)',fontSize:13}},'⏳ Generando resumen...'),
+    jRecSumRes&&/*#__PURE__*/React.createElement('div',{style:{background:'rgba(107,63,160,0.08)',border:'1px solid var(--purple-light)',borderRadius:10,padding:'10px 12px',fontSize:12,lineHeight:1.7,whiteSpace:'pre-wrap',maxHeight:200,overflowY:'auto',marginBottom:10}},
+      /*#__PURE__*/React.createElement('div',{style:{fontSize:12,fontWeight:700,color:'var(--purple-light)',marginBottom:6}},'📝 Resumen'),
+      /*#__PURE__*/React.createElement('span',null,jRecSumRes)
+    ),
+    jRecSumRes&&/*#__PURE__*/React.createElement('div',{style:{background:'var(--surface)',border:'1px solid var(--border)',borderRadius:8,padding:'8px 10px',marginBottom:10}},
+      /*#__PURE__*/React.createElement('div',{style:{fontSize:11,fontWeight:700,color:'var(--text)',marginBottom:8}},'🔗 Vincular resumen a...'),
+      /*#__PURE__*/React.createElement('div',{style:{display:'flex',gap:6,marginBottom:8,flexWrap:'wrap'}},
+        /*#__PURE__*/React.createElement('button',{className:'btn btn-sm '+(jRecLinkType==='task'?'btn-primary':'btn-secondary'),onClick:function(){setJRecLinkType(jRecLinkType==='task'?null:'task');setJRecLinkId('');}},jRecLinkType==='task'?'✅ Tarea':'📋 Tarea'),
+        /*#__PURE__*/React.createElement('button',{className:'btn btn-sm '+(jRecLinkType==='project'?'btn-primary':'btn-secondary'),onClick:function(){setJRecLinkType(jRecLinkType==='project'?null:'project');setJRecLinkId('');}},jRecLinkType==='project'?'✅ Proyecto':'📁 Proyecto')
+      ),
+      jRecLinkType&&/*#__PURE__*/React.createElement('div',{style:{display:'flex',gap:6}},
+        /*#__PURE__*/React.createElement('select',{value:jRecLinkId,onChange:function(ev){setJRecLinkId(ev.target.value);},style:{flex:1,fontSize:11,padding:'4px 6px',borderRadius:6,background:'var(--surface)',border:'1px solid var(--border)',color:'var(--text)'}},
+          /*#__PURE__*/React.createElement('option',{value:''},jRecLinkType==='task'?'— Seleccionar tarea —':'— Seleccionar proyecto —'),
+          jRecLinkType==='task'
+            ?(data.tasks||[]).filter(function(t){return t.status!=='DONE';}).map(function(t){return /*#__PURE__*/React.createElement('option',{key:t.id,value:t.id},t.title.slice(0,45));})
+            :(data.projects||[]).filter(function(p){return p.status!=='DONE';}).map(function(p){return /*#__PURE__*/React.createElement('option',{key:p.id,value:p.id},p.name.slice(0,45));})
+        ),
+        jRecLinkId&&/*#__PURE__*/React.createElement('button',{className:'btn btn-primary btn-sm',onClick:jRecDoLink},'Vincular')
+      )
+    ),
+    jRecExtTasks&&jRecExtTasks.length>0&&/*#__PURE__*/React.createElement('div',{style:{background:'rgba(107,63,160,0.05)',border:'1px solid var(--border)',borderRadius:8,padding:'8px 10px'}},
+      /*#__PURE__*/React.createElement('div',{style:{fontSize:11,fontWeight:700,color:'var(--purple-light)',marginBottom:6}},'✅ Tareas extra\u00eddas'),
+      jRecExtTasks.map(function(t,i){return /*#__PURE__*/React.createElement('div',{key:i,style:{display:'flex',alignItems:'center',gap:6,marginBottom:3}},
+        /*#__PURE__*/React.createElement('input',{type:'checkbox',checked:jRecExtSel.indexOf(i)!==-1,onChange:function(){setJRecExtSel(function(s){return s.indexOf(i)!==-1?s.filter(function(x){return x!==i;}):[].concat(s,[i]);});},style:{width:13,height:13,accentColor:'#9C68D6'}}),
+        /*#__PURE__*/React.createElement('span',{style:{fontSize:11}},t)
+      );}),
+      jRecExtSel.length>0&&/*#__PURE__*/React.createElement('button',{className:'btn btn-primary btn-sm',style:{marginTop:6,width:'100%'},
+        onClick:function(){var dd=tomorrowStr();var nT=jRecExtSel.map(function(i){return {id:uid(),title:jRecExtTasks[i],status:'INBOX',priority:'MEDIUM',dueDate:dd,createdAt:Date.now(),alarm:defaultTaskAlarm()};});setData(function(d){return Object.assign({},d,{tasks:(d.tasks||[]).concat(nT)});});setJRecExtSel([]);setJRecExtTasks(null);alert('\u2705 '+nT.length+' tarea'+(nT.length!==1?'s':'')+' a\u00f1adidas a Tasks');}
+      },'+ Agregar '+jRecExtSel.length+' tarea'+(jRecExtSel.length!==1?'s':'')+' a Tasks')
+    )
+  )),
   jInsRes&&/*#__PURE__*/React.createElement(Modal,{
     title:'🔮 Insights del Diario',
     onClose:function(){setJInsRes(null);},
@@ -6945,7 +7096,10 @@ var JournalScreen = function JournalScreen(_ref31) {
     }, "Save Entry"))
   }, /*#__PURE__*/React.createElement("div", {style:{marginBottom:14}},
     /*#__PURE__*/React.createElement("label", {style:{fontSize:12,color:'var(--text-dim)',display:'block',marginBottom:8}}, form.entryType === 'note' ? 'Entry type' : 'How are you feeling today?'),
-    /*#__PURE__*/React.createElement("div", {style:{display:"flex",gap:6,marginBottom:form.entryType==='note'?0:12}}, ["journal","note"].map(function(t){return /*#__PURE__*/React.createElement("div", {key:t, onClick:function(){setForm(_objectSpread(_objectSpread({},form),{},{entryType:t}));}, style:{flex:1,textAlign:"center",padding:"8px 0",borderRadius:10,cursor:"pointer",fontWeight:700,fontSize:13,background:form.entryType===t?"var(--purple)":"var(--surface)",color:form.entryType===t?"#fff":"var(--text-dim)",border:"1px solid "+(form.entryType===t?"var(--purple)":"var(--border)")}}, t==="journal"?"📓 Journal Entry":"📝 Note");}))), form.entryType !== "note" && /*#__PURE__*/React.createElement("div", {style:{marginBottom:14}}, /*#__PURE__*/React.createElement("label", {style:{fontSize:12,color:"var(--text-dim)",display:"block",marginBottom:8}}, "How are you feeling today?"), /*#__PURE__*/React.createElement("div", {className:"mood-row"}, moods.map(function(_ref36){var _ref37=_slicedToArray(_ref36,2),m=_ref37[0],e=_ref37[1];return /*#__PURE__*/React.createElement("div", {key:m,className:"mood-btn ".concat(mood===m?"active":""),onClick:function onClick(){return setMood(m);}},e);}))), /*#__PURE__*/React.createElement("div", {className:"form-group"}, /*#__PURE__*/React.createElement("label", null, "Entry Title"), /*#__PURE__*/React.createElement("input", {value:form.title,onChange:function onChange(e){return setForm(_objectSpread(_objectSpread({},form),{},{title:e.target.value}));},placeholder:"What's on your mind today?"})), /*#__PURE__*/React.createElement("div", {className:"form-group"}, /*#__PURE__*/React.createElement("label", null, form.entryType==="note"?"📝 Note":"How was your day? ✍️"), /*#__PURE__*/React.createElement(RichTextEditor, {value:form.content,onChange:function onChange(v){return setForm(_objectSpread(_objectSpread({},form),{},{content:v}));},placeholder:form.entryType==="note"?"Write your note…":"Write freely — use lists, checklists, bold text…",minHeight:form.entryType==="note"?200:130})), form.entryType !== "note" && /*#__PURE__*/React.createElement(React.Fragment, null, /*#__PURE__*/React.createElement("div", {className:"form-group"}, /*#__PURE__*/React.createElement("label", null, "🙏 Gratitude — 3 things you're grateful for"), /*#__PURE__*/React.createElement(RichTextEditor, {value:form.gratitude,onChange:function onChange(v){return setForm(_objectSpread(_objectSpread({},form),{},{gratitude:v}));},placeholder:"I'm grateful for…",minHeight:80})), /*#__PURE__*/React.createElement("div", {className:"form-group"}, /*#__PURE__*/React.createElement("label", null, "🏆 Today's Top Wins"), /*#__PURE__*/React.createElement(RichTextEditor, {value:form.topWins,onChange:function onChange(v){return setForm(_objectSpread(_objectSpread({},form),{},{topWins:v}));},placeholder:"What did you accomplish today?",minHeight:80})), /*#__PURE__*/React.createElement("div", {className:"form-group"}, /*#__PURE__*/React.createElement("label", null, "💪 Challenges Faced"), /*#__PURE__*/React.createElement(RichTextEditor, {value:form.challenges,onChange:function onChange(v){return setForm(_objectSpread(_objectSpread({},form),{},{challenges:v}));},placeholder:"What was difficult? How did you handle it?",minHeight:70})), /*#__PURE__*/React.createElement("div", {className:"form-group"}, /*#__PURE__*/React.createElement("label", null, "🎯 Tomorrow's Focus"), /*#__PURE__*/React.createElement("input", {value:form.tomorrowFocus,onChange:function onChange(e){return setForm(_objectSpread(_objectSpread({},form),{},{tomorrowFocus:e.target.value}));}})), /*#__PURE__*/React.createElement("div", {className:"form-group"}, /*#__PURE__*/React.createElement("label", null, "✨ Affirmations"), /*#__PURE__*/React.createElement("input", {value:form.affirmations,onChange:function onChange(e){return setForm(_objectSpread(_objectSpread({},form),{},{affirmations:e.target.value}));}}))), /*#__PURE__*/React.createElement("hr", {className:"divider"}), /*#__PURE__*/React.createElement(MediaAttachments, {
+    /*#__PURE__*/React.createElement("div", {style:{display:"flex",gap:6,marginBottom:form.entryType==='note'?0:12}}, ["journal","note"].map(function(t){return /*#__PURE__*/React.createElement("div", {key:t, onClick:function(){setForm(_objectSpread(_objectSpread({},form),{},{entryType:t}));}, style:{flex:1,textAlign:"center",padding:"8px 0",borderRadius:10,cursor:"pointer",fontWeight:700,fontSize:13,background:form.entryType===t?"var(--purple)":"var(--surface)",color:form.entryType===t?"#fff":"var(--text-dim)",border:"1px solid "+(form.entryType===t?"var(--purple)":"var(--border)")}}, t==="journal"?"📓 Journal Entry":"📝 Note");}))), form.entryType !== "note" && /*#__PURE__*/React.createElement("div", {style:{marginBottom:14}}, /*#__PURE__*/React.createElement("label", {style:{fontSize:12,color:"var(--text-dim)",display:"block",marginBottom:8}}, "How are you feeling today?"), /*#__PURE__*/React.createElement("div", {className:"mood-row"}, moods.map(function(_ref36){var _ref37=_slicedToArray(_ref36,2),m=_ref37[0],e=_ref37[1];return /*#__PURE__*/React.createElement("div", {key:m,className:"mood-btn ".concat(mood===m?"active":""),onClick:function onClick(){return setMood(m);}},e);}))), /*#__PURE__*/React.createElement("div", {className:"form-group"}, /*#__PURE__*/React.createElement("label", null, "Entry Title"), /*#__PURE__*/React.createElement("input", {value:form.title,onChange:function onChange(e){return setForm(_objectSpread(_objectSpread({},form),{},{title:e.target.value}));},placeholder:"What's on your mind today?"})), /*#__PURE__*/React.createElement("div", {className:"form-group"}, /*#__PURE__*/React.createElement("label", null, form.entryType==="note"?"📝 Note":"How was your day? ✍️"), /*#__PURE__*/React.createElement(RichTextEditor, {value:form.content,onChange:function onChange(v){return setForm(_objectSpread(_objectSpread({},form),{},{content:v}));},placeholder:form.entryType==="note"?"Write your note…":"Write freely — use lists, checklists, bold text…",minHeight:form.entryType==="note"?200:130})), form.entryType !== "note" && /*#__PURE__*/React.createElement(React.Fragment, null, /*#__PURE__*/React.createElement("div", {className:"form-group"}, /*#__PURE__*/React.createElement("label", null, "🙏 Gratitude — 3 things you're grateful for"), /*#__PURE__*/React.createElement(RichTextEditor, {value:form.gratitude,onChange:function onChange(v){return setForm(_objectSpread(_objectSpread({},form),{},{gratitude:v}));},placeholder:"I'm grateful for…",minHeight:80})), /*#__PURE__*/React.createElement("div", {className:"form-group"}, /*#__PURE__*/React.createElement("label", null, "🏆 Today's Top Wins"), /*#__PURE__*/React.createElement(RichTextEditor, {value:form.topWins,onChange:function onChange(v){return setForm(_objectSpread(_objectSpread({},form),{},{topWins:v}));},placeholder:"What did you accomplish today?",minHeight:80})), /*#__PURE__*/React.createElement("div", {className:"form-group"}, /*#__PURE__*/React.createElement("label", null, "💪 Challenges Faced"), /*#__PURE__*/React.createElement(RichTextEditor, {value:form.challenges,onChange:function onChange(v){return setForm(_objectSpread(_objectSpread({},form),{},{challenges:v}));},placeholder:"What was difficult? How did you handle it?",minHeight:70})), /*#__PURE__*/React.createElement("div", {className:"form-group"}, /*#__PURE__*/React.createElement("label", null, "🎯 Tomorrow's Focus"), /*#__PURE__*/React.createElement("input", {value:form.tomorrowFocus,onChange:function onChange(e){return setForm(_objectSpread(_objectSpread({},form),{},{tomorrowFocus:e.target.value}));}})), /*#__PURE__*/React.createElement("div", {className:"form-group"}, /*#__PURE__*/React.createElement("label", null, "✨ Affirmations"), /*#__PURE__*/React.createElement("input", {value:form.affirmations,onChange:function onChange(e){return setForm(_objectSpread(_objectSpread({},form),{},{affirmations:e.target.value}));}}))), /*#__PURE__*/React.createElement("hr", {className:"divider"}), /*#__PURE__*/React.createElement('div',{style:{marginBottom:8}},
+    /*#__PURE__*/React.createElement('button',{className:'btn btn-secondary btn-sm',style:{fontSize:10,width:'100%'},onClick:function(){jRecOpen(editEntry?editEntry:Object.assign({},form,{id:'form_'+Date.now()},{}));}},'🎙️ Grabar '+(form.entryType==='note'?'Nota':'Diario'))
+  ),
+  /*#__PURE__*/React.createElement(MediaAttachments, {
     attachments: form.attachments,
     onChange: function onChange(a) {
       return setForm(_objectSpread(_objectSpread({}, form), {}, {
