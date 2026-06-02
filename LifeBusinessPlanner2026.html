@@ -22,7 +22,7 @@
 <script>
 (function() {
   // ── Version ──────────────────────────────────────────────────────────────
-  window.LBP_VERSION = '4.52';
+  window.LBP_VERSION = '4.54';
 
   // ── PWA Install prompt ───────────────────────────────────────────────────
   window._installPrompt = null;
@@ -50,7 +50,7 @@
 
   // ── Google Calendar Sync ──
   window.LBP_GCAL_CLIENT_ID = '993727258805-si855uvstk539r0qevfronjr5u4p1mgh.apps.googleusercontent.com';
-  window.LBP_GCAL_SCOPE = 'https://www.googleapis.com/auth/calendar';
+  window.LBP_GCAL_SCOPE = 'https://www.googleapis.com/auth/calendar https://www.googleapis.com/auth/gmail.readonly';
   window._gcalToken = null;
   window._gcalTokenExpiry = 0;
   window._gcalTokenClient = null;
@@ -189,6 +189,53 @@
           });
           window.dispatchEvent(new Event('lbp_gcal_pulled'));
         }).catch(function(){});
+    });
+  };
+
+  // ── Gmail search for Meeting Prep ──────────────────────────────────────
+  // Searches Gmail for emails related to a meeting/client and returns snippets
+  // Requires gmail.readonly scope (included in LBP_GCAL_SCOPE above)
+  window._gmailSearchMeeting = function(clientName, meetingTitle, callback) {
+    window._gcalEnsureToken(function(token) {
+      if (!token) { callback(null); return; }
+      // Build search query: client name + meeting keywords, last 90 days
+      var keywords = [];
+      if (clientName) keywords.push(clientName.split(' ')[0]); // first name/word
+      if (meetingTitle) {
+        meetingTitle.split(/\s+/).slice(0, 3).forEach(function(w) {
+          if (w.length > 3) keywords.push(w);
+        });
+      }
+      if (!keywords.length) { callback(null); return; }
+      var q = keywords.join(' OR ') + ' newer_than:90d';
+      var listUrl = 'https://www.googleapis.com/gmail/v1/users/me/messages?maxResults=6&q=' + encodeURIComponent(q);
+      fetch(listUrl, { headers: { 'Authorization': 'Bearer ' + token } })
+        .then(function(r) { return r.ok ? r.json() : null; })
+        .then(function(data) {
+          if (!data || !data.messages || !data.messages.length) { callback(null); return; }
+          // Fetch metadata for each message (subject, from, snippet)
+          var ids = data.messages.slice(0, 5).map(function(m) { return m.id; });
+          return Promise.all(ids.map(function(id) {
+            return fetch('https://www.googleapis.com/gmail/v1/users/me/messages/' + id + '?format=metadata&metadataHeaders=Subject&metadataHeaders=From&metadataHeaders=Date', {
+              headers: { 'Authorization': 'Bearer ' + token }
+            }).then(function(r) { return r.ok ? r.json() : null; });
+          }));
+        })
+        .then(function(messages) {
+          if (!messages) { callback(null); return; }
+          var result = messages.filter(Boolean).map(function(msg) {
+            var headers = (msg.payload && msg.payload.headers) || [];
+            var getH = function(name) { return (headers.find(function(h){return h.name===name;})||{}).value||''; };
+            return {
+              subject: getH('Subject'),
+              from: getH('From'),
+              date: getH('Date'),
+              snippet: msg.snippet || ''
+            };
+          }).filter(function(m) { return m.subject; });
+          callback(result.length ? result : null);
+        })
+        .catch(function() { callback(null); });
     });
   };
 
@@ -2875,6 +2922,8 @@ var HomeScreen = function HomeScreen(_ref14) {
   var _useStateHAI = useState(null), _useStateHAI2 = _slicedToArray(_useStateHAI, 2), alarmEditItem = _useStateHAI2[0], setAlarmEditItem = _useStateHAI2[1];
   var _useStateHAT = useState('tasks'), _useStateHAT2 = _slicedToArray(_useStateHAT, 2), alarmEditType = _useStateHAT2[0], setAlarmEditType = _useStateHAT2[1];
   var _useStateHAF = useState(defaultAlarm()), _useStateHAF2 = _slicedToArray(_useStateHAF, 2), alarmForm = _useStateHAF2[0], setAlarmForm = _useStateHAF2[1];
+  var _hwAI1=useState(false),_hwAI2=_slicedToArray(_hwAI1,2),hwLoad=_hwAI2[0],setHwLoad=_hwAI2[1];
+  var _hwAI3=useState(null),_hwAI4=_slicedToArray(_hwAI3,2),hwResult=_hwAI4[0],setHwResult=_hwAI4[1];
   var _useStateSAP = useState(false), _useStateSAP2 = _slicedToArray(_useStateSAP, 2), showAllPriorities = _useStateSAP2[0], setShowAllPriorities = _useStateSAP2[1];
   var _swipe = useRef({ x: null, y: null, did: false });
   // Combined priority list: due today first, then remaining active tasks
@@ -3071,7 +3120,15 @@ var HomeScreen = function HomeScreen(_ref14) {
       className: "btn btn-secondary btn-sm",
       style:{fontSize:10,padding:'2px 8px'},
       onClick: function onClick() { return navigate('tasks'); }
-    }, "Go to Tasks")
+    }, "Go to Tasks"),
+    /*#__PURE__*/React.createElement("button",{className:"btn btn-secondary btn-sm",style:{fontSize:10,padding:'2px 8px'},disabled:hwLoad,
+      onClick:function(){if(!window.LBP_WORKER_URL)return;setHwLoad(true);setHwResult(null);
+        var d=new Date();var wt=(data.tasks||[]).filter(function(t){if(t.status==='DONE')return false;if(!t.dueDate)return true;var diff=(new Date(t.dueDate)-d)/86400000;return diff>=-1&&diff<=7;}).slice(0,20);
+        var wm=(data.meetings||[]).filter(function(m){if(!m.date)return false;var diff=(new Date(m.date)-d)/86400000;return diff>=-1&&diff<=7;});
+        var content='Tareas:\n'+wt.map(function(t){return '- '+t.title+(t.dueDate?' (vence:'+t.dueDate+')':'')+(t.priority?' ['+t.priority+']':'');}).join('\n')+(wm.length?'\n\nReuniones:\n'+wm.map(function(m){return '- '+m.title+' '+m.date;}).join('\n'):'');
+        fetch(window.LBP_WORKER_URL+'/chat',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({messages:[{role:'user',content:content}],systemPrompt:'Coach de productividad. Plan semanal concreto 5 días. Cada día máx 3 tareas con tiempo estimado. Prioriza por urgencia. Consejo final. Formato: Lunes:\n- tarea (Xh)'})}).then(function(r){return r.json();}).then(function(res){setHwLoad(false);setHwResult(res.content||('Error'));}).catch(function(){setHwLoad(false);setHwResult('Error de red');});
+      }
+    },hwLoad?'\u23F3 Generando...':'\uD83D\uDDD3\uFE0F Plan Semana')
   )), priorityTasks.length === 0 ? /*#__PURE__*/React.createElement("div", {
     style: {
       color: 'var(--text-dim)',
@@ -3140,7 +3197,14 @@ var HomeScreen = function HomeScreen(_ref14) {
     _prioLabel && /*#__PURE__*/React.createElement(Chip, {label: _prioLabel, color: _prioColor}),
     ((_t$alarm = t.alarm) === null || _t$alarm === void 0 ? void 0 : _t$alarm.enabled) && /*#__PURE__*/React.createElement("span", {style: {fontSize: 14}, title: "Alarm set"}, "\uD83D\uDD14"),
     t.dueDate && !isDueToday && /*#__PURE__*/React.createElement("span", {style:{fontSize:11,color:'var(--text-dim)',flexShrink:0}}, t.dueDate));
-  }), /*#__PURE__*/React.createElement("div", {
+  }), hwResult && /*#__PURE__*/React.createElement("div", {style:{background:"rgba(107,63,160,0.08)",border:"1px solid var(--purple-light)",borderRadius:12,padding:"12px 14px",marginBottom:16}},
+    /*#__PURE__*/React.createElement("div",{style:{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:8}},
+      /*#__PURE__*/React.createElement("span",{style:{fontSize:13,fontWeight:700,color:"var(--purple-light)"}},"\uD83D\uDDD3\uFE0F Plan de la semana"),
+      /*#__PURE__*/React.createElement("button",{onClick:function(){setHwResult(null);},style:{background:"none",border:"none",color:"var(--text-dim)",cursor:"pointer",fontSize:16}},'\xd7')
+    ),
+    /*#__PURE__*/React.createElement("div",{style:{fontSize:12,lineHeight:1.7,whiteSpace:"pre-wrap",color:"var(--text)"}},hwResult)
+  ),
+  /*#__PURE__*/React.createElement("div", {
     className: "section-title mt-8"
   }, "Active Project Board \uD83D\uDCCB", /*#__PURE__*/React.createElement("button", {
     className: "btn btn-secondary btn-sm",
@@ -3770,6 +3834,9 @@ var ProjectsScreen = function ProjectsScreen(_ref20) {
   var data = _ref20.data,
     setData = _ref20.setData,
     navigate = _ref20.navigate;
+  var _prRpt1=useState(false),_prRpt2=_slicedToArray(_prRpt1,2),prRptLoad=_prRpt2[0],setPrRptLoad=_prRpt2[1];
+  var _prRpt3=useState(null),_prRpt4=_slicedToArray(_prRpt3,2),prRptRes=_prRpt4[0],setPrRptRes=_prRpt4[1];
+  var _prRpt5=useState(null),_prRpt6=_slicedToArray(_prRpt5,2),prRptProject=_prRpt6[0],setPrRptProject=_prRpt6[1];
   var _useState27 = useState('All'),
     _useState28 = _slicedToArray(_useState27, 2),
     tab = _useState28[0],
@@ -4052,7 +4119,13 @@ var ProjectsScreen = function ProjectsScreen(_ref20) {
     }, /*#__PURE__*/React.createElement(Chip, {
       label: p.status.replace('_', ' '),
       color: c
-    }), /*#__PURE__*/React.createElement("button", {
+    }), /*#__PURE__*/React.createElement("button",{className:"btn btn-secondary btn-sm",style:{fontSize:10},title:"Status Report",
+      onClick:function(e){e.stopPropagation();if(!window.LBP_WORKER_URL)return;setPrRptProject(p);setPrRptRes(null);setPrRptLoad(true);
+        var sts=p.subtasks||[];var done=sts.filter(function(s){return s.done;}).length;
+        var content='Proyecto: '+p.name+(p.type?'\nTipo: '+p.type:'')+(p.status?'\nEstado: '+p.status:'')+(p.dueDate?'\nFecha límite: '+p.dueDate:'')+(p.description?'\nDescripción: '+p.description.replace(/<[^>]+>/g,'')+'':'')+(sts.length?'\nSubtareas: '+done+'/'+sts.length+' completadas\nDetalle: '+sts.map(function(s){return (s.done?'[x]':'[ ]')+ ' '+s.title;}).join(', '):'');
+        fetch(window.LBP_WORKER_URL+'/chat',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({messages:[{role:'user',content:content}],systemPrompt:'Genera un reporte de estado ejecutivo del proyecto con: 1) Estado actual y progreso %, 2) Logros recientes, 3) Próximos pasos, 4) Riesgos o bloqueos, 5) Recomendación. Máx 200 palabras. Listo para compartir con cliente.'})}).then(function(r){return r.json();}).then(function(res){setPrRptLoad(false);setPrRptRes(res.content||('Error'));}).catch(function(){setPrRptLoad(false);setPrRptRes('Error de red');});
+      }
+    },prRptLoad&&prRptProject&&prRptProject.id===p.id?'⏳':'📊'), ' ', /*#__PURE__*/React.createElement("button", {
       className: "btn-edit",
       onClick: function onClick(e) {
         e.stopPropagation();
@@ -4244,6 +4317,14 @@ var ProjectsScreen = function ProjectsScreen(_ref20) {
     },
     label: form.name || 'Project'
   }), editItem && editItem.id && /*#__PURE__*/React.createElement(JournalLinksSection, {data:data,setData:setData,itemType:'project',itemId:editItem.id})),
+  prRptProject&&prRptRes&&/*#__PURE__*/React.createElement(Modal,{
+    title:'📊 Reporte — '+(prRptProject.name||'Project'),
+    onClose:function(){setPrRptProject(null);setPrRptRes(null);},
+    footer:/*#__PURE__*/React.createElement(React.Fragment,null,
+      /*#__PURE__*/React.createElement('button',{className:'btn btn-secondary',onClick:function(){try{navigator.clipboard.writeText(prRptRes);}catch(e){}}},'📋 Copiar'),
+      /*#__PURE__*/React.createElement('button',{className:'btn btn-secondary',onClick:function(){setPrRptProject(null);setPrRptRes(null);}},'Cerrar')
+    )
+  },/*#__PURE__*/React.createElement('div',{style:{padding:'8px 0',whiteSpace:'pre-wrap',fontSize:13,lineHeight:1.7}},prRptRes)),
   viewLinkedTask && /*#__PURE__*/React.createElement(Modal, {
     title: viewLinkedTask.title || 'Task',
     onClose: function onClose() { return setViewLinkedTask(null); },
@@ -4357,6 +4438,9 @@ var TasksScreen = function TasksScreen(_ref21) {
   var _useTAI3=useState(null),_useTAI4=_slicedToArray(_useTAI3,2),tAiMsg=_useTAI4[0],setTAiMsg=_useTAI4[1];
   var _useTAI5=useState(false),_useTAI6=_slicedToArray(_useTAI5,2),tAiPrioritizing=_useTAI6[0],setTAiPrioritizing=_useTAI6[1];
   var _useTAI7=useState(null),_useTAI8=_slicedToArray(_useTAI7,2),tAiPriorityResult=_useTAI8[0],setTAiPriorityResult=_useTAI8[1];
+  var _tBrk1=useState(false),_tBrk2=_slicedToArray(_tBrk1,2),tBrkLoad=_tBrk2[0],setTBrkLoad=_tBrk2[1];
+  var _tBrk3=useState(null),_tBrk4=_slicedToArray(_tBrk3,2),tBrkTasks=_tBrk4[0],setTBrkTasks=_tBrk4[1];
+  var _tBrk5=useState([]),_tBrk6=_slicedToArray(_tBrk5,2),tBrkSel=_tBrk6[0],setTBrkSel=_tBrk6[1];
   var _useState39 = useState(_defaultTaskForm()),
     _useState40 = _slicedToArray(_useState39, 2),
     form = _useState40[0],
@@ -4780,6 +4864,29 @@ tAiMsg && /*#__PURE__*/React.createElement('div',{style:{background:'rgba(107,63
   /*#__PURE__*/React.createElement('span',null,tAiMsg),
   /*#__PURE__*/React.createElement('button',{onClick:function(){setTAiMsg(null);},style:{background:'none',border:'none',color:'var(--text-dim)',cursor:'pointer',fontSize:14,lineHeight:1,marginLeft:'auto',flexShrink:0,padding:'0 2px'}},'\xd7')
 ),
+/*#__PURE__*/React.createElement('div',{style:{display:'flex',justifyContent:'flex-end',marginBottom:4}},
+  /*#__PURE__*/React.createElement('button',{className:'btn btn-secondary btn-sm',style:{fontSize:10},
+    disabled:tBrkLoad||!form.title,
+    onClick:function(){if(!window.LBP_WORKER_URL||!form.title)return;setTBrkLoad(true);setTBrkTasks(null);setTBrkSel([]);
+      var c='Tarea: '+form.title+(form.description?'\nDescripción: '+form.description:'');
+      fetch(window.LBP_WORKER_URL+'/chat',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({messages:[{role:'user',content:c}],systemPrompt:'Divide esta tarea en 3-6 subtareas específicas y accionables. Responde SOLO con un JSON array de strings. Ejemplo: ["Investigar opciones","Crear borrador","Revisar con equipo"]. Usa el mismo idioma que la tarea.'})})
+      .then(function(r){return r.json();}).then(function(res){setTBrkLoad(false);try{var t=res.content||'';var m=t.match(/\[[\s\S]*?\]/);if(m){var a=JSON.parse(m[0]);setTBrkTasks(a);setTBrkSel(a.map(function(_,i){return i;}));}else{setTBrkTasks([]);}}catch(e){setTBrkTasks([]);}}).catch(function(){setTBrkLoad(false);setTBrkTasks([]);});
+    }
+  },tBrkLoad?'⏳ Dividiendo...':'🔀 Dividir en subtareas')
+),
+tBrkTasks&&tBrkTasks.length>0&&/*#__PURE__*/React.createElement('div',{style:{background:'rgba(107,63,160,0.08)',border:'1px solid var(--purple-light)',borderRadius:10,padding:'10px 12px',marginBottom:8}},
+  /*#__PURE__*/React.createElement('div',{style:{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:8}},
+    /*#__PURE__*/React.createElement('span',{style:{fontSize:12,fontWeight:700,color:'var(--purple-light)'}},'🔀 Subtareas sugeridas'),
+    /*#__PURE__*/React.createElement('button',{onClick:function(){setTBrkTasks(null);},style:{background:'none',border:'none',color:'var(--text-dim)',cursor:'pointer',fontSize:14}},'×')
+  ),
+  tBrkTasks.map(function(t,i){return /*#__PURE__*/React.createElement('div',{key:i,style:{display:'flex',alignItems:'center',gap:6,marginBottom:4}},
+    /*#__PURE__*/React.createElement('input',{type:'checkbox',checked:tBrkSel.indexOf(i)!==-1,onChange:function(){setTBrkSel(function(s){return s.indexOf(i)!==-1?s.filter(function(x){return x!==i;}):[].concat(s,[i]);});},style:{width:14,height:14,accentColor:'#9C68D6',flexShrink:0}}),
+    /*#__PURE__*/React.createElement('span',{style:{fontSize:12}},t)
+  );}),
+  /*#__PURE__*/React.createElement('button',{className:'btn btn-primary btn-sm',style:{marginTop:8,width:'100%'},disabled:tBrkSel.length===0,
+    onClick:function(){var dd=tomorrowStr();var newT=tBrkSel.map(function(i){return {id:uid(),title:tBrkTasks[i],status:'INBOX',priority:form.priority||'MEDIUM',dueDate:dd,projectId:form.projectId||'',clientId:form.clientId||'',createdAt:Date.now(),alarm:defaultTaskAlarm()};});setData(function(d){return Object.assign({},d,{tasks:(d.tasks||[]).concat(newT)});});setTBrkTasks(null);setTBrkSel([]);}
+  },'✅ Agregar '+tBrkSel.length+' tarea'+(tBrkSel.length!==1?'s':''))
+),
 /*#__PURE__*/React.createElement(CategoryTagInput,{category:form.category||'',tags:Array.isArray(form.tags)?form.tags:[],allCategories:(data.categories||['Personal','Work','Home','Health','Finance','Learning','Creative']),onChange:function(c,t){setForm(function(f){return Object.assign({},f,{category:c,tags:t});});},onAddCategory:function(v){setData(function(d){return Object.assign({},d,{categories:(d.categories||[]).concat([v])});});}}), /*#__PURE__*/React.createElement(AlarmPanel, {
     alarm: form.alarm,
     onChange: function onChange(a) {
@@ -4821,6 +4928,9 @@ var ClientsScreen = function ClientsScreen(_ref24) {
     _useState46 = _slicedToArray(_useState45, 2),
     search = _useState46[0],
     setSearch = _useState46[1];
+  var _clBr1=useState(false),_clBr2=_slicedToArray(_clBr1,2),clBrLoad=_clBr2[0],setClBrLoad=_clBr2[1];
+  var _clBr3=useState(null),_clBr4=_slicedToArray(_clBr3,2),clBrRes=_clBr4[0],setClBrRes=_clBr4[1];
+  var _clBr5=useState(null),_clBr6=_slicedToArray(_clBr5,2),clBrClient=_clBr6[0],setClBrClient=_clBr6[1];
   var _useState47 = useState({
       name: '',
       businessName: '',
@@ -5041,8 +5151,25 @@ var ClientsScreen = function ClientsScreen(_ref24) {
     }, "\u270F\uFE0F"), " ", /*#__PURE__*/React.createElement("button", {
       className: "btn btn-danger btn-sm",
       onClick: function onClick(e) { e.stopPropagation(); del(c.id); }
-    }, "Delete")));
-  })), modal && /*#__PURE__*/React.createElement(Modal, {
+    }, "Delete"),
+    /*#__PURE__*/React.createElement("button",{className:"btn btn-secondary btn-sm",style:{fontSize:10,marginTop:4,width:'100%'},
+      onClick:function(e){e.stopPropagation();if(!window.LBP_WORKER_URL)return;setClBrClient(c);setClBrRes(null);setClBrLoad(true);
+        var pjs=(data.projects||[]).filter(function(p){return p.clientId===c.id;}).map(function(p){return p.name+' ('+p.status+')';});
+        var tks=(data.tasks||[]).filter(function(t){return t.clientId===c.id&&t.status!=='DONE';}).map(function(t){return t.title;});
+        var content='Cliente: '+c.name+(c.businessName?'\nEmpresa: '+c.businessName:'')+(c.status?'\nEstado: '+c.status:'')+(pjs.length?'\nProyectos: '+pjs.join(', '):'')+(tks.length?'\nTareas pendientes: '+tks.slice(0,5).join(', '):'')+(c.notes?'\nNotas: '+c.notes:'');
+        fetch(window.LBP_WORKER_URL+'/chat',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({messages:[{role:'user',content:content}],systemPrompt:'Genera un brief ejecutivo del cliente con 5 secciones: 1) Resumen, 2) Proyectos activos, 3) Tareas pendientes, 4) Oportunidades, 5) Próximos pasos. Sé concreto.'})}).then(function(r){return r.json();}).then(function(res){setClBrLoad(false);setClBrRes(res.content||('Error'));}).catch(function(){setClBrLoad(false);setClBrRes('Error de red');});
+      }
+    },clBrLoad&&clBrClient&&clBrClient.id===c.id?'⏳...':'🤖 AI Brief')
+  ));
+  })), clBrClient&&clBrRes&&/*#__PURE__*/React.createElement(Modal,{
+    title:'🤖 Brief — '+(clBrClient.name||'Client'),
+    onClose:function(){setClBrClient(null);setClBrRes(null);},
+    footer:/*#__PURE__*/React.createElement(React.Fragment,null,
+      /*#__PURE__*/React.createElement('button',{className:'btn btn-secondary',onClick:function(){try{navigator.clipboard.writeText(clBrRes);}catch(e){}}},'📋 Copiar'),
+      /*#__PURE__*/React.createElement('button',{className:'btn btn-secondary',onClick:function(){setClBrClient(null);setClBrRes(null);}},'Cerrar')
+    )
+  },/*#__PURE__*/React.createElement('div',{style:{padding:'8px 0',whiteSpace:'pre-wrap',fontSize:13,lineHeight:1.7}},clBrRes)),
+  modal && /*#__PURE__*/React.createElement(Modal, {
     title: "New Client",
     onClose: function onClose() {
       setModal(false); setEditItem(null);
@@ -5158,6 +5285,10 @@ var FinanceScreen = function FinanceScreen(_ref25) {
     _useState56 = _slicedToArray(_useState55, 2),
     form = _useState56[0],
     setForm = _useState56[1];
+  var _fnAI1=useState(false),_fnAI2=_slicedToArray(_fnAI1,2),fnAiLoad=_fnAI2[0],setFnAiLoad=_fnAI2[1];
+  var _fnAI3=useState(null),_fnAI4=_slicedToArray(_fnAI3,2),fnAiMsg=_fnAI4[0],setFnAiMsg=_fnAI4[1];
+  var _fnSum1=useState(false),_fnSum2=_slicedToArray(_fnSum1,2),fnSumLoad=_fnSum2[0],setFnSumLoad=_fnSum2[1];
+  var _fnSum3=useState(null),_fnSum4=_slicedToArray(_fnSum3,2),fnSumRes=_fnSum4[0],setFnSumRes=_fnSum4[1];
   var _useState57 = useState(null),
     _useState58 = _slicedToArray(_useState57, 2),
     editItem = _useState58[0],
@@ -5241,7 +5372,22 @@ var FinanceScreen = function FinanceScreen(_ref25) {
   };
   return /*#__PURE__*/React.createElement("div", null, /*#__PURE__*/React.createElement("div", {
     className: "page-header"
-  }, /*#__PURE__*/React.createElement("h1", null, "\uD83D\uDCB0 Financial Overview"), /*#__PURE__*/React.createElement("button", {
+  }, /*#__PURE__*/React.createElement("h1", null, "\uD83D\uDCB0 Financial Overview"),
+  /*#__PURE__*/React.createElement("div",{style:{display:'flex',gap:6}},
+    /*#__PURE__*/React.createElement("button",{className:"btn btn-secondary btn-sm",style:{fontSize:10},disabled:fnSumLoad,
+      onClick:function(){if(!window.LBP_WORKER_URL)return;setFnSumLoad(true);setFnSumRes(null);
+        var d=new Date();var mo=d.getMonth()+1;var yr=d.getFullYear();
+        var moStr=yr+'-'+String(mo).padStart(2,'0');
+        var txs=(data.transactions||[]).filter(function(t){return t.date&&t.date.startsWith(moStr);});
+        var inc=txs.filter(function(t){return t.type==='INCOME';}).reduce(function(s,t){return s+Number(t.amount||0);},0);
+        var exp=txs.filter(function(t){return t.type==='EXPENSE';}).reduce(function(s,t){return s+Number(t.amount||0);},0);
+        var byCat={};
+        txs.forEach(function(t){if(!byCat[t.category||'Sin categoría'])byCat[t.category||'Sin categoría']={inc:0,exp:0};if(t.type==='INCOME')byCat[t.category||'Sin categoría'].inc+=Number(t.amount||0);else byCat[t.category||'Sin categoría'].exp+=Number(t.amount||0);});
+        var content='Mes: '+moStr+'\nTotal ingresos: $'+inc.toFixed(2)+'\nTotal gastos: $'+exp.toFixed(2)+'\nBalance: $'+(inc-exp).toFixed(2)+'\n\nPor categoría:\n'+Object.entries(byCat).map(function(e){return e[0]+': ingreso $'+e[1].inc.toFixed(2)+' gasto $'+e[1].exp.toFixed(2);}).join('\n')+(txs.length?'\n\nTransacciones ('+txs.length+'): '+txs.slice(0,10).map(function(t){return t.title+' $'+t.amount+' '+t.type;}).join(', '):'');
+        fetch(window.LBP_WORKER_URL+'/chat',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({messages:[{role:'user',content:content}],systemPrompt:'Analiza estas finanzas del mes y genera un resumen ejecutivo con: 1) Estado financiero del mes, 2) Principales categorías de gasto, 3) Comparación ingreso vs gasto, 4) Alertas o gastos inusuales, 5) Recomendación financiera concreta. Sé práctico.'})}).then(function(r){return r.json();}).then(function(res){setFnSumLoad(false);setFnSumRes(res.content||('Error'));}).catch(function(){setFnSumLoad(false);setFnSumRes('Error de red');});
+      }
+    },fnSumLoad?'⏳ Analizando...':'📊 Resumen IA'),
+    /*#__PURE__*/React.createElement("button", {
     className: "btn btn-primary btn-sm",
     onClick: function onClick() { setEditItem(null); setForm({title:'',amount:'',type:'INCOME',category:'',invoiceNumber:'',isPaid:false,notes:'',date:today(),establishment:'',attachments:[]}); setModal(true); }
   }, "+ Add")), /*#__PURE__*/React.createElement("div", {
@@ -5417,7 +5563,15 @@ var FinanceScreen = function FinanceScreen(_ref25) {
       className: "btn btn-danger btn-sm btn-icon",
       onClick: function onClick(e) { e.stopPropagation(); del(t.id); }
     }, "\xD7"));
-  })), modal && /*#__PURE__*/React.createElement(Modal, {
+  })), fnSumRes&&/*#__PURE__*/React.createElement(Modal,{
+    title:'📊 Resumen Financiero — '+new Date().toLocaleString('es',{month:'long',year:'numeric'}),
+    onClose:function(){setFnSumRes(null);},
+    footer:/*#__PURE__*/React.createElement(React.Fragment,null,
+      /*#__PURE__*/React.createElement('button',{className:'btn btn-secondary',onClick:function(){try{navigator.clipboard.writeText(fnSumRes);}catch(e){}}},'📋 Copiar'),
+      /*#__PURE__*/React.createElement('button',{className:'btn btn-secondary',onClick:function(){setFnSumRes(null);}},'Cerrar')
+    )
+  },/*#__PURE__*/React.createElement('div',{style:{padding:'8px 0',whiteSpace:'pre-wrap',fontSize:13,lineHeight:1.7}},fnSumRes)),
+  modal && /*#__PURE__*/React.createElement(Modal, {
     title: editItem ? "Edit Transaction" : "Add Transaction",
     onClose: function onClose() {
       setModal(false); setEditItem(null);
@@ -5477,7 +5631,17 @@ var FinanceScreen = function FinanceScreen(_ref25) {
       }));
     },
     placeholder: "Salary, Freelance, Rent\u2026"
-  })), /*#__PURE__*/React.createElement("div", {
+  })),
+  /*#__PURE__*/React.createElement('div',{style:{display:'flex',gap:6,marginBottom:4}},
+    /*#__PURE__*/React.createElement('button',{className:'btn btn-secondary btn-sm',style:{fontSize:10},disabled:fnAiLoad||!form.title,
+      onClick:function(){if(!window.LBP_WORKER_URL||!form.title)return;setFnAiLoad(true);setFnAiMsg(null);
+        var c='Transacción: '+form.title+'\nMonto: '+form.amount+' '+form.type+(form.establishment?'\nEstablecimiento: '+form.establishment:'');
+        fetch(window.LBP_WORKER_URL+'/chat',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({messages:[{role:'user',content:c}],systemPrompt:'Sugiere categoría contable para esta transacción. Responde SOLO con JSON: {"category":"Nombre"}. Ejemplos: Ventas, Servicios, Alquiler, Transporte, Alimentación, Marketing, Tecnología, Salarios, Suministros, Utilities, Impuestos.'})}).then(function(r){return r.json();}).then(function(res){setFnAiLoad(false);try{var t=res.content||'';var start=t.indexOf('{');var end=t.lastIndexOf('}')+1;if(start>=0&&end>start){var obj=JSON.parse(t.slice(start,end));if(obj.category){setForm(function(f){return Object.assign({},f,{category:obj.category});});setFnAiMsg('\u2728 '+obj.category);}}else{setFnAiMsg('Sin sugerencia');}}catch(e){setFnAiMsg('Error');}}).catch(function(){setFnAiLoad(false);setFnAiMsg('Error de red');});
+      }
+    },fnAiLoad?'⏳...':'\u2728 AI Categ.'),
+    fnAiMsg&&/*#__PURE__*/React.createElement('span',{style:{fontSize:11,color:'var(--purple-light)',alignSelf:'center'}},fnAiMsg)
+  ),
+  /*#__PURE__*/React.createElement("div", {
     style: {display:'grid', gridTemplateColumns:'1fr 1fr', gap:8}
   }, /*#__PURE__*/React.createElement("div", {className:"form-group"}, /*#__PURE__*/React.createElement("label", null, "Date"), /*#__PURE__*/React.createElement("input", {
     type: "date",
@@ -5584,6 +5748,12 @@ var MeetingsScreen = function MeetingsScreen(_ref26) {
   var _useStateMAI = useState(null), _useStateMAI2 = _slicedToArray(_useStateMAI,2), mAlarmItem = _useStateMAI2[0], setMAlarmItem = _useStateMAI2[1];
   var _useStateMAF = useState(defaultAlarm()), _useStateMAF2 = _slicedToArray(_useStateMAF,2), mAlarmForm = _useStateMAF2[0], setMAlarmForm = _useStateMAF2[1];
   var _useStateMHL = useState(null), _useStateMHLA = _slicedToArray(_useStateMHL, 2), mHighlight = _useStateMHLA[0], setMHighlight = _useStateMHLA[1];
+  var _meAI1=useState(false),_meAI2=_slicedToArray(_meAI1,2),meAiLoad=_meAI2[0],setMeAiLoad=_meAI2[1];
+  var _meAI3=useState(null),_meAI4=_slicedToArray(_meAI3,2),meAiTasks=_meAI4[0],setMeAiTasks=_meAI4[1];
+  var _meAI5=useState([]),_meAI6=_slicedToArray(_meAI5,2),meAiSel=_meAI6[0],setMeAiSel=_meAI6[1];
+  var _meAI7=useState(false),_meAI8=_slicedToArray(_meAI7,2),mePrepLoad=_meAI8[0],setMePrepLoad=_meAI8[1];
+  var _meAI9=useState(null),_meAI10=_slicedToArray(_meAI9,2),mePrepRes=_meAI10[0],setMePrepRes=_meAI10[1];
+  var _meAI11=useState(null),_meAI12=_slicedToArray(_meAI11,2),mePrepItem=_meAI12[0],setMePrepItem=_meAI12[1];
   useEffect(function() {
     var pe = window._lbpPendingEdit;
     if (pe && pe.type === 'meetings') {
@@ -5688,7 +5858,13 @@ var MeetingsScreen = function MeetingsScreen(_ref26) {
         setForm(_objectSpread({}, m));
         setModal(true);
       }
-    }, "\u270F\uFE0F"), " ", /*#__PURE__*/React.createElement("button", {
+    }, "\u270F\uFE0F"), " ", /*#__PURE__*/React.createElement("button",{className:"btn btn-secondary btn-sm",style:{fontSize:10},title:"AI Prep",
+      onClick:function(e){e.stopPropagation();if(!window.LBP_WORKER_URL)return;setMePrepItem(m);setMePrepRes(null);setMePrepLoad(true);
+        var cli=(data.clients||[]).find(function(c){return c.id===m.clientId;})||null;
+        var content='Reunión: '+m.title+'\nFecha: '+m.date+' '+m.startTime+(m.endTime?' - '+m.endTime:'')+(cli?'\nCliente: '+cli.name+'':'')+(m.agenda?'\nAgenda: '+m.agenda:'')+(m.notes?'\nNotas: '+m.notes:'');
+        fetch(window.LBP_WORKER_URL+'/chat',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({messages:[{role:'user',content:content}],systemPrompt:'Genera un brief de preparación para esta reunión con 5 bullets: temas clave, preguntas, contexto, resultado esperado, riesgo potencial. Usa el idioma del título.'})}).then(function(r){return r.json();}).then(function(res){setMePrepLoad(false);setMePrepRes(res.content||('Error'));}).catch(function(){setMePrepLoad(false);setMePrepRes('Error de red');});
+      }
+    },mePrepLoad&&mePrepItem&&mePrepItem.id===m.id?'⏳':'🤖'), " ", /*#__PURE__*/React.createElement("button", {
       className: "btn btn-danger btn-sm",
       onClick: function onClick(e) { e.stopPropagation(); del(m.id); }
     }, "Delete")), m.isOnline ? /*#__PURE__*/React.createElement("div", {
@@ -5848,7 +6024,33 @@ var MeetingsScreen = function MeetingsScreen(_ref26) {
         notes: e.target.value
       }));
     }
-  })), /*#__PURE__*/React.createElement(AlarmPanel, {
+  }),
+  /*#__PURE__*/React.createElement('div',{style:{display:'flex',justifyContent:'flex-end',marginBottom:4}},
+    /*#__PURE__*/React.createElement('button',{className:'btn btn-secondary btn-sm',style:{fontSize:10},disabled:meAiLoad||(!form.notes&&!form.agenda),
+      onClick:function(){if(!window.LBP_WORKER_URL)return;setMeAiLoad(true);setMeAiTasks(null);setMeAiSel([]);
+        var c='Reunión: '+form.title+'\nFecha: '+form.date+(form.agenda?'\nAgenda: '+form.agenda:'')+(form.notes?'\nNotas: '+form.notes:'');
+        fetch(window.LBP_WORKER_URL+'/chat',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({messages:[{role:'user',content:c}],systemPrompt:'Extrae todos los action items de estas notas de reunión. Responde SOLO con un JSON array de strings. Ejemplo: ["Enviar propuesta","Agendar siguiente reunión"]. Usa el idioma de las notas.'})}).then(function(r){return r.json();}).then(function(res){setMeAiLoad(false);try{var t=res.content||'';
+          var start=t.indexOf('[');var end=t.lastIndexOf(']')+1;
+          if(start>=0&&end>start){var a=JSON.parse(t.slice(start,end));setMeAiTasks(a);setMeAiSel(a.map(function(_,i){return i;}));}else{setMeAiTasks([]);}
+        }catch(e){setMeAiTasks([]);}}).catch(function(){setMeAiLoad(false);setMeAiTasks([]);});
+      }
+    },meAiLoad?'⏳ Analizando...':'🤖 Extraer Tareas')
+  ),
+  meAiTasks&&meAiTasks.length>0&&/*#__PURE__*/React.createElement('div',{style:{background:'rgba(107,63,160,0.08)',border:'1px solid var(--purple-light)',borderRadius:10,padding:'10px 12px',marginBottom:10}},
+    /*#__PURE__*/React.createElement('div',{style:{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:8}},
+      /*#__PURE__*/React.createElement('span',{style:{fontSize:12,fontWeight:700,color:'var(--purple-light)'}},"Tareas extraídas"),
+      /*#__PURE__*/React.createElement('button',{onClick:function(){setMeAiTasks(null);},style:{background:'none',border:'none',color:'var(--text-dim)',cursor:'pointer',fontSize:14}},'\xd7')
+    ),
+    meAiTasks.map(function(t,i){return /*#__PURE__*/React.createElement('div',{key:i,style:{display:'flex',alignItems:'center',gap:6,marginBottom:4}},
+      /*#__PURE__*/React.createElement('input',{type:'checkbox',checked:meAiSel.indexOf(i)!==-1,onChange:function(){setMeAiSel(function(s){return s.indexOf(i)!==-1?s.filter(function(x){return x!==i;}):[].concat(s,[i]);});},style:{width:14,height:14,accentColor:'#9C68D6',flexShrink:0}}),
+      /*#__PURE__*/React.createElement('span',{style:{fontSize:12}},t)
+    );}),
+    /*#__PURE__*/React.createElement('button',{className:'btn btn-primary btn-sm',style:{marginTop:8,width:'100%'},disabled:meAiSel.length===0,
+      onClick:function(){var dd=tomorrowStr();var newT=meAiSel.map(function(i){return {id:uid(),title:meAiTasks[i],status:'INBOX',priority:'MEDIUM',dueDate:dd,createdAt:Date.now(),alarm:defaultTaskAlarm()};});setData(function(d){return Object.assign({},d,{tasks:(d.tasks||[]).concat(newT)});});setMeAiTasks(null);setMeAiSel([]);}
+    },'\u2705 Agregar '+meAiSel.length+' tarea'+(meAiSel.length!==1?'s':''))
+  ),
+  meAiTasks&&meAiTasks.length===0&&/*#__PURE__*/React.createElement('div',{style:{fontSize:12,color:'var(--text-dim)',textAlign:'center',padding:'4px 0'}},"Sin tareas en las notas"),
+  /*#__PURE__*/React.createElement(AlarmPanel, {
     alarm: form.alarm,
     onChange: function onChange(a) {
       return setForm(_objectSpread(_objectSpread({}, form), {}, {
@@ -5857,6 +6059,14 @@ var MeetingsScreen = function MeetingsScreen(_ref26) {
     },
     label: form.title || 'Meeting'
   }), editItem && editItem.id && /*#__PURE__*/React.createElement(JournalLinksSection, {data:data,setData:setData,itemType:'meeting',itemId:editItem.id})),
+  mePrepItem&&mePrepRes&&/*#__PURE__*/React.createElement(Modal,{
+    title:'🤖 Prep — '+(mePrepItem.title||'Meeting'),
+    onClose:function(){setMePrepItem(null);setMePrepRes(null);},
+    footer:/*#__PURE__*/React.createElement(React.Fragment,null,
+      /*#__PURE__*/React.createElement('button',{className:'btn btn-secondary',onClick:function(){try{navigator.clipboard.writeText(mePrepRes);}catch(e){}}},'\uD83D\uDCCB Copiar'),
+      /*#__PURE__*/React.createElement('button',{className:'btn btn-secondary',onClick:function(){setMePrepItem(null);setMePrepRes(null);}},'Cerrar')
+    )
+  },/*#__PURE__*/React.createElement('div',{style:{padding:'8px 0',whiteSpace:'pre-wrap',fontSize:13,lineHeight:1.7}},mePrepRes)),
   mAlarmItem && /*#__PURE__*/React.createElement(Modal, {
     title: '\uD83D\uDD14 Edit Alarm — ' + (mAlarmItem.title || 'Alarm'),
     onClose: function() { setMAlarmItem(null); },
@@ -6366,6 +6576,8 @@ var JournalScreen = function JournalScreen(_ref31) {
   var jAddCat = function() { var v = jNewCat.trim(); if (!v || jAllCats.includes(v)) return; setData(function(d){ return Object.assign({},d,{categories:(d.categories||[]).concat([v])}); }); setJNewCat(''); };
   var jDelCat = function(c) { setData(function(d){ return Object.assign({},d,{categories:(d.categories||[]).filter(function(x){return x!==c;})}); }); if(jCatFilter===c) setJCatFilter('All'); };
   var _useStateJTF = useState('All'), _useStateJTFA = _slicedToArray(_useStateJTF, 2), jTypeFilter = _useStateJTFA[0], setJTypeFilter = _useStateJTFA[1];
+  var _jIns1=useState(false),_jIns2=_slicedToArray(_jIns1,2),jInsLoad=_jIns2[0],setJInsLoad=_jIns2[1];
+  var _jIns3=useState(null),_jIns4=_slicedToArray(_jIns3,2),jInsRes=_jIns4[0],setJInsRes=_jIns4[1];
   var entries = _toConsumableArray(data.journal || []).sort(function (a, b) {
     return b.date.localeCompare(a.date);
   }).filter(function(e){
@@ -6441,6 +6653,13 @@ var JournalScreen = function JournalScreen(_ref31) {
   }, /*#__PURE__*/React.createElement("h1", null, "\uD83D\uDCD3 Journal"), /*#__PURE__*/React.createElement("div", {style:{display:"flex",gap:6}},
     ['All','Journal','Note'].map(function(f){return /*#__PURE__*/React.createElement("button",{key:f,className:"btn btn-sm "+(jTypeFilter===f?"btn-primary":"btn-secondary"),onClick:function(){setJTypeFilter(f);}},f==='All'?'All':f==='Journal'?'\ud83d\udcd3':'\ud83d\udcdd');}),
     /*#__PURE__*/React.createElement("button", {className:"btn btn-secondary btn-sm", onClick:function(){setCompact(function(c){return !c;});}, title:compact?"Expanded view":"Compact view"}, compact ? "\u2610 Expand" : "\u2630 Compact"),
+    /*#__PURE__*/React.createElement("button",{className:"btn btn-secondary btn-sm",disabled:jInsLoad,
+      onClick:function(){if(!window.LBP_WORKER_URL)return;setJInsLoad(true);setJInsRes(null);
+        var entries=(data.journal||[]).slice().sort(function(a,b){return b.date.localeCompare(a.date);}).slice(0,30);
+        var content='Últimas '+entries.length+' entradas del diario:\n'+entries.map(function(e){return e.date+' ['+( e.entryType||'journal')+'] mood:'+(e.mood||'?')+' — '+(e.title||(e.content||'').replace(/<[^>]+>/g,'').slice(0,60));}).join('\n');
+        fetch(window.LBP_WORKER_URL+'/chat',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({messages:[{role:'user',content:content}],systemPrompt:'Analiza estas entradas del diario y genera un informe de insights mensual con: 1) Patrón de estado de ánimo (mood), 2) Temas recurrentes, 3) Principales logros y victorias, 4) Desafíos identificados, 5) Tendencias observadas y consejo personal. Sé empático y constructivo. Usa el idioma de las entradas.'})}).then(function(r){return r.json();}).then(function(res){setJInsLoad(false);setJInsRes(res.content||('Error: '+(res.error||'')));}).catch(function(){setJInsLoad(false);setJInsRes('Error de red');});
+      }
+    },jInsLoad?'⏳ Analizando...':'🔮 Insights'),
     /*#__PURE__*/React.createElement("button", {
       className: "btn btn-primary btn-sm",
       onClick: function onClick() { setEditEntry(null); setForm({title:'',content:'',gratitude:'',topWins:'',challenges:'',tomorrowFocus:'',affirmations:'',mood:'GOOD',attachments:[],category:'',tags:[],alarm:defaultAlarm(),links:[],entryType:'journal'}); setMood('GOOD'); setModal(true); }
@@ -6607,7 +6826,16 @@ var JournalScreen = function JournalScreen(_ref31) {
         fontSize: 12
       }
     }, "\uD83D\uDE4F ", e.gratitude));
-  })), viewEntry && /*#__PURE__*/React.createElement(Modal, {
+  })),
+  jInsRes&&/*#__PURE__*/React.createElement(Modal,{
+    title:'🔮 Insights del Diario',
+    onClose:function(){setJInsRes(null);},
+    footer:/*#__PURE__*/React.createElement(React.Fragment,null,
+      /*#__PURE__*/React.createElement('button',{className:'btn btn-secondary',onClick:function(){try{navigator.clipboard.writeText(jInsRes);}catch(e){}}},'📋 Copiar'),
+      /*#__PURE__*/React.createElement('button',{className:'btn btn-secondary',onClick:function(){setJInsRes(null);}},'Cerrar')
+    )
+  },/*#__PURE__*/React.createElement('div',{style:{padding:'8px 0',whiteSpace:'pre-wrap',fontSize:13,lineHeight:1.7}},jInsRes)),
+  viewEntry && /*#__PURE__*/React.createElement(Modal, {
     title: "\uD83D\uDCD3 ".concat(viewEntry.date),
     onClose: function onClose() {
       return setViewEntry(null);
@@ -6883,6 +7111,8 @@ var HabitsScreen = function HabitsScreen(_ref38) {
     });
   };
   var colors = ['#6B3FA0', '#4CAF50', '#FF9800', '#E91E63', '#2196F3', '#FF5722', '#00BCD4'];
+  var _habCo1=useState(false),_habCo2=_slicedToArray(_habCo1,2),habCoLoad=_habCo2[0],setHabCoLoad=_habCo2[1];
+  var _habCo3=useState(null),_habCo4=_slicedToArray(_habCo3,2),habCoRes=_habCo4[0],setHabCoRes=_habCo4[1];
   return /*#__PURE__*/React.createElement("div", null, /*#__PURE__*/React.createElement("div", {
     className: "page-header"
   }, /*#__PURE__*/React.createElement("h1", null, "\uD83D\uDD04 Habit Tracker"), /*#__PURE__*/React.createElement("button", {
@@ -7020,7 +7250,15 @@ var HabitsScreen = function HabitsScreen(_ref38) {
         del(h.id);
       }
     }, "\xD7"));
-  })), modal && /*#__PURE__*/React.createElement(Modal, {
+  })), modal && habCoRes&&/*#__PURE__*/React.createElement(Modal,{
+    title:'\uD83E\uDD16 Habit Coach',
+    onClose:function(){setHabCoRes(null);},
+    footer:/*#__PURE__*/React.createElement(React.Fragment,null,
+      /*#__PURE__*/React.createElement('button',{className:'btn btn-secondary',onClick:function(){try{navigator.clipboard.writeText(habCoRes);}catch(e){}}},'\uD83D\uDCCB Copiar'),
+      /*#__PURE__*/React.createElement('button',{className:'btn btn-secondary',onClick:function(){setHabCoRes(null);}},'Cerrar')
+    )
+  },/*#__PURE__*/React.createElement('div',{style:{padding:'8px 0',whiteSpace:'pre-wrap',fontSize:13,lineHeight:1.7}},habCoRes)),
+  /*#__PURE__*/React.createElement(Modal, {
     title: "New Habit",
     onClose: function onClose() {
       setModal(false); setEditItem(null);
