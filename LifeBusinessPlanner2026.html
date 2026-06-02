@@ -22,7 +22,7 @@
 <script>
 (function() {
   // ── Version ──────────────────────────────────────────────────────────────
-  window.LBP_VERSION = '4.55';
+  window.LBP_VERSION = '4.56';
 
   // ── PWA Install prompt ───────────────────────────────────────────────────
   window._installPrompt = null;
@@ -5861,7 +5861,7 @@ var MeetingsScreen = function MeetingsScreen(_ref26) {
     }, "\u270F\uFE0F"), " ", /*#__PURE__*/React.createElement("button",{className:"btn btn-secondary btn-sm",style:{fontSize:10},title:"AI Prep",
       onClick:function(e){e.stopPropagation();if(!window.LBP_WORKER_URL)return;setMePrepItem(m);setMePrepRes(null);setMePrepLoad(true);
         var cli=(data.clients||[]).find(function(c){return c.id===m.clientId;})||null;
-        var baseContent='Reunión: '+m.title+'\nFecha: '+m.date+' '+m.startTime+(m.endTime?' - '+m.endTime:'')+(cli?'\nCliente: '+cli.name+(cli.businessName?' ('+cli.businessName+')'):'':'')+(m.agenda?'\nAgenda: '+m.agenda:'')+(m.notes?'\nNotas: '+m.notes:'');
+        var baseContent='Reunión: '+m.title+'\nFecha: '+m.date+' '+m.startTime+(m.endTime?' - '+m.endTime:'')+(cli?'\nCliente: '+cli.name+(cli.businessName?' ('+cli.businessName+')':''):'')+(m.agenda?'\nAgenda: '+m.agenda:'')+(m.notes?'\nNotas: '+m.notes:'');
         var sendPrep=function(content){fetch(window.LBP_WORKER_URL+'/chat',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({messages:[{role:'user',content:content}],systemPrompt:'Eres un asistente ejecutivo experto. Genera un brief de preparación para esta reunión con 6 secciones:\n1) Temas clave a cubrir\n2) Preguntas estratégicas a hacer\n3) Contexto del cliente/empresa\n4) Correos relevantes (si los hay)\n5) Resultado esperado de la reunión\n6) Riesgo potencial o punto de atención\nSé específico, concreto y práctico. Usa el idioma del título de la reunión.'})}).then(function(r){return r.json();}).then(function(res){setMePrepLoad(false);setMePrepRes(res.content||('Error'));}).catch(function(){setMePrepLoad(false);setMePrepRes('Error de red');});};
         if(window._gmailSearchMeeting&&localStorage.getItem('lbp_gcal_connected')==='1'){
           window._gmailSearchMeeting(cli?cli.name:'',m.title,function(emails){
