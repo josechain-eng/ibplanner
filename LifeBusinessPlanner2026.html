@@ -22,7 +22,7 @@
 <script>
 (function() {
   // ── Version ──────────────────────────────────────────────────────────────
-  window.LBP_VERSION = '4.56';
+  window.LBP_VERSION = '4.58';
 
   // ── PWA Install prompt ───────────────────────────────────────────────────
   window._installPrompt = null;
@@ -5390,7 +5390,7 @@ var FinanceScreen = function FinanceScreen(_ref25) {
     /*#__PURE__*/React.createElement("button", {
     className: "btn btn-primary btn-sm",
     onClick: function onClick() { setEditItem(null); setForm({title:'',amount:'',type:'INCOME',category:'',invoiceNumber:'',isPaid:false,notes:'',date:today(),establishment:'',attachments:[]}); setModal(true); }
-  }, "+ Add")), /*#__PURE__*/React.createElement("div", {
+  }, "+ Add"))), /*#__PURE__*/React.createElement("div", {
     className: "page-content"
   }, /*#__PURE__*/React.createElement("div", {
     style: {
@@ -6087,7 +6087,7 @@ var MeetingsScreen = function MeetingsScreen(_ref26) {
       }}, 'Save Alarm'),
       /*#__PURE__*/React.createElement('button', {className:'btn btn-secondary', onClick:function(){setMAlarmItem(null);}}, 'Cancel')
     )
-  }, /*#__PURE__*/React.createElement(AlarmPanel, {alarm:mAlarmForm, onChange:setMAlarmForm, label: mAlarmItem.title||''})));
+  }, /*#__PURE__*/React.createElement(AlarmPanel, {alarm:mAlarmForm, onChange:setMAlarmForm, label: mAlarmItem.title||''}))));
 };
 
 // ─── CONTENT PLANNER ───────────────────────────────────
