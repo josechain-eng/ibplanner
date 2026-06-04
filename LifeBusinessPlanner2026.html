@@ -22,7 +22,7 @@
 <script>
 (function() {
   // ── Version ──────────────────────────────────────────────────────────────
-  window.LBP_VERSION = '4.69';
+  window.LBP_VERSION = '4.70';
 
   // ── PWA Install prompt ───────────────────────────────────────────────────
   window._installPrompt = null;
@@ -5350,7 +5350,7 @@ var ClientsScreen = function ClientsScreen(_ref24) {
         fontWeight: 700,
         fontSize: 14
       }
-    }, c.name), c.clientType&&/*#__PURE__*/React.createElement("span",{style:{fontSize:9,fontWeight:700,padding:'1px 5px',borderRadius:8,marginRight:4,background:c.clientType==='Franquicia'?'rgba(255,152,0,0.15)':'rgba(107,63,160,0.12)',color:c.clientType==='Franquicia'?'#FF9800':'var(--purple-light)'}},c.clientType==='Franquicia'?'🏪':c.clientType==='Proveedor'?'📦':'🤝'), c.stockStatus&&/*#__PURE__*/React.createElement("span",{style:{fontSize:9,fontWeight:700,padding:'1px 5px',borderRadius:8,marginLeft:4,color:c.stockStatus==='OK'?'#4CAF50':c.stockStatus==='LOW'?'#FF9800':'#f44336'}},c.stockStatus||""), c.businessName && /*#__PURE__*/React.createElement("div", {
+    }, c.name), c.clientType&&/*#__PURE__*/React.createElement("span",{style:{fontSize:10,padding:'1px 6px',borderRadius:8,marginLeft:4,background:c.clientType==='Franquicia'?'rgba(255,152,0,0.15)':'rgba(107,63,160,0.1)',color:c.clientType==='Franquicia'?'#FF9800':'var(--purple-light)'}},c.clientType), c.businessName && /*#__PURE__*/React.createElement("div", {
       style: {
         fontSize: 12,
         color: 'var(--text-dim)'
@@ -5398,7 +5398,7 @@ var ClientsScreen = function ClientsScreen(_ref24) {
         var pjs=(data.projects||[]).filter(function(p){return p.clientId===c.id;}).map(function(p){return p.name+' ('+p.status+')';});
         var tks=(data.tasks||[]).filter(function(t){return t.clientId===c.id&&t.status!=='DONE';}).map(function(t){return t.title;});
         var content='Cliente: '+c.name+(c.businessName?'\nEmpresa: '+c.businessName:'')+(c.status?'\nEstado: '+c.status:'')+(pjs.length?'\nProyectos: '+pjs.join(', '):'')+(tks.length?'\nTareas pendientes: '+tks.slice(0,5).join(', '):'')+(c.notes?'\nNotas: '+c.notes:'');
-        fetch(window.LBP_WORKER_URL+'/chat',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({messages:[{role:'user',content:content}],systemPrompt:'Genera un brief ejecutivo del cliente con 5 secciones: 1) Resumen, 2) Proyectos activos, 3) Tareas pendientes, 4) Oportunidades, 5) Próximos pasos. Sé concreto.'})}).then(function(r){return r.json();}).then(function(res){setClBrLoad(false);setClBrRes(res.content||('Error'));}).catch(function(){setClBrLoad(false);setClBrRes('Error de red');});
+        fetch(window.LBP_WORKER_URL+'/chat',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({messages:[{role:'user',content:content}],systemPrompt:'USA SOLO los datos reales proporcionados. NO inventes. Con la información disponible genera: 1) Estado real (datos concretos), 2) Proyectos y tareas activas (de los datos), 3) Lo que falta información, 4) Próximos pasos. Sé concreto.'})}).then(function(r){return r.json();}).then(function(res){setClBrLoad(false);setClBrRes(res.content||('Error'));}).catch(function(){setClBrLoad(false);setClBrRes('Error de red');});
       }
     },clBrLoad&&clBrClient&&clBrClient.id===c.id?'⏳...':'🤖 AI Brief'),
     /*#__PURE__*/React.createElement('button',{className:'btn btn-secondary btn-sm',style:{fontSize:10,marginTop:4,width:'100%'},
@@ -5418,8 +5418,20 @@ var ClientsScreen = function ClientsScreen(_ref24) {
         var mtgs=(data.meetings||[]).filter(function(m){return m.clientId===c.id;}).sort(function(a,b){return b.date.localeCompare(a.date);}).slice(0,3).map(function(m){return m.date+' '+m.title;});
         var inc=(data.transactions||[]).filter(function(t){return t.clientId===c.id&&t.type==='INCOME';}).reduce(function(s,t){return s+Number(t.amount||0);},0);
         var ctx='Franquicia: '+c.name+(c.stockStatus?' stock:'+c.stockStatus:'')+(pjs.length?' proy:'+pjs.join(','):'')+(tks.length?' tareas:'+tks.join(','):'')+(mtgs.length?' reuniones:'+mtgs.join(';'):'')+(inc>0?' ingresos:$'+inc.toFixed(0):'')+(c.staffNotes?' personal:'+c.staffNotes:'');
-        fetch(window.LBP_WORKER_URL+'/chat',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({messages:[{role:'user',content:ctx}],systemPrompt:'Analiza esta franquicia: estado, fortalezas, criticos, 3 acciones concretas.'})}).then(function(r){return r.json();}).then(function(res){setAi360Load(false);setAi360Res(res.content||'Error');}).catch(function(){setAi360Load(false);setAi360Res('Error');});
+        fetch(window.LBP_WORKER_URL+'/chat',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({messages:[{role:'user',content:ctx}],systemPrompt:'USA EXCLUSIVAMENTE los datos que se te proporcionan. NO inventes información. Si hay 0 tareas o 0 proyectos, indica esa realidad.\n\nCon los datos REALES disponibles genera: 1) Qué sabemos concretamente (cita datos específicos), 2) Qué información falta registrar, 3) Solo con lo que hay: próximas acciones recomendadas. Si los datos son insuficientes, dilo claramente en lugar de inventar.'})}).then(function(r){return r.json();}).then(function(res){setAi360Load(false);setAi360Res(res.content||'Error');}).catch(function(){setAi360Load(false);setAi360Res('Error');});
       }},ai360Load?'\u23F3':'\uD83E\uDD16 AI Summary'),
+      localStorage.getItem('lbp_gcal_connected')==='1'&&/*#__PURE__*/React.createElement('button',{className:'btn btn-secondary btn-sm',style:{fontSize:10},
+        onClick:function(){
+          setView360(null);
+          // Open edit form for this client to access auto-detect
+          setClBrClient(null);
+          setTimeout(function(){
+            setEditItem(c);
+            setForm(Object.assign({},c));
+            setModal(true);
+          },200);
+        },title:'Abrir ficha para auto-detectar contactos desde Gmail'
+      },'\uD83E\uDD16 Auto-contactos'),
       /*#__PURE__*/React.createElement('button',{className:'btn btn-secondary',onClick:function(){setView360(null);setAi360Res(null);}},'Cerrar')
     )
   },/*#__PURE__*/React.createElement('div',{style:{padding:'4px 0'}},
@@ -5432,7 +5444,7 @@ var ClientsScreen = function ClientsScreen(_ref24) {
       var inc2=(data.transactions||[]).filter(function(t){return t.clientId===c.id&&t.type==='INCOME';}).reduce(function(s,t){return s+Number(t.amount||0);},0);
       return /*#__PURE__*/React.createElement(React.Fragment,null,
         /*#__PURE__*/React.createElement('div',{style:{display:'flex',gap:8,flexWrap:'wrap',marginBottom:10}},
-          [['\uD83D\uDCCB',tasks.length+' Tareas'+(ov.length?' ('+ov.length+'v)':''),'var(--purple-light)'],['\uD83D\uDCC1',pjs2.length+' Proy','#2196F3'],['\uD83D\uDCC5',mtgs2.length+' Reun','#4CAF50'],['\uD83D\uDCB0','$'+inc2.toFixed(0),'#FF9800']].map(function(s,i){
+          [['\uD83D\uDCCB',tasks.length+' Tareas'+(ov.length?' ('+ov.length+'venc)':'')+(tasks.length===0?' ⚠️':''),'var(--purple-light)'],['\uD83D\uDCC1',pjs2.length+' Proyectos'+(pjs2.length===0?' ⚠️':''),'#2196F3'],['\uD83D\uDCC5',mtgs2.length+' Reuniones'+(mtgs2.length===0?' ⚠️':''),'#4CAF50'],['\uD83D\uDCB0','$'+inc2.toFixed(0),'#FF9800']].map(function(s,i){
             return /*#__PURE__*/React.createElement('div',{key:i,style:{background:'var(--surface)',border:'1px solid var(--border)',borderRadius:8,padding:'6px 10px',textAlign:'center',flex:1,minWidth:50}},/*#__PURE__*/React.createElement('div',{style:{fontSize:14}},s[0]),/*#__PURE__*/React.createElement('div',{style:{fontSize:10,fontWeight:700,color:s[2]}},s[1]));
           })
         ),
@@ -5442,14 +5454,21 @@ var ClientsScreen = function ClientsScreen(_ref24) {
           c.lastVisitDate&&/*#__PURE__*/React.createElement('div',null,'\u00dalt. visita: '+c.lastVisitDate),
           c.staffNotes&&/*#__PURE__*/React.createElement('div',null,'Personal: '+c.staffNotes.slice(0,80))
         ),
-        tasks.length>0&&/*#__PURE__*/React.createElement('div',{style:{marginBottom:8}},
-          /*#__PURE__*/React.createElement('div',{style:{fontSize:11,fontWeight:700,marginBottom:4}},'Tareas:'),
-          tasks.slice(0,5).map(function(t){return /*#__PURE__*/React.createElement('div',{key:t.id,style:{fontSize:11,padding:'2px 0',display:'flex',gap:6,borderBottom:'1px solid var(--border)'}},/*#__PURE__*/React.createElement('span',{style:{color:t.dueDate&&t.dueDate<T?'#ef4444':'var(--text-dim)'}},t.priority),/*#__PURE__*/React.createElement('span',null,t.title.slice(0,50)));}
+        /*#__PURE__*/React.createElement('div',{style:{marginBottom:8}},
+          /*#__PURE__*/React.createElement('div',{style:{fontSize:11,fontWeight:700,marginBottom:4}},'📋 Tareas'+(ov.length>0?' ('+ov.length+' vencidas)':'')+(tasks.length===0?' — ninguna vinculada':' ('+tasks.length+')')+':'),
+          tasks.length===0
+            ?/*#__PURE__*/React.createElement('div',{style:{fontSize:10,color:'var(--text-dim)',fontStyle:'italic'}},'Para ver tareas aquí, edita cada tarea y selecciona este cliente en el campo "Cliente".')
+            :tasks.slice(0,5).map(function(t){return /*#__PURE__*/React.createElement('div',{key:t.id,style:{fontSize:11,padding:'2px 0',display:'flex',gap:6,borderBottom:'1px solid var(--border)'}},/*#__PURE__*/React.createElement('span',{style:{color:t.dueDate&&t.dueDate<T?'#ef4444':'var(--text-dim)'}},t.priority),/*#__PURE__*/React.createElement('span',null,t.title.slice(0,50)));}
           )
         ),
-        mtgs2.length>0&&/*#__PURE__*/React.createElement('div',{style:{marginBottom:6}},
-          /*#__PURE__*/React.createElement('div',{style:{fontSize:11,fontWeight:700,marginBottom:4}},'Reuniones:'),
-          mtgs2.map(function(m){return /*#__PURE__*/React.createElement('div',{key:m.id,style:{fontSize:10,color:'var(--text-dim)',padding:'2px 0'}},m.date+' \u2014 '+m.title.slice(0,45));})
+        /*#__PURE__*/React.createElement('div',{style:{marginBottom:6}},
+          /*#__PURE__*/React.createElement('div',{style:{fontSize:11,fontWeight:700,marginBottom:4}},'📅 Reuniones'+(mtgs2.length===0?' — ninguna vinculada':' ('+mtgs2.length+')')+':'),
+          mtgs2.length===0
+            ?/*#__PURE__*/React.createElement('div',{style:{fontSize:10,color:'var(--text-dim)',fontStyle:'italic'}},'Para ver reuniones, crea reuniones y selecciona este cliente en el campo "Cliente".')
+            :mtgs2.map(function(m){return /*#__PURE__*/React.createElement('div',{key:m.id,style:{fontSize:10,color:'var(--text-dim)',padding:'2px 0'}},m.date+' \u2014 '+m.title.slice(0,45));})
+        ),
+        (tasks.length===0&&pjs2.length===0&&mtgs2.length===0)&&/*#__PURE__*/React.createElement('div',{style:{background:'rgba(255,152,0,0.08)',border:'1px solid rgba(255,152,0,0.25)',borderRadius:8,padding:'8px 10px',marginBottom:8,fontSize:10,color:'#FF9800'}},
+          '\u26A0\uFE0F Sin datos vinculados a\u00fan. Para ver informaci\u00f3n real: edita tareas/proyectos/reuniones y selecciona este cliente en el campo "Cliente".'
         ),
         ai360Load&&/*#__PURE__*/React.createElement('div',{style:{textAlign:'center',padding:8,color:'var(--purple-light)',fontSize:12}},'\u23F3...'),
         ai360Res&&/*#__PURE__*/React.createElement('div',{style:{background:'rgba(107,63,160,0.08)',border:'1px solid var(--purple-light)',borderRadius:10,padding:'10px 12px',fontSize:12,lineHeight:1.7,whiteSpace:'pre-wrap',marginTop:6}},
@@ -5564,7 +5583,7 @@ var ClientsScreen = function ClientsScreen(_ref24) {
     }
   })),
   /*#__PURE__*/React.createElement("div", {className:"form-group"},
-    /*#__PURE__*/React.createElement("label", null, "\uD83D\uDC65 Contactos de la Franquicia"),
+    /*#__PURE__*/React.createElement("label", null, "\uD83D\uDC65 Contactos ", editItem&&/*#__PURE__*/React.createElement('span',{style:{fontSize:9,color:'var(--purple-light)',fontWeight:400}},'(usa el bot\u00f3n \uD83E\uDD16 para auto-detectar desde Gmail)')),
     /*#__PURE__*/React.createElement("div", {style:{display:'flex',flexDirection:'column',gap:4,marginBottom:6}},
       (form.contacts||[]).map(function(ct,i){return /*#__PURE__*/React.createElement("div",{key:ct.id||i,style:{display:'flex',gap:4,alignItems:'center'}},
         /*#__PURE__*/React.createElement("input",{value:ct.name||'',placeholder:"Nombre",style:{flex:2,fontSize:11,padding:'4px 6px'},
@@ -5663,7 +5682,7 @@ var ClientsScreen = function ClientsScreen(_ref24) {
       var tks=(data.tasks||[]).filter(function(t){return t.clientId===editItem.id&&t.status!=='DONE';});
       var inc=(data.transactions||[]).filter(function(t){return t.clientId===editItem.id&&t.type==='INCOME';}).reduce(function(s,t){return s+Number(t.amount||0);},0);
       var ctx='Franquicia: '+editItem.name+(editItem.stockStatus?'\nStock: '+editItem.stockStatus:'')+(editItem.monthlySalesTarget?'\nMeta: $'+editItem.monthlySalesTarget:'')+(editItem.staffNotes?'\nPersonal: '+editItem.staffNotes:'')+(pjs.length?'\nProyectos: '+pjs.map(function(p){return p.name;}).join(', '):'')+(tks.length?'\nTareas: '+tks.map(function(t){return t.title;}).join(', '):'')+(inc>0?'\nIngresos: $'+inc.toFixed(0):'');
-      fetch(window.LBP_WORKER_URL+'/chat',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({messages:[{role:'user',content:ctx}],systemPrompt:(editItem&&editItem.clientType==='Franquicia'?'Eres consultor de retail especializado en franquicias de moda. Genera reporte 360 de esta franquicia: Estado y ventas vs meta, Operaciones (stock/visual/personal), Fortalezas, Puntos cr\u00edticos, 3 acciones urgentes.':'Eres consultor de negocios. Genera reporte: Estado relación, Oportunidades, Puntos de atención, Próximos pasos.')})}).then(function(r){return r.json();}).then(function(res){setClBrLoad(false);setClBrRes(res.content||'Error');}).catch(function(){setClBrLoad(false);setClBrRes('Error de red');});
+      fetch(window.LBP_WORKER_URL+'/chat',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({messages:[{role:'user',content:ctx}],systemPrompt:'CRÍTICO: Usa SOLO los datos que se te proporcionan. NO inventes ni supongas nada. Si hay 0 tareas, di que no hay tareas registradas. Si faltan datos, indica qué información necesitas.\n\nAnaliza esta '+(editItem&&editItem.clientType||'cliente')+' con los datos reales disponibles. Estructura: 1) Lo que SÍ sabemos (datos concretos), 2) Lo que falta registrar, 3) Recomendaciones basadas SOLO en los datos disponibles.'})}).then(function(r){return r.json();}).then(function(res){setClBrLoad(false);setClBrRes(res.content||'Error');}).catch(function(){setClBrLoad(false);setClBrRes('Error de red');});
     }
   },'\uD83C\uDFEA Generar Reporte Franquicia'),
   /*#__PURE__*/React.createElement('div',{style:{display:'grid',gridTemplateColumns:'1fr 1fr',gap:8}},
