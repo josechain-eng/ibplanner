@@ -788,6 +788,7 @@
   .card-grid { display: grid; gap: 12px; }
   .card-grid-2 { grid-template-columns: 1fr 1fr; }
   .card-grid-3 { grid-template-columns: 1fr 1fr 1fr; }
+  .card-grid-3-fixed { grid-template-columns: 1fr 1fr 1fr; }
   @media (max-width: 600px) { .card-grid-2, .card-grid-3 { grid-template-columns: 1fr; } }
 
   /* Page header */
@@ -5253,7 +5254,7 @@ var ClientsScreen = function ClientsScreen(_ref24) {
   }, "+ New Client")), /*#__PURE__*/React.createElement("div", {
     className: "page-content"
   }, /*#__PURE__*/React.createElement("div", {
-    className: "card-grid card-grid-3 mb-16"
+    className: "card-grid card-grid-3-fixed mb-16"
   }, /*#__PURE__*/React.createElement("div", {
     className: "stat-card"
   }, /*#__PURE__*/React.createElement("div", {
