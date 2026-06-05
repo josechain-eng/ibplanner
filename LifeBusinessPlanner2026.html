@@ -5166,6 +5166,41 @@ var ClientsScreen = function ClientsScreen(_ref24) {
   var _v360a=useState(null),_v360b=_slicedToArray(_v360a,2),view360=_v360b[0],setView360=_v360b[1];
   var _v360c=useState(false),_v360d=_slicedToArray(_v360c,2),ai360Load=_v360d[0],setAi360Load=_v360d[1];
   var _v360e=useState(null),_v360f=_slicedToArray(_v360e,2),ai360Res=_v360f[0],setAi360Res=_v360f[1];
+  var _cmpS=useState(false),_cmpS2=_slicedToArray(_cmpS,2),compactMode=_cmpS2[0],setCompactMode=_cmpS2[1];
+  var _clMatchName=function(text,c){if(!text)return false;var n=(text||'').toLowerCase();var cn=(c.name||'').toLowerCase();var bn=(c.businessName||'').toLowerCase();return(cn.length>1&&n.includes(cn))||(bn.length>1&&n.includes(bn));};
+  var _clTasks=function(c,all){return(data.tasks||[]).filter(function(t){return t.clientId===c.id||(all&&!t.clientId&&_clMatchName(t.title,c));});};
+  var _clProjects=function(c,all){return(data.projects||[]).filter(function(p){return p.clientId===c.id||(all&&!p.clientId&&_clMatchName(p.name,c));});};
+  var _clMeetings=function(c){return(data.meetings||[]).filter(function(m){return m.clientId===c.id;}).sort(function(a,b){return b.date.localeCompare(a.date);});};
+  var _clCtx=function(c){
+    var pjs=_clProjects(c,true);var tks=_clTasks(c,true);var mtgs=_clMeetings(c);
+    var dTks=tks.filter(function(t){return t.status==='DONE';});var pTks=tks.filter(function(t){return t.status!=='DONE';});
+    var inc=(data.transactions||[]).filter(function(t){return t.clientId===c.id&&t.type==='INCOME';}).reduce(function(s,t){return s+Number(t.amount||0);},0);
+    var lines=['CLIENTE: '+(c.businessName||c.name)+(c.name&&c.businessName?' ('+c.name+')':'')];
+    lines.push('Tipo: '+(c.clientType||'N/A')+' | Estado: '+(c.status||'N/A'));
+    if(c.stockStatus)lines.push('Stock: '+c.stockStatus);
+    if(c.monthlySalesTarget)lines.push('Meta mensual: $'+c.monthlySalesTarget);
+    if(c.lastVisitDate)lines.push('Última visita: '+c.lastVisitDate);
+    if(c.contacts&&c.contacts.length)lines.push('Contactos: '+c.contacts.map(function(x){return x.name+(x.role?' ('+x.role+')':'')+(x.email?' <'+x.email+'>':'');}).join(', '));
+    if(c.notes)lines.push('Notas: '+c.notes);
+    if(c.staffNotes)lines.push('Personal: '+c.staffNotes);
+    lines.push('');
+    lines.push('PROYECTOS ('+pjs.length+' total):');
+    pjs.forEach(function(p){lines.push('  ['+p.status+'] "'+p.name+'"'+(p.description?' — '+p.description.slice(0,80):''));});
+    if(!pjs.length)lines.push('  (ninguno registrado)');
+    lines.push('');
+    lines.push('TAREAS PENDIENTES ('+pTks.length+'):');
+    pTks.forEach(function(t){lines.push('  ['+t.priority+'] "'+t.title+'"'+(t.dueDate?' vence:'+t.dueDate:''));});
+    if(!pTks.length)lines.push('  (ninguna pendiente)');
+    lines.push('TAREAS COMPLETADAS ('+dTks.length+'):');
+    dTks.slice(0,10).forEach(function(t){lines.push('  ✓ "'+t.title+'"');});
+    if(!dTks.length)lines.push('  (ninguna completada registrada)');
+    lines.push('');
+    lines.push('REUNIONES ('+mtgs.length+'):');
+    mtgs.slice(0,8).forEach(function(m){lines.push('  '+m.date+' — "'+m.title+'"'+(m.notes?' | '+m.notes.slice(0,60):''));});
+    if(!mtgs.length)lines.push('  (ninguna registrada)');
+    if(inc>0)lines.push('\nINGRESOS REGISTRADOS: $'+inc.toFixed(2));
+    return lines.join('\\n');
+  };
   var _useState47 = useState({
       name: '',
       businessName: '',
@@ -5248,10 +5283,10 @@ var ClientsScreen = function ClientsScreen(_ref24) {
   }).length;
   return /*#__PURE__*/React.createElement("div", null, /*#__PURE__*/React.createElement("div", {
     className: "page-header"
-  }, /*#__PURE__*/React.createElement("h1", null, "\uD83D\uDC65 Client Hub"), /*#__PURE__*/React.createElement("button", {
+  }, /*#__PURE__*/React.createElement("h1", null, "\uD83D\uDC65 Client Hub"), /*#__PURE__*/React.createElement("div",{style:{display:'flex',gap:6}},/*#__PURE__*/React.createElement("button",{className:"btn btn-secondary btn-sm",style:{fontSize:11,padding:'4px 8px'},onClick:function(){setCompactMode(function(v){return !v;})},title:compactMode?'Vista detallada':'Vista compacta'},compactMode?'\u229E Detalle':'\u229F Compact'),/*#__PURE__*/React.createElement("button", {
     className: "btn btn-primary btn-sm",
     onClick: function onClick() { setEditItem(null); setModal(true); }
-  }, "+ New Client")), /*#__PURE__*/React.createElement("div", {
+  }, "+ New Client"))), /*#__PURE__*/React.createElement("div", {
     className: "page-content"
   }, /*#__PURE__*/React.createElement("div", {
     className: "card-grid card-grid-3-fixed mb-16"
@@ -5320,6 +5355,22 @@ var ClientsScreen = function ClientsScreen(_ref24) {
       setModal(true);
     }
   }, "+ Add Client")) : clients.map(function (c) {
+    var _cActPjs=_clProjects(c,true).filter(function(p){return p.status!=='DONE'&&p.status!=='ON_HOLD';}).length;
+    var _cPendTks=_clTasks(c,true).filter(function(t){return t.status!=='DONE';}).length;
+    if(compactMode) return /*#__PURE__*/React.createElement("div",{
+      key:c.id,
+      style:{display:'flex',alignItems:'center',gap:8,padding:'7px 10px',background:'var(--card)',borderRadius:10,marginBottom:4,border:'1px solid var(--border)'}
+    },
+      /*#__PURE__*/React.createElement("div",{style:{width:28,height:28,borderRadius:14,background:statusColor(c.status)+'25',display:'flex',alignItems:'center',justifyContent:'center',fontWeight:800,fontSize:12,color:statusColor(c.status),flexShrink:0}},c.name[0].toUpperCase()),
+      /*#__PURE__*/React.createElement("div",{style:{flex:1,minWidth:0}},
+        /*#__PURE__*/React.createElement("span",{style:{fontWeight:700,fontSize:13}},(c.businessName||c.name)),
+        c.clientType&&/*#__PURE__*/React.createElement("span",{style:{fontSize:9,padding:'1px 5px',borderRadius:6,marginLeft:5,background:c.clientType==='Franquicia'?'rgba(255,152,0,0.15)':'rgba(107,63,160,0.1)',color:c.clientType==='Franquicia'?'#FF9800':'var(--purple-light)'}},c.clientType),
+        (_cActPjs>0||_cPendTks>0)&&/*#__PURE__*/React.createElement("span",{style:{fontSize:9,color:'var(--text-dim)',marginLeft:6}},(_cActPjs>0?_cActPjs+'P ':'')+(_cPendTks>0?_cPendTks+'T':''))
+      ),
+      /*#__PURE__*/React.createElement(Chip,{label:c.status,color:statusColor(c.status)}),
+      /*#__PURE__*/React.createElement("button",{className:'btn-edit',style:{padding:'2px 6px',fontSize:11},onClick:function(e){e.stopPropagation();setEditItem(c);setForm(_objectSpread({},c));setModal(true);}},'✏️'),
+      /*#__PURE__*/React.createElement("button",{className:'btn btn-secondary btn-sm',style:{fontSize:10,padding:'2px 6px'},onClick:function(e){e.stopPropagation();setView360(c);setAi360Res(null);}},'👁 360º')
+    );
     return /*#__PURE__*/React.createElement("div", {
       className: "card mb-8",
       key: c.id,
@@ -5390,21 +5441,19 @@ var ClientsScreen = function ClientsScreen(_ref24) {
         setForm(_objectSpread({}, c));
         setModal(true);
       }
-    }, "\u270F\uFE0F"), " ", /*#__PURE__*/React.createElement("button", {
+    }, "✏️"), " ", /*#__PURE__*/React.createElement("button", {
       className: "btn btn-danger btn-sm",
       onClick: function onClick(e) { e.stopPropagation(); del(c.id); }
     }, "Delete"),
     /*#__PURE__*/React.createElement("button",{className:"btn btn-secondary btn-sm",style:{fontSize:10,marginTop:4,width:'100%'},
       onClick:function(e){e.stopPropagation();if(!window.LBP_WORKER_URL)return;setClBrClient(c);setClBrRes(null);setClBrLoad(true);
-        var pjs=(data.projects||[]).filter(function(p){return p.clientId===c.id;}).map(function(p){return p.name+' ('+p.status+')';});
-        var tks=(data.tasks||[]).filter(function(t){return t.clientId===c.id&&t.status!=='DONE';}).map(function(t){return t.title;});
-        var content='Cliente: '+c.name+(c.businessName?'\nEmpresa: '+c.businessName:'')+(c.status?'\nEstado: '+c.status:'')+(pjs.length?'\nProyectos: '+pjs.join(', '):'')+(tks.length?'\nTareas pendientes: '+tks.slice(0,5).join(', '):'')+(c.notes?'\nNotas: '+c.notes:'');
-        fetch(window.LBP_WORKER_URL+'/chat',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({messages:[{role:'user',content:content}],systemPrompt:'USA SOLO los datos reales proporcionados. NO inventes. Con la información disponible genera: 1) Estado real (datos concretos), 2) Proyectos y tareas activas (de los datos), 3) Lo que falta información, 4) Próximos pasos. Sé concreto.'})}).then(function(r){return r.json();}).then(function(res){setClBrLoad(false);setClBrRes(res.content||('Error'));}).catch(function(){setClBrLoad(false);setClBrRes('Error de red');});
+        var content=_clCtx(c);
+        fetch(window.LBP_WORKER_URL+'/chat',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({messages:[{role:'user',content:content}],systemPrompt:'USA EXCLUSIVAMENTE los datos proporcionados. NO inventes ni supongas nada. Genera un BRIEF EJECUTIVO con: 1) Estado actual concreto, 2) Proyectos: lista cada uno con estado, 3) Tareas pendientes y completadas, 4) Reuniones registradas, 5) Proximos pasos basados en los datos. Si hay 0 registros en algo, dilo en una linea y sigue. Sin especulacion.'})}).then(function(r){return r.json();}).then(function(res){setClBrLoad(false);setClBrRes(res.content||('Error'));}).catch(function(){setClBrLoad(false);setClBrRes('Error de red');});
       }
     },clBrLoad&&clBrClient&&clBrClient.id===c.id?'⏳...':'🤖 AI Brief'),
     /*#__PURE__*/React.createElement('button',{className:'btn btn-secondary btn-sm',style:{fontSize:10,marginTop:4,width:'100%'},
       onClick:function(e){e.stopPropagation();setView360(c);setAi360Res(null);}
-    },'\uD83D\uDC41 Vista 360\u00ba')
+    },'👁 Vista 360º')
   ));
   })),
   view360&&/*#__PURE__*/React.createElement(Modal,{
@@ -5414,12 +5463,8 @@ var ClientsScreen = function ClientsScreen(_ref24) {
       /*#__PURE__*/React.createElement('button',{className:'btn btn-secondary',onClick:function(){
         if(!window.LBP_WORKER_URL)return;setAi360Load(true);setAi360Res(null);
         var c=view360;
-        var pjs=(data.projects||[]).filter(function(p){return p.clientId===c.id&&p.status!=='DONE';}).map(function(p){return p.name;});
-        var tks=(data.tasks||[]).filter(function(t){return t.clientId===c.id&&t.status!=='DONE';}).slice(0,6).map(function(t){return t.title;});
-        var mtgs=(data.meetings||[]).filter(function(m){return m.clientId===c.id;}).sort(function(a,b){return b.date.localeCompare(a.date);}).slice(0,3).map(function(m){return m.date+' '+m.title;});
-        var inc=(data.transactions||[]).filter(function(t){return t.clientId===c.id&&t.type==='INCOME';}).reduce(function(s,t){return s+Number(t.amount||0);},0);
-        var ctx='Franquicia: '+c.name+(c.stockStatus?' stock:'+c.stockStatus:'')+(pjs.length?' proy:'+pjs.join(','):'')+(tks.length?' tareas:'+tks.join(','):'')+(mtgs.length?' reuniones:'+mtgs.join(';'):'')+(inc>0?' ingresos:$'+inc.toFixed(0):'')+(c.staffNotes?' personal:'+c.staffNotes:'');
-        fetch(window.LBP_WORKER_URL+'/chat',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({messages:[{role:'user',content:ctx}],systemPrompt:'USA EXCLUSIVAMENTE los datos que se te proporcionan. NO inventes información. Si hay 0 tareas o 0 proyectos, indica esa realidad.\n\nCon los datos REALES disponibles genera: 1) Qué sabemos concretamente (cita datos específicos), 2) Qué información falta registrar, 3) Solo con lo que hay: próximas acciones recomendadas. Si los datos son insuficientes, dilo claramente en lugar de inventar.'})}).then(function(r){return r.json();}).then(function(res){setAi360Load(false);setAi360Res(res.content||'Error');}).catch(function(){setAi360Load(false);setAi360Res('Error');});
+        var ctx=_clCtx(c);
+        fetch(window.LBP_WORKER_URL+'/chat',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({messages:[{role:'user',content:ctx}],systemPrompt:'USA EXCLUSIVAMENTE los datos proporcionados. NO inventes nada. Genera un REPORTE COMPLETO del cliente con: 1) Resumen ejecutivo (estado, tipo, contactos clave), 2) PROYECTOS: lista TODOS con estado y descripcion, 3) TAREAS PENDIENTES: lista completa, 4) TAREAS COMPLETADAS: lista las que ya se hicieron, 5) REUNIONES: todas las registradas con fecha y tema, 6) Finanzas si hay datos, 7) Proximas acciones concretas basadas en lo que hay. Sé especifico: cita nombres, fechas, estados reales. Sin inventar.'})}).then(function(r){return r.json();}).then(function(res){setAi360Load(false);setAi360Res(res.content||'Error');}).catch(function(){setAi360Load(false);setAi360Res('Error');});
       }},ai360Load?'\u23F3':'\uD83E\uDD16 AI Summary'),
       localStorage.getItem('lbp_gcal_connected')==='1'&&/*#__PURE__*/React.createElement('button',{className:'btn btn-secondary btn-sm',style:{fontSize:10},
         onClick:function(){
@@ -5438,14 +5483,18 @@ var ClientsScreen = function ClientsScreen(_ref24) {
   },/*#__PURE__*/React.createElement('div',{style:{padding:'4px 0'}},
     (function(){
       var c=view360,T=today();
-      var tasks=(data.tasks||[]).filter(function(t){return t.clientId===c.id&&t.status!=='DONE';});
+      var _allTasks=_clTasks(c,true);
+      var tasks=_allTasks.filter(function(t){return t.status!=='DONE';});
+      var doneTasks=_allTasks.filter(function(t){return t.status==='DONE';});
       var ov=tasks.filter(function(t){return t.dueDate&&t.dueDate<T;});
-      var pjs2=(data.projects||[]).filter(function(p){return p.clientId===c.id&&p.status!=='DONE';});
-      var mtgs2=(data.meetings||[]).filter(function(m){return m.clientId===c.id;}).sort(function(a,b){return b.date.localeCompare(a.date);}).slice(0,4);
+      var pjs2=_clProjects(c,true);
+      var pjsActive=pjs2.filter(function(p){return p.status!=='DONE'&&p.status!=='ON_HOLD';});
+      var pjsDone=pjs2.filter(function(p){return p.status==='DONE';});
+      var mtgs2=_clMeetings(c).slice(0,5);
       var inc2=(data.transactions||[]).filter(function(t){return t.clientId===c.id&&t.type==='INCOME';}).reduce(function(s,t){return s+Number(t.amount||0);},0);
       return /*#__PURE__*/React.createElement(React.Fragment,null,
         /*#__PURE__*/React.createElement('div',{style:{display:'flex',gap:8,flexWrap:'wrap',marginBottom:10}},
-          [['\uD83D\uDCCB',tasks.length+' Tareas'+(ov.length?' ('+ov.length+'venc)':'')+(tasks.length===0?' ⚠️':''),'var(--purple-light)'],['\uD83D\uDCC1',pjs2.length+' Proyectos'+(pjs2.length===0?' ⚠️':''),'#2196F3'],['\uD83D\uDCC5',mtgs2.length+' Reuniones'+(mtgs2.length===0?' ⚠️':''),'#4CAF50'],['\uD83D\uDCB0','$'+inc2.toFixed(0),'#FF9800']].map(function(s,i){
+          [['\uD83D\uDCCB',tasks.length+' pendientes'+(ov.length?' (\uD83D\uDD34'+ov.length+')':'')+(doneTasks.length?' ✓'+doneTasks.length:''),'var(--purple-light)'],['\uD83D\uDCC1',pjsActive.length+' activos'+(pjsDone.length?' ✓'+pjsDone.length:''),'#2196F3'],['\uD83D\uDCC5',mtgs2.length+' Reuniones','#4CAF50'],['\uD83D\uDCB0','$'+inc2.toFixed(0),'#FF9800']].map(function(s,i){
             return /*#__PURE__*/React.createElement('div',{key:i,style:{background:'var(--surface)',border:'1px solid var(--border)',borderRadius:8,padding:'6px 10px',textAlign:'center',flex:1,minWidth:50}},/*#__PURE__*/React.createElement('div',{style:{fontSize:14}},s[0]),/*#__PURE__*/React.createElement('div',{style:{fontSize:10,fontWeight:700,color:s[2]}},s[1]));
           })
         ),
@@ -5456,11 +5505,28 @@ var ClientsScreen = function ClientsScreen(_ref24) {
           c.staffNotes&&/*#__PURE__*/React.createElement('div',null,'Personal: '+c.staffNotes.slice(0,80))
         ),
         /*#__PURE__*/React.createElement('div',{style:{marginBottom:8}},
-          /*#__PURE__*/React.createElement('div',{style:{fontSize:11,fontWeight:700,marginBottom:4}},'📋 Tareas'+(ov.length>0?' ('+ov.length+' vencidas)':'')+(tasks.length===0?' — ninguna vinculada':' ('+tasks.length+')')+':'),
-          tasks.length===0
-            ?/*#__PURE__*/React.createElement('div',{style:{fontSize:10,color:'var(--text-dim)',fontStyle:'italic'}},'Para ver tareas aquí, edita cada tarea y selecciona este cliente en el campo "Cliente".')
-            :tasks.slice(0,5).map(function(t){return /*#__PURE__*/React.createElement('div',{key:t.id,style:{fontSize:11,padding:'2px 0',display:'flex',gap:6,borderBottom:'1px solid var(--border)'}},/*#__PURE__*/React.createElement('span',{style:{color:t.dueDate&&t.dueDate<T?'#ef4444':'var(--text-dim)'}},t.priority),/*#__PURE__*/React.createElement('span',null,t.title.slice(0,50)));}
-          )
+          /*#__PURE__*/React.createElement('div',{style:{fontSize:11,fontWeight:700,marginBottom:4}},'📋 Tareas'+(ov.length>0?' (🔴'+ov.length+' venc)':'')+(tasks.length>0?' '+tasks.length+' pend':' — ninguna pendiente')+':'),
+          tasks.length===0&&doneTasks.length===0
+            ?/*#__PURE__*/React.createElement('div',{style:{fontSize:10,color:'var(--text-dim)',fontStyle:'italic'}},'Sin tareas vinculadas. Edita una tarea y selecciona este cliente en el campo "Cliente".')
+            :/*#__PURE__*/React.createElement(React.Fragment,null,
+              tasks.slice(0,6).map(function(t){return /*#__PURE__*/React.createElement('div',{key:t.id,style:{fontSize:11,padding:'2px 0',display:'flex',gap:6,borderBottom:'1px solid var(--border)'}},/*#__PURE__*/React.createElement('span',{style:{color:t.dueDate&&t.dueDate<T?'#ef4444':'var(--text-dim)'}},t.priority),/*#__PURE__*/React.createElement('span',null,t.title.slice(0,50)));}),
+              doneTasks.length>0&&/*#__PURE__*/React.createElement('div',{style:{marginTop:4}},
+                /*#__PURE__*/React.createElement('div',{style:{fontSize:10,fontWeight:700,color:'#4CAF50',marginBottom:2}},'✓ Completadas ('+doneTasks.length+'):'),
+                doneTasks.slice(0,5).map(function(t){return /*#__PURE__*/React.createElement('div',{key:t.id,style:{fontSize:10,color:'var(--text-dim)',padding:'1px 0',textDecoration:'line-through'}},'✓ '+t.title.slice(0,50));})
+              )
+            )
+        ),
+        /*#__PURE__*/React.createElement('div',{style:{marginBottom:6}},
+          /*#__PURE__*/React.createElement('div',{style:{fontSize:11,fontWeight:700,marginBottom:4}},'📁 Proyectos'+(pjsActive.length>0?' '+pjsActive.length+' activos':' — ninguno activo')+(pjsDone.length>0?' ✓'+pjsDone.length:'')+':', ),
+          pjs2.length===0
+            ?/*#__PURE__*/React.createElement('div',{style:{fontSize:10,color:'var(--text-dim)',fontStyle:'italic'}},'Sin proyectos vinculados.')
+            :/*#__PURE__*/React.createElement(React.Fragment,null,
+              pjsActive.map(function(p){return /*#__PURE__*/React.createElement('div',{key:p.id,style:{fontSize:11,padding:'2px 0',borderBottom:'1px solid var(--border)',display:'flex',gap:6}},/*#__PURE__*/React.createElement('span',{style:{fontSize:9,padding:'1px 5px',borderRadius:5,background:'rgba(33,150,243,0.15)',color:'#2196F3'}},p.status),/*#__PURE__*/React.createElement('span',null,p.name.slice(0,45)));}),
+              pjsDone.length>0&&/*#__PURE__*/React.createElement('div',{style:{marginTop:4}},
+                /*#__PURE__*/React.createElement('div',{style:{fontSize:10,fontWeight:700,color:'#4CAF50',marginBottom:2}},'✓ Completados ('+pjsDone.length+'):'),
+                pjsDone.slice(0,3).map(function(p){return /*#__PURE__*/React.createElement('div',{key:p.id,style:{fontSize:10,color:'var(--text-dim)',padding:'1px 0',textDecoration:'line-through'}},'✓ '+p.name.slice(0,45));})
+              )
+            )
         ),
         /*#__PURE__*/React.createElement('div',{style:{marginBottom:6}},
           /*#__PURE__*/React.createElement('div',{style:{fontSize:11,fontWeight:700,marginBottom:4}},'📅 Reuniones'+(mtgs2.length===0?' — ninguna vinculada':' ('+mtgs2.length+')')+':'),
