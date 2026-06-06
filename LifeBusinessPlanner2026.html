@@ -22,7 +22,7 @@
 <script>
 (function() {
   // ── Version ──────────────────────────────────────────────────────────────
-  window.LBP_VERSION = '4.70';
+  window.LBP_VERSION = '4.71';
 
   // ── PWA Install prompt ───────────────────────────────────────────────────
   window._installPrompt = null;
@@ -5157,15 +5157,13 @@ var ClientsScreen = function ClientsScreen(_ref24) {
     _useState46 = _slicedToArray(_useState45, 2),
     search = _useState46[0],
     setSearch = _useState46[1];
-  var _clBr1=useState(false),_clBr2=_slicedToArray(_clBr1,2),clBrLoad=_clBr2[0],setClBrLoad=_clBr2[1];
-  var _clBr3=useState(null),_clBr4=_slicedToArray(_clBr3,2),clBrRes=_clBr4[0],setClBrRes=_clBr4[1];
-  var _clBr5=useState(null),_clBr6=_slicedToArray(_clBr5,2),clBrClient=_clBr6[0],setClBrClient=_clBr6[1];
   var _acS1=useState(false),_acS2=_slicedToArray(_acS1,2),acLoad=_acS2[0],setAcLoad=_acS2[1];
   var _acS3=useState(null),_acS4=_slicedToArray(_acS3,2),acSugg=_acS4[0],setAcSugg=_acS4[1];
   var _acS5=useState([]),_acS6=_slicedToArray(_acS5,2),acSel=_acS6[0],setAcSel=_acS6[1];
   var _v360a=useState(null),_v360b=_slicedToArray(_v360a,2),view360=_v360b[0],setView360=_v360b[1];
   var _v360c=useState(false),_v360d=_slicedToArray(_v360c,2),ai360Load=_v360d[0],setAi360Load=_v360d[1];
   var _v360e=useState(null),_v360f=_slicedToArray(_v360e,2),ai360Res=_v360f[0],setAi360Res=_v360f[1];
+  var _sel360a=useState(null),_sel360b=_slicedToArray(_sel360a,2),sel360=_sel360b[0],setSel360=_sel360b[1];
   var _cmpS=useState(false),_cmpS2=_slicedToArray(_cmpS,2),compactMode=_cmpS2[0],setCompactMode=_cmpS2[1];
   var _clMatchName=function(text,c){if(!text)return false;var n=(text||'').toLowerCase();var cn=(c.name||'').toLowerCase();var bn=(c.businessName||'').toLowerCase();return(cn.length>1&&n.includes(cn))||(bn.length>1&&n.includes(bn));};
   var _clTasks=function(c,all){return(data.tasks||[]).filter(function(t){return t.clientId===c.id||(all&&!t.clientId&&_clMatchName(t.title,c));});};
@@ -5189,10 +5187,10 @@ var ClientsScreen = function ClientsScreen(_ref24) {
     if(!pjs.length)lines.push('  (ninguno registrado)');
     lines.push('');
     lines.push('TAREAS PENDIENTES ('+pTks.length+'):');
-    pTks.forEach(function(t){lines.push('  ['+t.priority+'] "'+t.title+'"'+(t.dueDate?' vence:'+t.dueDate:''));});
+    pTks.forEach(function(t){lines.push('  ['+t.priority+'] "'+t.title+'"'+(t.dueDate?' vence:'+t.dueDate:'')+(t.notes?' | '+t.notes.slice(0,80):''));});
     if(!pTks.length)lines.push('  (ninguna pendiente)');
     lines.push('TAREAS COMPLETADAS ('+dTks.length+'):');
-    dTks.slice(0,10).forEach(function(t){lines.push('  ✓ "'+t.title+'"');});
+    dTks.slice(0,10).forEach(function(t){lines.push('  ✓ "'+t.title+'"'+(t.notes?' | '+t.notes.slice(0,60):''));});
     if(!dTks.length)lines.push('  (ninguna completada registrada)');
     lines.push('');
     lines.push('REUNIONES ('+mtgs.length+'):');
@@ -5200,6 +5198,36 @@ var ClientsScreen = function ClientsScreen(_ref24) {
     if(!mtgs.length)lines.push('  (ninguna registrada)');
     if(inc>0)lines.push('\nINGRESOS REGISTRADOS: $'+inc.toFixed(2));
     return lines.join('\\n');
+  };
+  var _renderAiMd=function(text){
+    if(!text)return null;
+    var lines=text.split('\n');
+    return React.createElement('div',{style:{fontSize:12,lineHeight:1.7}},
+      lines.map(function(line,i){
+        if(line.startsWith('## ')||line.startsWith('# ')){
+          var lvl=line.startsWith('## ')?2:1;
+          var txt=line.replace(/^#+\s*/,'');
+          return React.createElement('div',{key:i,style:{fontWeight:800,fontSize:lvl===1?14:13,color:'var(--purple-light)',marginTop:i===0?0:12,marginBottom:2,borderBottom:lvl===1?'1px solid rgba(107,63,160,0.2)':'none',paddingBottom:lvl===1?4:0}},txt);
+        }
+        if(line.startsWith('### ')){
+          return React.createElement('div',{key:i,style:{fontWeight:700,fontSize:11,color:'#FF9800',marginTop:8,marginBottom:2}},line.replace(/^###\s*/,''));
+        }
+        if(line.startsWith('- ')||line.startsWith('\u2022 ')){
+          return React.createElement('div',{key:i,style:{paddingLeft:12,color:'var(--text)',fontSize:12}},'\u2022 '+line.replace(/^[-\u2022]\s*/,'').replace(/\*\*(.*?)\*\*/g,'$1'));
+        }
+        if(line.match(/^\d+\./)){
+          return React.createElement('div',{key:i,style:{paddingLeft:12,color:'var(--text)',fontSize:12}},line);
+        }
+        if(!line.trim())return React.createElement('div',{key:i,style:{height:4}});
+        var parts=line.split(/\*\*(.*?)\*\*/);
+        if(parts.length>1){
+          return React.createElement('div',{key:i,style:{fontSize:12}},
+            parts.map(function(p,j){return j%2===1?React.createElement('strong',{key:j},p):p;})
+          );
+        }
+        return React.createElement('div',{key:i,style:{fontSize:12,color:'var(--text)'}},line);
+      })
+    );
   };
   var _useState47 = useState({
       name: '',
@@ -5445,12 +5473,7 @@ var ClientsScreen = function ClientsScreen(_ref24) {
       className: "btn btn-danger btn-sm",
       onClick: function onClick(e) { e.stopPropagation(); del(c.id); }
     }, "Delete"),
-    /*#__PURE__*/React.createElement("button",{className:"btn btn-secondary btn-sm",style:{fontSize:10,marginTop:4,width:'100%'},
-      onClick:function(e){e.stopPropagation();if(!window.LBP_WORKER_URL)return;setClBrClient(c);setClBrRes(null);setClBrLoad(true);
-        var content=_clCtx(c);
-        fetch(window.LBP_WORKER_URL+'/chat',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({messages:[{role:'user',content:content}],systemPrompt:'USA EXCLUSIVAMENTE los datos proporcionados. NO inventes ni supongas nada. Genera un BRIEF EJECUTIVO con: 1) Estado actual concreto, 2) Proyectos: lista cada uno con estado, 3) Tareas pendientes y completadas, 4) Reuniones registradas, 5) Proximos pasos basados en los datos. Si hay 0 registros en algo, dilo en una linea y sigue. Sin especulacion.'})}).then(function(r){return r.json();}).then(function(res){setClBrLoad(false);setClBrRes(res.content||('Error'));}).catch(function(){setClBrLoad(false);setClBrRes('Error de red');});
-      }
-    },clBrLoad&&clBrClient&&clBrClient.id===c.id?'⏳...':'🤖 AI Brief'),
+
     /*#__PURE__*/React.createElement('button',{className:'btn btn-secondary btn-sm',style:{fontSize:10,marginTop:4,width:'100%'},
       onClick:function(e){e.stopPropagation();setView360(c);setAi360Res(null);}
     },'👁 Vista 360º')
@@ -5458,19 +5481,29 @@ var ClientsScreen = function ClientsScreen(_ref24) {
   })),
   view360&&/*#__PURE__*/React.createElement(Modal,{
     title:'360\u00ba \u2014 '+(view360.name||''),
-    onClose:function(){setView360(null);setAi360Res(null);},
+    onClose:function(){setView360(null);setAi360Res(null);setSel360(null);},
     footer:/*#__PURE__*/React.createElement(React.Fragment,null,
       /*#__PURE__*/React.createElement('button',{className:'btn btn-secondary',onClick:function(){
         if(!window.LBP_WORKER_URL)return;setAi360Load(true);setAi360Res(null);
         var c=view360;
-        var ctx=_clCtx(c);
-        fetch(window.LBP_WORKER_URL+'/chat',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({messages:[{role:'user',content:ctx}],systemPrompt:'USA EXCLUSIVAMENTE los datos proporcionados. NO inventes nada. Genera un REPORTE COMPLETO del cliente con: 1) Resumen ejecutivo (estado, tipo, contactos clave), 2) PROYECTOS: lista TODOS con estado y descripcion, 3) TAREAS PENDIENTES: lista completa, 4) TAREAS COMPLETADAS: lista las que ya se hicieron, 5) REUNIONES: todas las registradas con fecha y tema, 6) Finanzas si hay datos, 7) Proximas acciones concretas basadas en lo que hay. Sé especifico: cita nombres, fechas, estados reales. Sin inventar.'})}).then(function(r){return r.json();}).then(function(res){setAi360Load(false);setAi360Res(res.content||'Error');}).catch(function(){setAi360Load(false);setAi360Res('Error');});
+        var _doAiSummary=function(emailCtx){
+          var ctx=_clCtx(c)+(emailCtx?'\n\nCORREOS RELEVANTES ENCONTRADOS:\n'+emailCtx:'\n\n[Gmail no conectado o sin correos relevantes encontrados]');
+          fetch(window.LBP_WORKER_URL+'/chat',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({messages:[{role:'user',content:ctx}],systemPrompt:'USA EXCLUSIVAMENTE los datos proporcionados. NO inventes nada. Genera un REPORTE COMPLETO del cliente con: 1) Resumen ejecutivo (estado, tipo, contactos clave), 2) PROYECTOS: lista TODOS con estado y descripcion, 3) TAREAS PENDIENTES: lista completa, 4) TAREAS COMPLETADAS: lista las que ya se hicieron, 5) REUNIONES: todas las registradas con fecha y tema, 6) Finanzas si hay datos, 7) Proximas acciones concretas basadas en lo que hay. Si hay correos, incorpora info relevante. Sin inventar.'})}).then(function(r){return r.json();}).then(function(res){setAi360Load(false);setAi360Res(res.content||'Error');}).catch(function(){setAi360Load(false);setAi360Res('Error');});
+        };
+        if(localStorage.getItem('lbp_gcal_connected')==='1'&&window._gmailSearchMeeting){
+          var searchName=c.clientType==='Franquicia'?(c.businessName||c.name):c.name;
+          window._gmailSearchMeeting(searchName,'','',function(emails){
+            var emailCtx=emails?emails.map(function(e){return 'Asunto: '+e.subject+'\nDe: '+e.from+'\nFecha: '+e.date+'\nExtracto: '+e.snippet;}).join('\n---\n'):null;
+            _doAiSummary(emailCtx);
+          });
+        } else {
+          _doAiSummary(null);
+        }
       }},ai360Load?'\u23F3':'\uD83E\uDD16 AI Summary'),
       localStorage.getItem('lbp_gcal_connected')==='1'&&/*#__PURE__*/React.createElement('button',{className:'btn btn-secondary btn-sm',style:{fontSize:10},
         onClick:function(){
           setView360(null);
           // Open edit form for this client to access auto-detect
-          setClBrClient(null);
           setTimeout(function(){
             setEditItem(c);
             setForm(Object.assign({},c));
@@ -5478,7 +5511,7 @@ var ClientsScreen = function ClientsScreen(_ref24) {
           },200);
         },title:'Abrir ficha para auto-detectar contactos desde Gmail'
       },'\uD83E\uDD16 Auto-contactos'),
-      /*#__PURE__*/React.createElement('button',{className:'btn btn-secondary',onClick:function(){setView360(null);setAi360Res(null);}},'Cerrar')
+      /*#__PURE__*/React.createElement('button',{className:'btn btn-secondary',onClick:function(){setView360(null);setAi360Res(null);setSel360(null);}},'Cerrar')
     )
   },/*#__PURE__*/React.createElement('div',{style:{padding:'4px 0'}},
     (function(){
@@ -5509,7 +5542,7 @@ var ClientsScreen = function ClientsScreen(_ref24) {
           tasks.length===0&&doneTasks.length===0
             ?/*#__PURE__*/React.createElement('div',{style:{fontSize:10,color:'var(--text-dim)',fontStyle:'italic'}},'Sin tareas vinculadas. Edita una tarea y selecciona este cliente en el campo "Cliente".')
             :/*#__PURE__*/React.createElement(React.Fragment,null,
-              tasks.slice(0,6).map(function(t){return /*#__PURE__*/React.createElement('div',{key:t.id,style:{fontSize:11,padding:'2px 0',display:'flex',gap:6,borderBottom:'1px solid var(--border)'}},/*#__PURE__*/React.createElement('span',{style:{color:t.dueDate&&t.dueDate<T?'#ef4444':'var(--text-dim)'}},t.priority),/*#__PURE__*/React.createElement('span',null,t.title.slice(0,50)));}),
+              tasks.slice(0,6).map(function(t){return /*#__PURE__*/React.createElement('div',{key:t.id,style:{fontSize:11,padding:'2px 0',display:'flex',gap:6,borderBottom:'1px solid var(--border)',cursor:'pointer'},onClick:function(){setSel360({type:'task',item:t});}},/*#__PURE__*/React.createElement('span',{style:{color:t.dueDate&&t.dueDate<T?'#ef4444':'var(--text-dim)'}},t.priority),/*#__PURE__*/React.createElement('span',null,t.title.slice(0,50)));}),
               doneTasks.length>0&&/*#__PURE__*/React.createElement('div',{style:{marginTop:4}},
                 /*#__PURE__*/React.createElement('div',{style:{fontSize:10,fontWeight:700,color:'#4CAF50',marginBottom:2}},'✓ Completadas ('+doneTasks.length+'):'),
                 doneTasks.slice(0,5).map(function(t){return /*#__PURE__*/React.createElement('div',{key:t.id,style:{fontSize:10,color:'var(--text-dim)',padding:'1px 0',textDecoration:'line-through'}},'✓ '+t.title.slice(0,50));})
@@ -5521,7 +5554,7 @@ var ClientsScreen = function ClientsScreen(_ref24) {
           pjs2.length===0
             ?/*#__PURE__*/React.createElement('div',{style:{fontSize:10,color:'var(--text-dim)',fontStyle:'italic'}},'Sin proyectos vinculados.')
             :/*#__PURE__*/React.createElement(React.Fragment,null,
-              pjsActive.map(function(p){return /*#__PURE__*/React.createElement('div',{key:p.id,style:{fontSize:11,padding:'2px 0',borderBottom:'1px solid var(--border)',display:'flex',gap:6}},/*#__PURE__*/React.createElement('span',{style:{fontSize:9,padding:'1px 5px',borderRadius:5,background:'rgba(33,150,243,0.15)',color:'#2196F3'}},p.status),/*#__PURE__*/React.createElement('span',null,p.name.slice(0,45)));}),
+              pjsActive.map(function(p){return /*#__PURE__*/React.createElement('div',{key:p.id,style:{fontSize:11,padding:'2px 0',borderBottom:'1px solid var(--border)',display:'flex',gap:6,cursor:'pointer'},onClick:function(){setSel360({type:'project',item:p});}},/*#__PURE__*/React.createElement('span',{style:{fontSize:9,padding:'1px 5px',borderRadius:5,background:'rgba(33,150,243,0.15)',color:'#2196F3'}},p.status),/*#__PURE__*/React.createElement('span',null,p.name.slice(0,45)));}),
               pjsDone.length>0&&/*#__PURE__*/React.createElement('div',{style:{marginTop:4}},
                 /*#__PURE__*/React.createElement('div',{style:{fontSize:10,fontWeight:700,color:'#4CAF50',marginBottom:2}},'✓ Completados ('+pjsDone.length+'):'),
                 pjsDone.slice(0,3).map(function(p){return /*#__PURE__*/React.createElement('div',{key:p.id,style:{fontSize:10,color:'var(--text-dim)',padding:'1px 0',textDecoration:'line-through'}},'✓ '+p.name.slice(0,45));})
@@ -5532,26 +5565,43 @@ var ClientsScreen = function ClientsScreen(_ref24) {
           /*#__PURE__*/React.createElement('div',{style:{fontSize:11,fontWeight:700,marginBottom:4}},'📅 Reuniones'+(mtgs2.length===0?' — ninguna vinculada':' ('+mtgs2.length+')')+':'),
           mtgs2.length===0
             ?/*#__PURE__*/React.createElement('div',{style:{fontSize:10,color:'var(--text-dim)',fontStyle:'italic'}},'Para ver reuniones, crea reuniones y selecciona este cliente en el campo "Cliente".')
-            :mtgs2.map(function(m){return /*#__PURE__*/React.createElement('div',{key:m.id,style:{fontSize:10,color:'var(--text-dim)',padding:'2px 0'}},m.date+' \u2014 '+m.title.slice(0,45));})
+            :mtgs2.map(function(m){return /*#__PURE__*/React.createElement('div',{key:m.id,style:{fontSize:10,color:'var(--text-dim)',padding:'2px 0',cursor:'pointer'},onClick:function(){setSel360({type:'meeting',item:m});}},m.date+' \u2014 '+m.title.slice(0,45));})
         ),
         (tasks.length===0&&pjs2.length===0&&mtgs2.length===0)&&/*#__PURE__*/React.createElement('div',{style:{background:'rgba(255,152,0,0.08)',border:'1px solid rgba(255,152,0,0.25)',borderRadius:8,padding:'8px 10px',marginBottom:8,fontSize:10,color:'#FF9800'}},
           '\u26A0\uFE0F Sin datos vinculados a\u00fan. Para ver informaci\u00f3n real: edita tareas/proyectos/reuniones y selecciona este cliente en el campo "Cliente".'
         ),
         ai360Load&&/*#__PURE__*/React.createElement('div',{style:{textAlign:'center',padding:8,color:'var(--purple-light)',fontSize:12}},'\u23F3...'),
-        ai360Res&&/*#__PURE__*/React.createElement('div',{style:{background:'rgba(107,63,160,0.08)',border:'1px solid var(--purple-light)',borderRadius:10,padding:'10px 12px',fontSize:12,lineHeight:1.7,whiteSpace:'pre-wrap',marginTop:6}},
-          /*#__PURE__*/React.createElement('div',{style:{fontSize:11,fontWeight:700,color:'var(--purple-light)',marginBottom:4}},'AI Summary'),ai360Res
+        ai360Res&&/*#__PURE__*/React.createElement('div',{style:{background:'rgba(107,63,160,0.08)',border:'1px solid var(--purple-light)',borderRadius:10,padding:'10px 12px',marginTop:6}},
+          /*#__PURE__*/React.createElement('div',{style:{fontSize:11,fontWeight:700,color:'var(--purple-light)',marginBottom:4}},'🤖 AI Summary'),_renderAiMd(ai360Res)
+        ),
+        sel360&&/*#__PURE__*/React.createElement('div',{style:{position:'sticky',bottom:0,background:'var(--surface)',border:'1px solid var(--border)',borderRadius:10,padding:'10px 12px',marginTop:8}},
+          React.createElement('div',{style:{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:6}},
+            React.createElement('div',{style:{fontWeight:700,fontSize:12,color:sel360.type==='task'?'var(--purple-light)':sel360.type==='project'?'#2196F3':'#4CAF50'}},
+              sel360.type==='task'?'\uD83D\uDCCB Tarea':sel360.type==='project'?'\uD83D\uDCC1 Proyecto':'\uD83D\uDCC5 Reuni\u00f3n'
+            ),
+            React.createElement('button',{style:{background:'none',border:'none',color:'var(--text-dim)',cursor:'pointer',fontSize:14},onClick:function(){setSel360(null);}},'\u2715')
+          ),
+          sel360.type==='task'&&React.createElement('div',{style:{fontSize:11}},
+            React.createElement('div',{style:{fontWeight:700,marginBottom:4}},sel360.item.title),
+            React.createElement('div',{style:{color:'var(--text-dim)'}},'Estado: '+sel360.item.status+' | Prioridad: '+sel360.item.priority+(sel360.item.dueDate?' | Vence: '+sel360.item.dueDate:'')),
+            sel360.item.notes&&React.createElement('div',{style:{marginTop:6,padding:'6px 8px',background:'var(--card)',borderRadius:6}},sel360.item.notes)
+          ),
+          sel360.type==='project'&&React.createElement('div',{style:{fontSize:11}},
+            React.createElement('div',{style:{fontWeight:700,marginBottom:4}},sel360.item.name),
+            React.createElement('div',{style:{color:'var(--text-dim)'}},'Estado: '+sel360.item.status+(sel360.item.dueDate?' | Vence: '+sel360.item.dueDate:'')),
+            sel360.item.description&&React.createElement('div',{style:{marginTop:6,padding:'6px 8px',background:'var(--card)',borderRadius:6}},sel360.item.description)
+          ),
+          sel360.type==='meeting'&&React.createElement('div',{style:{fontSize:11}},
+            React.createElement('div',{style:{fontWeight:700,marginBottom:4}},sel360.item.title),
+            React.createElement('div',{style:{color:'var(--text-dim)'}},'Fecha: '+sel360.item.date+(sel360.item.contact?' | Contacto: '+sel360.item.contact:'')),
+            sel360.item.notes&&React.createElement('div',{style:{marginTop:6,padding:'6px 8px',background:'var(--card)',borderRadius:6}},sel360.item.notes),
+            sel360.item.agenda&&React.createElement('div',{style:{marginTop:4,padding:'6px 8px',background:'var(--card)',borderRadius:6}},sel360.item.agenda)
+          )
         )
       );
     })()
   )),
-  clBrClient&&clBrRes&&/*#__PURE__*/React.createElement(Modal,{
-    title:'🤖 Brief — '+(clBrClient.name||'Client'),
-    onClose:function(){setClBrClient(null);setClBrRes(null);},
-    footer:/*#__PURE__*/React.createElement(React.Fragment,null,
-      /*#__PURE__*/React.createElement('button',{className:'btn btn-secondary',onClick:function(){try{navigator.clipboard.writeText(clBrRes);}catch(e){}}},'📋 Copiar'),
-      /*#__PURE__*/React.createElement('button',{className:'btn btn-secondary',onClick:function(){setClBrClient(null);setClBrRes(null);}},'Cerrar')
-    )
-  },/*#__PURE__*/React.createElement('div',{style:{padding:'8px 0',whiteSpace:'pre-wrap',fontSize:13,lineHeight:1.7}},clBrRes)),
+
   modal && /*#__PURE__*/React.createElement(Modal, {
     title: "New Client",
     onClose: function onClose() {
@@ -5740,18 +5790,6 @@ var ClientsScreen = function ClientsScreen(_ref24) {
   ),
   /*#__PURE__*/React.createElement('hr',{className:'divider'}),
   /*#__PURE__*/React.createElement('div',{style:{fontWeight:700,fontSize:12,color:'var(--purple-light)',marginBottom:8}},'\uD83C\uDFEA Operaciones'),
-  editItem&&/*#__PURE__*/React.createElement('button',{
-    className:'btn btn-secondary btn-sm',style:{fontSize:10,width:'100%',marginBottom:8},
-    onClick:function(){
-      if(!window.LBP_WORKER_URL||!editItem)return;
-      setClBrClient(editItem);setClBrRes(null);setClBrLoad(true);
-      var pjs=(data.projects||[]).filter(function(p){return p.clientId===editItem.id&&p.status!=='DONE';});
-      var tks=(data.tasks||[]).filter(function(t){return t.clientId===editItem.id&&t.status!=='DONE';});
-      var inc=(data.transactions||[]).filter(function(t){return t.clientId===editItem.id&&t.type==='INCOME';}).reduce(function(s,t){return s+Number(t.amount||0);},0);
-      var ctx='Franquicia: '+editItem.name+(editItem.stockStatus?'\nStock: '+editItem.stockStatus:'')+(editItem.monthlySalesTarget?'\nMeta: $'+editItem.monthlySalesTarget:'')+(editItem.staffNotes?'\nPersonal: '+editItem.staffNotes:'')+(pjs.length?'\nProyectos: '+pjs.map(function(p){return p.name;}).join(', '):'')+(tks.length?'\nTareas: '+tks.map(function(t){return t.title;}).join(', '):'')+(inc>0?'\nIngresos: $'+inc.toFixed(0):'');
-      fetch(window.LBP_WORKER_URL+'/chat',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({messages:[{role:'user',content:ctx}],systemPrompt:'CRÍTICO: Usa SOLO los datos que se te proporcionan. NO inventes ni supongas nada. Si hay 0 tareas, di que no hay tareas registradas. Si faltan datos, indica qué información necesitas.\n\nAnaliza esta '+(editItem&&editItem.clientType||'cliente')+' con los datos reales disponibles. Estructura: 1) Lo que SÍ sabemos (datos concretos), 2) Lo que falta registrar, 3) Recomendaciones basadas SOLO en los datos disponibles.'})}).then(function(r){return r.json();}).then(function(res){setClBrLoad(false);setClBrRes(res.content||'Error');}).catch(function(){setClBrLoad(false);setClBrRes('Error de red');});
-    }
-  },'\uD83C\uDFEA Generar Reporte Franquicia'),
   /*#__PURE__*/React.createElement('div',{style:{display:'grid',gridTemplateColumns:'1fr 1fr',gap:8}},
     /*#__PURE__*/React.createElement('div',{className:'form-group'},/*#__PURE__*/React.createElement('label',null,'Stock'),/*#__PURE__*/React.createElement('select',{value:form.stockStatus||'',onChange:function(e){setForm(_objectSpread(_objectSpread({},form),{},{stockStatus:e.target.value}));},style:{fontSize:12}},/*#__PURE__*/React.createElement('option',{value:''},'-'),/*#__PURE__*/React.createElement('option',{value:'OK'},'\u2705 OK'),/*#__PURE__*/React.createElement('option',{value:'LOW'},'\u26A0 Bajo'),/*#__PURE__*/React.createElement('option',{value:'CRITICAL'},'\uD83D\uDD34 Cr\u00edtico'))),
     /*#__PURE__*/React.createElement('div',{className:'form-group'},/*#__PURE__*/React.createElement('label',null,'\u00dalt. stock'),/*#__PURE__*/React.createElement('input',{type:'date',value:form.stockLastReview||'',onChange:function(e){setForm(_objectSpread(_objectSpread({},form),{},{stockLastReview:e.target.value}));}})),
@@ -14155,7 +14193,8 @@ var INITIAL_DATA = {
   medicationLogs: [],
   skinLogs: [],
   skinProducts: [],
-  categories: ['Personal','Work','Home','Health','Finance','Learning','Creative']
+  categories: ['Personal','Work','Home','Health','Finance','Learning','Creative'],
+  imports: []
 };
 // ─── CategoryTagInput ──────────────────────────────────────────
 var CategoryTagInput = function(props) {
@@ -14985,6 +15024,242 @@ var SyncSettingsButton = function SyncSettingsButton(_ref_ssb) {
   );
 };
 
+// ─── IMPORTS TRACKING ──────────────────────────────────────────
+var IMPORT_STATUSES = ['PENDIENTE','EN_TRÁNSITO','EN_ADUANA','EN_ALMACÉN','RECIBIDO','CANCELADO'];
+var IMPORT_STATUS_COLORS = {
+  'PENDIENTE':'#FF9800','EN_TRÁNSITO':'#2196F3','EN_ADUANA':'#9C27B0',
+  'EN_ALMACÉN':'#00BCD4','RECIBIDO':'#4CAF50','CANCELADO':'#ef4444'
+};
+
+var ImportsScreen = function ImportsScreen(_ref_imp) {
+  var data = _ref_imp.data, setData = _ref_imp.setData;
+  var _iTab = useState('despachos'), _iTab2 = _slicedToArray(_iTab, 2), iTab = _iTab2[0], setITab = _iTab2[1];
+  var _iModal = useState(false), _iModal2 = _slicedToArray(_iModal, 2), iModal = _iModal2[0], setIModal = _iModal2[1];
+  var _iEdit = useState(null), _iEdit2 = _slicedToArray(_iEdit, 2), iEdit = _iEdit2[0], setIEdit = _iEdit2[1];
+  var _iFilter = useState(''), _iFilter2 = _slicedToArray(_iFilter, 2), iFilter = _iFilter2[0], setIFilter = _iFilter2[1];
+  var _iStatusF = useState(''), _iStatusF2 = _slicedToArray(_iStatusF, 2), iStatusF = _iStatusF2[0], setIStatusF = _iStatusF2[1];
+  var _iAiLoad = useState(false), _iAiLoad2 = _slicedToArray(_iAiLoad, 2), iAiLoad = _iAiLoad2[0], setIAiLoad = _iAiLoad2[1];
+  var _iAiRes = useState(null), _iAiRes2 = _slicedToArray(_iAiRes, 2), iAiRes = _iAiRes2[0], setIAiRes = _iAiRes2[1];
+  var _iAiErr = useState(''), _iAiErr2 = _slicedToArray(_iAiErr, 2), iAiErr = _iAiErr2[0], setIAiErr = _iAiErr2[1];
+  var emptyForm = {clientId:'',season:'',items:'',amount:'',status:'PENDIENTE',dateDispatch:'',etaArica:'',etaAduana:'',etaStorage:'',received:'',notes:''};
+  var _iForm = useState(emptyForm), _iForm2 = _slicedToArray(_iForm, 2), iForm = _iForm2[0], setIForm = _iForm2[1];
+  var imports = data.imports || [];
+  var allClients = data.clients || [];
+  var filtered = imports.filter(function(imp){
+    var c = allClients.find(function(x){return x.id===imp.clientId;});
+    var name = c ? (c.businessName||c.name) : '';
+    var matchFilter = !iFilter || name.toLowerCase().includes(iFilter.toLowerCase());
+    var matchStatus = !iStatusF || imp.status===iStatusF;
+    return matchFilter && matchStatus;
+  });
+  filtered = filtered.slice().sort(function(a,b){return (b.dateDispatch||'').localeCompare(a.dateDispatch||'');});
+  var saveImport = function() {
+    var imp = Object.assign({}, iForm, {id: iEdit ? iEdit.id : 'imp_'+Date.now()});
+    var newImports = iEdit
+      ? imports.map(function(x){return x.id===iEdit.id ? imp : x;})
+      : [imp].concat(imports);
+    setData(function(d){return Object.assign({},d,{imports:newImports});});
+    setIModal(false); setIEdit(null); setIForm(emptyForm);
+  };
+  var deleteImport = function(id) {
+    if (!confirm('¿Eliminar este despacho?')) return;
+    setData(function(d){return Object.assign({},d,{imports:(d.imports||[]).filter(function(x){return x.id!==id;})});});
+  };
+  var exportCSV = function() {
+    var headers = ['Franquicia','Temporada','Prendas','Monto ($US)','Estado','Despacho','ETA Arica','ETA Aduana','ETA Almacén','Recibido','Observaciones'];
+    var rows = filtered.map(function(imp){
+      var c = allClients.find(function(x){return x.id===imp.clientId;});
+      return [c?(c.businessName||c.name):'',imp.season||'',imp.items||'',imp.amount||'',imp.status||'',imp.dateDispatch||'',imp.etaArica||'',imp.etaAduana||'',imp.etaStorage||'',imp.received||'',(imp.notes||'').replace(/,/g,';')];
+    });
+    var csv = [headers].concat(rows).map(function(r){return r.join(',');}).join('\n');
+    try { navigator.clipboard.writeText(csv); alert('CSV copiado al portapapeles'); } catch(e) {}
+  };
+  var sBadge = function(s) {
+    return React.createElement('span',{style:{fontSize:9,padding:'2px 6px',borderRadius:8,background:(IMPORT_STATUS_COLORS[s]||'#888')+'22',color:IMPORT_STATUS_COLORS[s]||'#888',fontWeight:700,whiteSpace:'nowrap'}},s);
+  };
+  var byBrand = {};
+  imports.forEach(function(imp){
+    var c = allClients.find(function(x){return x.id===imp.clientId;});
+    var brand = c?(c.businessName||c.name):'Sin asignar';
+    if(!byBrand[brand]) byBrand[brand]={total:0,items:0,received:0,pending:0};
+    byBrand[brand].total += Number(imp.amount||0);
+    byBrand[brand].items += Number(imp.items||0);
+    if(imp.status==='RECIBIDO') byBrand[brand].received++;
+    else if(imp.status!=='CANCELADO') byBrand[brand].pending++;
+  });
+  var runAiLogistics = function() {
+    if (!window.LBP_WORKER_URL) { setIAiErr('Worker no configurado'); return; }
+    setIAiLoad(true); setIAiRes(null); setIAiErr('');
+    var searchQ = 'embarque despacho logística aduana importación carga envío flete newer_than:90d';
+    var dataCtx = 'DESPACHOS EN SISTEMA ('+imports.length+'):\n'+imports.map(function(imp){
+      var c = allClients.find(function(x){return x.id===imp.clientId;});
+      return (c?(c.businessName||c.name):'?')+' | Temporada:'+imp.season+' | '+imp.items+' prendas | $'+(imp.amount||0)+' | '+imp.status+' | Despacho:'+imp.dateDispatch+(imp.notes?' | Obs:'+imp.notes:'');
+    }).join('\n');
+    var systemPrompt = 'Eres un asistente de logística de importación. Analiza los despachos registrados y los correos de logística disponibles. Genera un REPORTE por marca/franquicia con: 1) Estado actual de cada despacho, 2) ETAs pendientes, 3) Alertas o retrasos detectados en correos, 4) Próximas acciones. USA SOLO datos reales proporcionados, NO inventes. Si hay 0 correos, indica qué se sabe solo del sistema.';
+    var doFetch = function(fullCtx) {
+      fetch(window.LBP_WORKER_URL+'/chat',{method:'POST',headers:{'Content-Type':'application/json'},
+        body:JSON.stringify({messages:[{role:'user',content:fullCtx}],systemPrompt:systemPrompt})
+      }).then(function(r){return r.json();}).then(function(res){setIAiLoad(false);setIAiRes(res.content||'Error');}).catch(function(){setIAiLoad(false);setIAiErr('Error');});
+    };
+    if (localStorage.getItem('lbp_gcal_connected')==='1' && window._gcalEnsureToken) {
+      window._gcalEnsureToken(function(tok) {
+        if (!tok) { doFetch(dataCtx+'\n\n[Gmail no conectado]'); return; }
+        fetch('https://www.googleapis.com/gmail/v1/users/me/messages?maxResults=10&q='+encodeURIComponent(searchQ),{headers:{'Authorization':'Bearer '+tok}})
+          .then(function(r){return r.ok?r.json():null;})
+          .then(function(gdata){
+            if(!gdata||!gdata.messages||!gdata.messages.length){doFetch(dataCtx+'\n\n[Sin correos de logística encontrados]');return;}
+            var ids=gdata.messages.slice(0,8).map(function(m){return m.id;});
+            return Promise.all(ids.map(function(id){
+              return fetch('https://www.googleapis.com/gmail/v1/users/me/messages/'+id+'?format=metadata&metadataHeaders=Subject&metadataHeaders=From&metadataHeaders=Date',{headers:{'Authorization':'Bearer '+tok}}).then(function(r){return r.ok?r.json():null;});
+            }));
+          })
+          .then(function(msgs){
+            if(!msgs){return;}
+            var parsed=msgs.filter(Boolean).map(function(msg){
+              var hdrs=(msg.payload&&msg.payload.headers)||[];
+              var getH=function(n){return (hdrs.find(function(h){return h.name===n;})||{}).value||'';};
+              return 'Asunto: '+getH('Subject')+'\nDe: '+getH('From')+'\nFecha: '+getH('Date')+'\nExtracto: '+(msg.snippet||'');
+            });
+            doFetch(dataCtx+'\n\nCORREOS LOGÍSTICA:\n'+parsed.join('\n---\n'));
+          })
+          .catch(function(){doFetch(dataCtx+'\n\n[Error buscando correos]');});
+      });
+    } else {
+      doFetch(dataCtx+'\n\n[Gmail no conectado]');
+    }
+  };
+  return React.createElement('div', null,
+    React.createElement('div', {className:'page-header'},
+      React.createElement('h1', null, '📦 Importaciones'),
+      React.createElement('button', {className:'btn btn-primary btn-sm', onClick:function(){setIEdit(null);setIForm(emptyForm);setIModal(true);}}, '+ Despacho')
+    ),
+    React.createElement('div', {style:{display:'flex',gap:8,padding:'0 16px 12px',borderBottom:'1px solid var(--border)'}},
+      ['despachos','resumen','ia-logistica'].map(function(t){
+        var labels = {despachos:'📋 Despachos',resumen:'📊 Por Marca','ia-logistica':'🤖 IA Logística'};
+        return React.createElement('button',{key:t,onClick:function(){setITab(t);},
+          style:{padding:'6px 14px',borderRadius:20,border:'none',cursor:'pointer',fontSize:12,fontWeight:700,
+            background:iTab===t?'var(--purple-light)':'var(--surface)',color:iTab===t?'#fff':'var(--text-dim)'}
+        },labels[t]);
+      })
+    ),
+    React.createElement('div', {className:'page-content'},
+      iTab==='despachos'&&React.createElement(React.Fragment,null,
+        React.createElement('div',{style:{display:'flex',gap:8,marginBottom:12,flexWrap:'wrap'}},
+          React.createElement('input',{placeholder:'🔍 Filtrar por marca...',value:iFilter,onChange:function(e){setIFilter(e.target.value);},style:{flex:1,minWidth:120}}),
+          React.createElement('select',{value:iStatusF,onChange:function(e){setIStatusF(e.target.value);},style:{fontSize:12}},
+            React.createElement('option',{value:''},'Todos los estados'),
+            IMPORT_STATUSES.map(function(s){return React.createElement('option',{key:s,value:s},s);})
+          )
+        ),
+        filtered.length===0
+          ?React.createElement('div',{className:'empty-state'},
+              React.createElement('div',{className:'e-icon'},'📦'),
+              React.createElement('h3',null,'Sin despachos'),
+              React.createElement('p',null,'Registra tu primer despacho con "+ Despacho"')
+            )
+          :filtered.map(function(imp){
+              var c=allClients.find(function(x){return x.id===imp.clientId;});
+              var brand=c?(c.businessName||c.name):'Sin asignar';
+              return React.createElement('div',{key:imp.id,style:{background:'var(--card)',border:'1px solid var(--border)',borderRadius:10,padding:'10px 12px',marginBottom:8}},
+                React.createElement('div',{style:{display:'flex',justifyContent:'space-between',alignItems:'flex-start',marginBottom:4}},
+                  React.createElement('div',null,
+                    React.createElement('span',{style:{fontWeight:800,fontSize:13}},'['+brand+']'),
+                    React.createElement('span',{style:{fontSize:11,color:'var(--text-dim)',marginLeft:8}},imp.season||'—')
+                  ),
+                  React.createElement('div',{style:{display:'flex',gap:6,alignItems:'center'}},
+                    sBadge(imp.status||'PENDIENTE'),
+                    React.createElement('button',{className:'btn-edit',style:{fontSize:11},onClick:function(){setIEdit(imp);setIForm(Object.assign({},imp));setIModal(true);}},'✏️'),
+                    React.createElement('button',{className:'btn btn-danger btn-sm',style:{fontSize:10,padding:'2px 6px'},onClick:function(){deleteImport(imp.id);}},'🗑')
+                  )
+                ),
+                React.createElement('div',{style:{display:'grid',gridTemplateColumns:'1fr 1fr 1fr',gap:'4px 12px',fontSize:10,color:'var(--text-dim)'}},
+                  React.createElement('span',null,'📦 '+Number(imp.items||0).toLocaleString()+' prendas'),
+                  React.createElement('span',null,'💰 $'+Number(imp.amount||0).toLocaleString()),
+                  React.createElement('span',null,'✈️ Arica: '+(imp.etaArica||'—')),
+                  imp.dateDispatch&&React.createElement('span',null,'📅 Despacho: '+imp.dateDispatch),
+                  imp.etaAduana&&React.createElement('span',null,'🏛 Aduana: '+imp.etaAduana),
+                  imp.etaStorage&&React.createElement('span',null,'🏭 Almacén: '+imp.etaStorage),
+                  imp.received&&React.createElement('span',null,'✅ Recibido: '+imp.received)
+                ),
+                imp.notes&&React.createElement('div',{style:{marginTop:4,fontSize:10,color:'var(--text-dim)',fontStyle:'italic'}},imp.notes)
+              );
+            }),
+        filtered.length>0&&React.createElement('button',{className:'btn btn-secondary',style:{width:'100%',marginTop:8},onClick:exportCSV},'📋 Exportar CSV')
+      ),
+      iTab==='resumen'&&React.createElement('div',null,
+        Object.keys(byBrand).length===0
+          ?React.createElement('div',{className:'empty-state'},React.createElement('div',{className:'e-icon'},'📊'),React.createElement('h3',null,'Sin datos aún'))
+          :Object.entries(byBrand).map(function(entry){
+              var brand=entry[0],stats=entry[1];
+              return React.createElement('div',{key:brand,style:{background:'var(--card)',border:'1px solid var(--border)',borderRadius:10,padding:'12px',marginBottom:8}},
+                React.createElement('div',{style:{fontWeight:800,fontSize:14,marginBottom:8}},brand),
+                React.createElement('div',{style:{display:'grid',gridTemplateColumns:'1fr 1fr',gap:8}},
+                  React.createElement('div',{style:{background:'rgba(33,150,243,0.08)',borderRadius:8,padding:'8px',textAlign:'center'}},
+                    React.createElement('div',{style:{fontSize:18,fontWeight:800,color:'#2196F3'}},'$'+stats.total.toLocaleString()),
+                    React.createElement('div',{style:{fontSize:10,color:'var(--text-dim)'}},'Total USD')),
+                  React.createElement('div',{style:{background:'rgba(107,63,160,0.08)',borderRadius:8,padding:'8px',textAlign:'center'}},
+                    React.createElement('div',{style:{fontSize:18,fontWeight:800,color:'var(--purple-light)'}},stats.items.toLocaleString()),
+                    React.createElement('div',{style:{fontSize:10,color:'var(--text-dim)'}},'Prendas')),
+                  React.createElement('div',{style:{background:'rgba(76,175,80,0.08)',borderRadius:8,padding:'8px',textAlign:'center'}},
+                    React.createElement('div',{style:{fontSize:18,fontWeight:800,color:'#4CAF50'}},stats.received),
+                    React.createElement('div',{style:{fontSize:10,color:'var(--text-dim)'}},'Recibidos')),
+                  React.createElement('div',{style:{background:'rgba(255,152,0,0.08)',borderRadius:8,padding:'8px',textAlign:'center'}},
+                    React.createElement('div',{style:{fontSize:18,fontWeight:800,color:'#FF9800'}},stats.pending),
+                    React.createElement('div',{style:{fontSize:10,color:'var(--text-dim)'}},'En proceso'))
+                )
+              );
+            })
+      ),
+      iTab==='ia-logistica'&&React.createElement('div',null,
+        React.createElement('p',{style:{fontSize:12,color:'var(--text-dim)',marginBottom:12}},'La IA analizará tus despachos registrados y buscará correos relacionados con embarques, logística y aduana.'),
+        React.createElement('button',{className:'btn btn-primary',style:{width:'100%',marginBottom:12},onClick:runAiLogistics,disabled:iAiLoad},
+          iAiLoad?'⏳ Analizando correos...(puede tomar ~20s)':'🤖 Analizar Logística + Correos'),
+        iAiErr&&React.createElement('div',{style:{color:'#ef4444',fontSize:12,marginBottom:8}},iAiErr),
+        iAiRes&&React.createElement('div',{style:{background:'rgba(107,63,160,0.06)',border:'1px solid rgba(107,63,160,0.2)',borderRadius:12,padding:'12px'}},
+          React.createElement('div',{style:{fontSize:11,fontWeight:700,color:'var(--purple-light)',marginBottom:8}},'🤖 Análisis IA — Logística de Importaciones'),
+          typeof _renderAiMd==='function'?_renderAiMd(iAiRes):React.createElement('div',{style:{fontSize:12,whiteSpace:'pre-wrap',lineHeight:1.7}},iAiRes)
+        )
+      )
+    ),
+    iModal&&React.createElement(Modal,{
+      title:(iEdit?'Editar':'Nuevo')+' Despacho',
+      onClose:function(){setIModal(false);setIEdit(null);setIForm(emptyForm);},
+      footer:React.createElement(React.Fragment,null,
+        React.createElement('button',{className:'btn btn-primary',onClick:saveImport},'Guardar'),
+        React.createElement('button',{className:'btn btn-secondary',onClick:function(){setIModal(false);setIEdit(null);setIForm(emptyForm);}},'Cancelar')
+      )
+    },
+      React.createElement('div',{style:{display:'flex',flexDirection:'column',gap:10}},
+        React.createElement('select',{value:iForm.clientId,onChange:function(e){setIForm(function(f){return Object.assign({},f,{clientId:e.target.value});});}},
+          React.createElement('option',{value:''},'— Seleccionar Franquicia —'),
+          allClients.map(function(c){return React.createElement('option',{key:c.id,value:c.id},(c.businessName||c.name)+(c.clientType?' ['+c.clientType+']':''));})
+        ),
+        React.createElement('input',{placeholder:'Temporada (ej: SS2026)',value:iForm.season,onChange:function(e){setIForm(function(f){return Object.assign({},f,{season:e.target.value});})}}),
+        React.createElement('div',{style:{display:'grid',gridTemplateColumns:'1fr 1fr',gap:8}},
+          React.createElement('input',{placeholder:'Cantidad prendas',type:'number',value:iForm.items,onChange:function(e){setIForm(function(f){return Object.assign({},f,{items:e.target.value});})}}),
+          React.createElement('input',{placeholder:'Monto $US',type:'number',value:iForm.amount,onChange:function(e){setIForm(function(f){return Object.assign({},f,{amount:e.target.value});})}})
+        ),
+        React.createElement('select',{value:iForm.status,onChange:function(e){setIForm(function(f){return Object.assign({},f,{status:e.target.value});})}},
+          IMPORT_STATUSES.map(function(s){return React.createElement('option',{key:s,value:s},s);})
+        ),
+        React.createElement('label',{style:{fontSize:11,color:'var(--text-dim)'}},'Fecha Despacho'),
+        React.createElement('input',{type:'date',value:iForm.dateDispatch,onChange:function(e){setIForm(function(f){return Object.assign({},f,{dateDispatch:e.target.value});})}}),
+        React.createElement('div',{style:{display:'grid',gridTemplateColumns:'1fr 1fr 1fr',gap:8}},
+          React.createElement('div',null,React.createElement('label',{style:{fontSize:10,color:'var(--text-dim)'}},'ETA Arica'),React.createElement('input',{type:'date',value:iForm.etaArica,onChange:function(e){setIForm(function(f){return Object.assign({},f,{etaArica:e.target.value});})}})),
+          React.createElement('div',null,React.createElement('label',{style:{fontSize:10,color:'var(--text-dim)'}},'ETA Aduana'),React.createElement('input',{type:'date',value:iForm.etaAduana,onChange:function(e){setIForm(function(f){return Object.assign({},f,{etaAduana:e.target.value});})}})),
+          React.createElement('div',null,React.createElement('label',{style:{fontSize:10,color:'var(--text-dim)'}},'ETA Almacén'),React.createElement('input',{type:'date',value:iForm.etaStorage,onChange:function(e){setIForm(function(f){return Object.assign({},f,{etaStorage:e.target.value});})}}))
+        ),
+        React.createElement('div',null,
+          React.createElement('label',{style:{fontSize:11,color:'var(--text-dim)'}},'Fecha Recepción Real'),
+          React.createElement('input',{type:'date',value:iForm.received,onChange:function(e){setIForm(function(f){return Object.assign({},f,{received:e.target.value});})}})
+        ),
+        React.createElement('textarea',{placeholder:'Observaciones...',value:iForm.notes,onChange:function(e){setIForm(function(f){return Object.assign({},f,{notes:e.target.value});})},style:{minHeight:60}})
+      )
+    )
+  );
+};
+
+
 var App = function App() {
   var _data$profile2;
   var _useStore = useStore('lbp2026_data', INITIAL_DATA),
@@ -15315,7 +15590,7 @@ var App = function App() {
     label: '💚 Health & Wellness',
     items: [['journal', '📓', 'Journal'], ['habits', '🔄', 'Habit Tracker'], ['workout', '🏋️', 'Workout Planner'], ['recipes', '🍽', 'Recipes & Groceries'], ['medication', '💊', 'Medication Tracker'], ['skin', '✨', 'Skin Tracker']]
   }];
-  var bottomTabs = [['home','home','Home'],['tasks','task','Tasks'],['search','search','Search'],['projects','business','Projects'],['journal','book','Journal']];
+  var bottomTabs = [['home','home','Home'],['tasks','task','Tasks'],['search','search','Search'],['projects','business','Projects'],['journal','book','Journal'],['imports','archive','Envíos']];
   var renderPage = function renderPage() {
     var props = {
       data: data,
@@ -15341,6 +15616,8 @@ var App = function App() {
         return /*#__PURE__*/React.createElement(ContentScreen, props);
       case 'journal':
         return /*#__PURE__*/React.createElement(JournalScreen, props);
+      case 'imports':
+        return /*#__PURE__*/React.createElement(ImportsScreen, props);
       case 'habits':
         return /*#__PURE__*/React.createElement(HabitsScreen, props);
       case 'bucketlist':
