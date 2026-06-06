@@ -5589,7 +5589,7 @@ var ClientsScreen = function ClientsScreen(_ref24) {
           sel360.type==='project'&&React.createElement('div',{style:{fontSize:11}},
             React.createElement('div',{style:{fontWeight:700,marginBottom:4}},sel360.item.name),
             React.createElement('div',{style:{color:'var(--text-dim)'}},'Estado: '+sel360.item.status+(sel360.item.dueDate?' | Vence: '+sel360.item.dueDate:'')),
-            sel360.item.description&&React.createElement('div',{style:{marginTop:6,padding:'6px 8px',background:'var(--card)',borderRadius:6}},sel360.item.description)
+            sel360.item.description&&React.createElement('div',{style:{marginTop:6,padding:'6px 8px',background:'var(--card)',borderRadius:6},dangerouslySetInnerHTML:{__html:sel360.item.description}})
           ),
           sel360.type==='meeting'&&React.createElement('div',{style:{fontSize:11}},
             React.createElement('div',{style:{fontWeight:700,marginBottom:4}},sel360.item.title),
@@ -15090,42 +15090,79 @@ var ImportsScreen = function ImportsScreen(_ref_imp) {
   var runAiLogistics = function() {
     if (!window.LBP_WORKER_URL) { setIAiErr('Worker no configurado'); return; }
     setIAiLoad(true); setIAiRes(null); setIAiErr('');
-    var searchQ = 'embarque despacho logística aduana importación carga envío flete newer_than:90d';
-    var dataCtx = 'DESPACHOS EN SISTEMA ('+imports.length+'):\n'+imports.map(function(imp){
+
+    // Build despachos context from app data
+    var dataCtx = 'DESPACHOS REGISTRADOS EN SISTEMA ('+imports.length+'):\n'+(imports.length===0?'(ninguno registrado)':imports.map(function(imp){
       var c = allClients.find(function(x){return x.id===imp.clientId;});
-      return (c?(c.businessName||c.name):'?')+' | Temporada:'+imp.season+' | '+imp.items+' prendas | $'+(imp.amount||0)+' | '+imp.status+' | Despacho:'+imp.dateDispatch+(imp.notes?' | Obs:'+imp.notes:'');
-    }).join('\n');
-    var systemPrompt = 'Eres un asistente de logística de importación. Analiza los despachos registrados y los correos de logística disponibles. Genera un REPORTE por marca/franquicia con: 1) Estado actual de cada despacho, 2) ETAs pendientes, 3) Alertas o retrasos detectados en correos, 4) Próximas acciones. USA SOLO datos reales proporcionados, NO inventes. Si hay 0 correos, indica qué se sabe solo del sistema.';
+      return '- '+(c?(c.businessName||c.name):'Sin marca')+' | Temporada:'+imp.season+' | '+imp.items+' prendas | $'+(imp.amount||0)+' USD | Estado:'+imp.status+' | Despacho:'+imp.dateDispatch+(imp.etaArica?' | ETA Arica:'+imp.etaArica:'')+(imp.etaAduana?' | ETA Aduana:'+imp.etaAduana:'')+(imp.etaStorage?' | ETA Almacen:'+imp.etaStorage:'')+(imp.received?' | Recibido:'+imp.received:'')+(imp.notes?' | Obs:'+imp.notes:'');
+    }).join('\n'));
+
+    var systemPrompt = 'Eres asistente de logistica de importacion para Ventura Mall (La Paz, Bolivia). Analiza los despachos del sistema y los correos de logistica disponibles. Genera un REPORTE EJECUTIVO con: ## RESUMEN POR MARCA (estado, montos, ETAs), ## ALERTAS (retrasos, pendientes urgentes detectados en correos), ## CRONOGRAMA (proximas fechas clave), ## ACCIONES INMEDIATAS. USA SOLO datos reales. Sin inventar. Si no hay correos, indica lo que se sabe del sistema.';
+
     var doFetch = function(fullCtx) {
       fetch(window.LBP_WORKER_URL+'/chat',{method:'POST',headers:{'Content-Type':'application/json'},
         body:JSON.stringify({messages:[{role:'user',content:fullCtx}],systemPrompt:systemPrompt})
-      }).then(function(r){return r.json();}).then(function(res){setIAiLoad(false);setIAiRes(res.content||'Error');}).catch(function(){setIAiLoad(false);setIAiErr('Error');});
+      }).then(function(r){return r.json();}).then(function(res){setIAiLoad(false);setIAiRes(res.content||'Error');}).catch(function(){setIAiLoad(false);setIAiErr('Error de red');});
     };
+
     if (localStorage.getItem('lbp_gcal_connected')==='1' && window._gcalEnsureToken) {
       window._gcalEnsureToken(function(tok) {
-        if (!tok) { doFetch(dataCtx+'\n\n[Gmail no conectado]'); return; }
-        fetch('https://www.googleapis.com/gmail/v1/users/me/messages?maxResults=10&q='+encodeURIComponent(searchQ),{headers:{'Authorization':'Bearer '+tok}})
+        if (!tok) { doFetch(dataCtx+'\n\n[Gmail: token no disponible]'); return; }
+
+        // Step 1: Get the "Ventura Mall" label ID
+        fetch('https://www.googleapis.com/gmail/v1/users/me/labels', {headers:{'Authorization':'Bearer '+tok}})
           .then(function(r){return r.ok?r.json():null;})
+          .then(function(lblData){
+            var venturaLabel = null;
+            if (lblData && lblData.labels) {
+              venturaLabel = lblData.labels.find(function(l){
+                return l.name && l.name.toLowerCase().indexOf('ventura') !== -1;
+              });
+            }
+
+            // Step 2: Build Gmail search query — label:ventura-mall + logistics keywords, 180 days
+            var logKw = '(BL OR "bill of lading" OR embarque OR aduana OR flete OR shipment OR despacho OR "en transito" OR "bl final" OR consolidado OR booking OR importacion OR carga)';
+            var q = logKw + ' newer_than:180d';
+            if (venturaLabel) {
+              // Gmail API labelIds filter is more reliable than label: in query for user labels
+              var listUrl = 'https://www.googleapis.com/gmail/v1/users/me/messages?maxResults=15&labelIds='+encodeURIComponent(venturaLabel.id)+'&q='+encodeURIComponent(logKw+' newer_than:180d');
+              return fetch(listUrl, {headers:{'Authorization':'Bearer '+tok}}).then(function(r){return r.ok?r.json():null;}).then(function(gd){
+                // Fallback: if label search yields 0, retry without label filter
+                if (!gd || !gd.messages || !gd.messages.length) {
+                  return fetch('https://www.googleapis.com/gmail/v1/users/me/messages?maxResults=15&q='+encodeURIComponent(q),{headers:{'Authorization':'Bearer '+tok}}).then(function(r2){return r2.ok?r2.json():null;});
+                }
+                return gd;
+              });
+            } else {
+              return fetch('https://www.googleapis.com/gmail/v1/users/me/messages?maxResults=15&q='+encodeURIComponent(q),{headers:{'Authorization':'Bearer '+tok}}).then(function(r){return r.ok?r.json():null;});
+            }
+          })
           .then(function(gdata){
-            if(!gdata||!gdata.messages||!gdata.messages.length){doFetch(dataCtx+'\n\n[Sin correos de logística encontrados]');return;}
-            var ids=gdata.messages.slice(0,8).map(function(m){return m.id;});
+            if (!gdata || !gdata.messages || !gdata.messages.length) {
+              doFetch(dataCtx+'\n\nCORREOS: [Sin correos de logistica encontrados en los ultimos 180 dias]');
+              return;
+            }
+            // Step 3: Fetch each message with full metadata + snippet (300 chars)
+            var ids = gdata.messages.slice(0,12).map(function(m){return m.id;});
             return Promise.all(ids.map(function(id){
-              return fetch('https://www.googleapis.com/gmail/v1/users/me/messages/'+id+'?format=metadata&metadataHeaders=Subject&metadataHeaders=From&metadataHeaders=Date',{headers:{'Authorization':'Bearer '+tok}}).then(function(r){return r.ok?r.json():null;});
+              return fetch('https://www.googleapis.com/gmail/v1/users/me/messages/'+id+'?format=metadata&metadataHeaders=Subject&metadataHeaders=From&metadataHeaders=Date',
+                {headers:{'Authorization':'Bearer '+tok}}).then(function(r){return r.ok?r.json():null;});
             }));
           })
           .then(function(msgs){
-            if(!msgs){return;}
-            var parsed=msgs.filter(Boolean).map(function(msg){
+            if (!msgs) return;
+            var parsed = msgs.filter(Boolean).map(function(msg){
               var hdrs=(msg.payload&&msg.payload.headers)||[];
               var getH=function(n){return (hdrs.find(function(h){return h.name===n;})||{}).value||'';};
-              return 'Asunto: '+getH('Subject')+'\nDe: '+getH('From')+'\nFecha: '+getH('Date')+'\nExtracto: '+(msg.snippet||'');
+              var snippet = (msg.snippet||'').slice(0,300);
+              return 'Asunto: '+getH('Subject')+'\nDe: '+getH('From')+'\nFecha: '+getH('Date')+'\nExtracto: '+snippet;
             });
-            doFetch(dataCtx+'\n\nCORREOS LOGÍSTICA:\n'+parsed.join('\n---\n'));
+            doFetch(dataCtx+'\n\nCORREOS DE LOGISTICA ENCONTRADOS ('+parsed.length+' threads, 180 dias):\n'+parsed.join('\n---\n'));
           })
-          .catch(function(){doFetch(dataCtx+'\n\n[Error buscando correos]');});
+          .catch(function(err){ doFetch(dataCtx+'\n\n[Error buscando correos: '+err.message+']'); });
       });
     } else {
-      doFetch(dataCtx+'\n\n[Gmail no conectado]');
+      doFetch(dataCtx+'\n\n[Gmail no conectado — analisis basado solo en datos del sistema]');
     }
   };
   return React.createElement('div', null,
