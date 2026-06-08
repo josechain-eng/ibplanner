@@ -22,7 +22,7 @@
 <script>
 (function() {
   // ── Version ──────────────────────────────────────────────────────────────
-  window.LBP_VERSION = '4.72';
+  window.LBP_VERSION = '4.74';
 
   // ── PWA Install prompt ───────────────────────────────────────────────────
   window._installPrompt = null;
@@ -15145,8 +15145,30 @@ var CampaignsScreen = function CampaignsScreen(_ref_camp) {
 
   return React.createElement('div',null,
     React.createElement('div',{className:'page-header'},
-      React.createElement('h1',null,'🏷 Campañas'),
-      React.createElement('button',{className:'btn btn-primary btn-sm',onClick:function(){setCEdit(null);setCForm(emptyCamp);setCModal(true);}},'＋ Nueva')
+      React.createElement('h1',null,'🏷 Campaigns'),
+      React.createElement('div',{style:{display:'flex',gap:6}},
+        React.createElement('button',{className:'btn btn-secondary btn-sm',style:{fontSize:11},
+          onClick:function(){
+            if(!campaigns.length){alert('No hay campañas para exportar.');return;}
+            var lines=['=== EXPORT: ALL CAMPAIGNS ===','Generated: '+new Date().toLocaleDateString('es-BO'),'Total: '+campaigns.length+' campaign'+(campaigns.length>1?'s':''),''];
+            campaigns.forEach(function(camp,i){
+              lines.push((i+1)+'. '+camp.name.toUpperCase());
+              lines.push('   Status: '+(camp.status||'—')+'  |  '+camp.dateStart+' → '+camp.dateEnd);
+              if(camp.notes)lines.push('   Notes: '+camp.notes);
+              (camp.franchises||[]).forEach(function(fr){
+                var c=allClients.find(function(x){return x.id===fr.clientId;});
+                lines.push('   ── '+(c?(c.businessName||c.name):'?')+' ──');
+                if(fr.lines&&fr.lines.length)lines.push('      Lines: '+fr.lines.join(', '));
+                (fr.sublines||[]).filter(function(s){return s.name;}).forEach(function(s){lines.push('      • '+s.name+': '+s.discount);});
+                if(fr.notes)lines.push('      Obs: '+fr.notes);
+              });
+              lines.push('');
+            });
+            try{navigator.clipboard.writeText(lines.join('\n'));alert('✅ '+campaigns.length+' campaigns copied to clipboard');}catch(e){}
+          }
+        },'📋 Export All'),
+        React.createElement('button',{className:'btn btn-primary btn-sm',onClick:function(){setCEdit(null);setCForm(emptyCamp);setCModal(true);}},'＋ Nueva')
+      )
     ),
     React.createElement('div',{className:'page-content'},
       React.createElement('div',{style:{display:'flex',gap:8,marginBottom:12,flexWrap:'wrap'}},
@@ -15888,10 +15910,10 @@ var App = function App() {
     items: [['goals', '🎯', 'Goals & Vision'], ['clients', '👥', 'Client Hub'], ['finance', '💰', 'Financial Overview'], ['businessplan', '📋', 'Business Plan'], ['documents', '📂', 'Documents']]
   }, {
     label: '📅 Planners',
-    items: [['projects', '📁', 'Project Manager'], ['tasks', '✅', 'Tasks & Time Sheet'], ['meetings', '📅', 'Meetings & Events'], ['routines', '🔁', 'Daily Routines'], ['resources', '🔧', 'Resources & Tools'], ['calendar', '📅', 'Unified Calendar'], ['focus', '🎯', 'Focus Mode']]
+    items: [['projects', '📁', 'Project Manager'], ['tasks', '✅', 'Tasks & Time Sheet'], ['meetings', '📅', 'Meetings & Events'], ['routines', '🔁', 'Daily Routines'], ['resources', '🔧', 'Resources & Tools'], ['calendar', '📅', 'Unified Calendar'], ['focus', '🎯', 'Focus Mode'], ['imports', '📦', 'Ship']]
   }, {
     label: '📢 Marketing',
-    items: [['clientjourney', '🗺', 'Client Journey'], ['brandsales', '🎨', 'Brand & Sales'], ['marketing', '📢', 'Marketing Strategy'], ['campaigns', '🏷', 'Campañas']]
+    items: [['clientjourney', '🗺', 'Client Journey'], ['brandsales', '🎨', 'Brand & Sales'], ['marketing', '📢', 'Marketing Strategy'], ['campaigns', '🏷', 'Campaigns']]
   }, {
     label: '🎨 Brand Hub',
     items: [['services', '💼', 'Services'], ['content', '📱', 'Content Planner']]
@@ -15908,7 +15930,7 @@ var App = function App() {
     label: '💚 Health & Wellness',
     items: [['journal', '📓', 'Journal'], ['habits', '🔄', 'Habit Tracker'], ['workout', '🏋️', 'Workout Planner'], ['recipes', '🍽', 'Recipes & Groceries'], ['medication', '💊', 'Medication Tracker'], ['skin', '✨', 'Skin Tracker']]
   }];
-  var bottomTabs = [['home','home','Home'],['tasks','task','Tasks'],['search','search','Search'],['projects','business','Projects'],['journal','book','Journal'],['imports','archive','Envíos']];
+  var bottomTabs = [['home','home','Home'],['tasks','task','Tasks'],['search','search','Search'],['projects','business','Projects'],['journal','book','Journal'],['imports','archive','Ship']];
   var renderPage = function renderPage() {
     var props = {
       data: data,
