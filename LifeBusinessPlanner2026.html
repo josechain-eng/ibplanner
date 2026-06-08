@@ -22,7 +22,7 @@
 <script>
 (function() {
   // ── Version ──────────────────────────────────────────────────────────────
-  window.LBP_VERSION = '4.71';
+  window.LBP_VERSION = '4.72';
 
   // ── PWA Install prompt ───────────────────────────────────────────────────
   window._installPrompt = null;
@@ -15024,6 +15024,287 @@ var SyncSettingsButton = function SyncSettingsButton(_ref_ssb) {
   );
 };
 
+// ─── SALES CAMPAIGNS ────────────────────────────────────────
+var CAMP_STATUSES = ['PLANIFICADA','ACTIVA','FINALIZADA','CANCELADA'];
+var CAMP_STATUS_COLORS = {'PLANIFICADA':'#FF9800','ACTIVA':'#4CAF50','FINALIZADA':'#2196F3','CANCELADA':'#ef4444'};
+var CAMP_DEFAULT_LINES = ['Hombre','Mujer','Niña','Niño','Kids','Toda la Tienda'];
+var CAMP_DEFAULT_SUBLINES = ['Pantalones','Shorts','Poleras','Polos','Camisas','Jeans','Accesorios','Todo'];
+
+var CampaignsScreen = function CampaignsScreen(_ref_camp) {
+  var data = _ref_camp.data, setData = _ref_camp.setData;
+
+  var _cModal=useState(false),_cModal2=_slicedToArray(_cModal,2),cModal=_cModal2[0],setCModal=_cModal2[1];
+  var _cEdit=useState(null),_cEdit2=_slicedToArray(_cEdit,2),cEdit=_cEdit2[0],setCEdit=_cEdit2[1];
+  var _cDetail=useState(null),_cDetail2=_slicedToArray(_cDetail,2),cDetail=_cDetail2[0],setCDetail=_cDetail2[1];
+  var _cFilter=useState(''),_cFilter2=_slicedToArray(_cFilter,2),cFilter=_cFilter2[0],setCFilter=_cFilter2[1];
+  var _cStatusF=useState(''),_cStatusF2=_slicedToArray(_cStatusF,2),cStatusF=_cStatusF2[0],setCStatusF=_cStatusF2[1];
+
+  var emptyCamp = {name:'',dateStart:'',dateEnd:'',status:'PLANIFICADA',notes:'',franchises:[]};
+  var _cForm=useState(emptyCamp),_cForm2=_slicedToArray(_cForm,2),cForm=_cForm2[0],setCForm=_cForm2[1];
+
+  var _fModal=useState(false),_fModal2=_slicedToArray(_fModal,2),fModal=_fModal2[0],setFModal=_fModal2[1];
+  var _fEdit=useState(null),_fEdit2=_slicedToArray(_fEdit,2),fEdit=_fEdit2[0],setFEdit=_fEdit2[1];
+  var emptyFran = {clientId:'',lines:[],customLine:'',sublines:[{id:'sl_'+Date.now(),name:'',discount:''}],notes:''};
+  var _fForm=useState(emptyFran),_fForm2=_slicedToArray(_fForm,2),fForm=_fForm2[0],setFForm=_fForm2[1];
+
+  var campaigns = data.campaigns || [];
+  var allClients = data.clients || [];
+
+  var filtered = campaigns.filter(function(c){
+    var matchName = !cFilter || c.name.toLowerCase().includes(cFilter.toLowerCase());
+    var matchStatus = !cStatusF || c.status===cStatusF;
+    return matchName && matchStatus;
+  }).slice().sort(function(a,b){return (b.dateStart||'').localeCompare(a.dateStart||'');});
+
+  var saveCampaign = function() {
+    if (!cForm.name.trim()) { alert('Ingresa el nombre de la campaña'); return; }
+    var camp = Object.assign({}, cForm, {id: cEdit ? cEdit.id : 'camp_'+Date.now(), franchises: cForm.franchises||[]});
+    var newCamps = cEdit
+      ? campaigns.map(function(x){return x.id===cEdit.id ? camp : x;})
+      : [camp].concat(campaigns);
+    setData(function(d){return Object.assign({},d,{campaigns:newCamps});});
+    setCModal(false); setCEdit(null); setCForm(emptyCamp);
+  };
+
+  var deleteCampaign = function(id) {
+    if (!confirm('¿Eliminar esta campaña?')) return;
+    setData(function(d){return Object.assign({},d,{campaigns:(d.campaigns||[]).filter(function(x){return x.id!==id;})});});
+    if (cDetail && cDetail.id===id) setCDetail(null);
+  };
+
+  var saveFranchise = function() {
+    if (!fForm.clientId) { alert('Selecciona una franquicia'); return; }
+    var fran = {
+      id: fEdit ? fEdit.id : 'fran_'+Date.now(),
+      clientId: fForm.clientId,
+      lines: fForm.lines,
+      sublines: fForm.sublines.filter(function(s){return s.name.trim();}),
+      notes: fForm.notes
+    };
+    var newFrans = fEdit
+      ? (cForm.franchises||[]).map(function(x){return x.id===fEdit.id ? fran : x;})
+      : (cForm.franchises||[]).concat([fran]);
+    setCForm(function(f){return Object.assign({},f,{franchises:newFrans});});
+    setFModal(false); setFEdit(null); setFForm(emptyFran);
+  };
+
+  var deleteFranchise = function(fid) {
+    setCForm(function(f){return Object.assign({},f,{franchises:(f.franchises||[]).filter(function(x){return x.id!==fid;})});});
+  };
+
+  var toggleLine = function(line) {
+    setFForm(function(f){
+      var lines = f.lines.includes(line) ? f.lines.filter(function(l){return l!==line;}) : f.lines.concat([line]);
+      return Object.assign({},f,{lines:lines});
+    });
+  };
+
+  var addCustomLine = function() {
+    var l = (fForm.customLine||'').trim();
+    if (!l || fForm.lines.includes(l)) { setFForm(function(f){return Object.assign({},f,{customLine:''});}); return; }
+    setFForm(function(f){return Object.assign({},f,{lines:f.lines.concat([l]),customLine:''});});
+  };
+
+  var addSubline = function() {
+    setFForm(function(f){return Object.assign({},f,{sublines:f.sublines.concat([{id:'sl_'+Date.now(),name:'',discount:''}])});});
+  };
+  var updateSubline = function(idx, field, val) {
+    setFForm(function(f){
+      var sls = f.sublines.slice();
+      sls[idx] = Object.assign({},sls[idx]);
+      sls[idx][field] = val;
+      return Object.assign({},f,{sublines:sls});
+    });
+  };
+  var removeSubline = function(idx) {
+    setFForm(function(f){var sls=f.sublines.slice();sls.splice(idx,1);return Object.assign({},f,{sublines:sls.length?sls:[{id:'sl_'+Date.now(),name:'',discount:''}]});});
+  };
+
+  var exportCampaign = function(camp) {
+    var lines = ['=== CAMPAÑA: '+camp.name+' ==='];
+    lines.push('Estado: '+(camp.status||'')+'  |  '+camp.dateStart+' → '+camp.dateEnd);
+    if (camp.notes) lines.push('Notas: '+camp.notes);
+    lines.push('');
+    (camp.franchises||[]).forEach(function(fr){
+      var c = allClients.find(function(x){return x.id===fr.clientId;});
+      lines.push('── '+(c?(c.businessName||c.name):'?')+' ──');
+      if (fr.lines&&fr.lines.length) lines.push('Líneas: '+fr.lines.join(', '));
+      if (fr.sublines&&fr.sublines.length) {
+        lines.push('Sublíneas y Descuentos:');
+        fr.sublines.forEach(function(s){lines.push('  • '+s.name+': '+s.discount);});
+      }
+      if (fr.notes) lines.push('Obs: '+fr.notes);
+      lines.push('');
+    });
+    try { navigator.clipboard.writeText(lines.join('\n')); alert('Campaña copiada al portapapeles'); } catch(e){}
+  };
+
+  var sBadge = function(s) {
+    return React.createElement('span',{style:{fontSize:9,padding:'2px 7px',borderRadius:8,background:(CAMP_STATUS_COLORS[s]||'#888')+'22',color:CAMP_STATUS_COLORS[s]||'#888',fontWeight:700,whiteSpace:'nowrap'}},s);
+  };
+
+  return React.createElement('div',null,
+    React.createElement('div',{className:'page-header'},
+      React.createElement('h1',null,'🏷 Campañas'),
+      React.createElement('button',{className:'btn btn-primary btn-sm',onClick:function(){setCEdit(null);setCForm(emptyCamp);setCModal(true);}},'＋ Nueva')
+    ),
+    React.createElement('div',{className:'page-content'},
+      React.createElement('div',{style:{display:'flex',gap:8,marginBottom:12,flexWrap:'wrap'}},
+        React.createElement('input',{placeholder:'🔍 Buscar campaña...',value:cFilter,onChange:function(e){setCFilter(e.target.value);},style:{flex:1,minWidth:120}}),
+        React.createElement('select',{value:cStatusF,onChange:function(e){setCStatusF(e.target.value);},style:{fontSize:12}},
+          React.createElement('option',{value:''},'Todos'),
+          CAMP_STATUSES.map(function(s){return React.createElement('option',{key:s,value:s},s);})
+        )
+      ),
+      filtered.length===0
+        ? React.createElement('div',{className:'empty-state'},
+            React.createElement('div',{className:'e-icon'},'🏷'),
+            React.createElement('h3',null,'Sin campañas'),
+            React.createElement('p',null,'Crea tu primera campaña con "+ Nueva"'))
+        : filtered.map(function(camp){
+            var isOpen = cDetail && cDetail.id===camp.id;
+            var fCount = (camp.franchises||[]).length;
+            return React.createElement('div',{key:camp.id,style:{background:'var(--card)',border:'1px solid '+(isOpen?'var(--purple-light)':'var(--border)'),borderRadius:10,marginBottom:8,overflow:'hidden'}},
+              React.createElement('div',{style:{padding:'10px 12px',display:'flex',alignItems:'center',gap:8,cursor:'pointer'},
+                onClick:function(){setCDetail(isOpen?null:camp);}},
+                React.createElement('div',{style:{flex:1}},
+                  React.createElement('div',{style:{fontWeight:800,fontSize:13}},camp.name),
+                  React.createElement('div',{style:{fontSize:10,color:'var(--text-dim)',marginTop:2}},
+                    (camp.dateStart||'?')+' → '+(camp.dateEnd||'?')+(fCount?' · '+fCount+' franquicia'+(fCount>1?'s':''):''))
+                ),
+                sBadge(camp.status||'PLANIFICADA'),
+                React.createElement('span',{style:{color:'var(--text-dim)',fontSize:14}},isOpen?'▲':'▼')
+              ),
+              isOpen && React.createElement('div',{style:{borderTop:'1px solid var(--border)',padding:'10px 12px'}},
+                (camp.franchises||[]).map(function(fr){
+                  var c = allClients.find(function(x){return x.id===fr.clientId;});
+                  return React.createElement('div',{key:fr.id,style:{background:'var(--surface)',borderRadius:8,padding:'8px 10px',marginBottom:6}},
+                    React.createElement('div',{style:{fontWeight:700,fontSize:12,marginBottom:4,color:'var(--purple-light)'}},(c?(c.businessName||c.name):'Sin asignar')),
+                    fr.lines&&fr.lines.length>0&&React.createElement('div',{style:{fontSize:10,color:'var(--text-dim)',marginBottom:3}},'Líneas: '+fr.lines.join(' · ')),
+                    fr.sublines&&fr.sublines.filter(function(s){return s.name;}).map(function(s,si){
+                      return React.createElement('div',{key:si,style:{fontSize:11,display:'flex',gap:8,padding:'1px 0'}},
+                        React.createElement('span',{style:{flex:1}},s.name),
+                        React.createElement('span',{style:{fontWeight:700,color:'#4CAF50'}},s.discount)
+                      );
+                    }),
+                    fr.notes&&React.createElement('div',{style:{fontSize:10,color:'var(--text-dim)',fontStyle:'italic',marginTop:3}},fr.notes)
+                  );
+                }),
+                (camp.franchises||[]).length===0&&React.createElement('div',{style:{fontSize:11,color:'var(--text-dim)',fontStyle:'italic',marginBottom:8}},'Sin franquicias agregadas'),
+                camp.notes&&React.createElement('div',{style:{fontSize:11,color:'var(--text-dim)',marginBottom:8}},'Obs: '+camp.notes),
+                React.createElement('div',{style:{display:'flex',gap:6,flexWrap:'wrap'}},
+                  React.createElement('button',{className:'btn btn-secondary btn-sm',style:{fontSize:10},onClick:function(){setCEdit(camp);setCForm(Object.assign({},camp,{franchises:(camp.franchises||[]).slice()}));setCModal(true);}},'✏️ Editar'),
+                  React.createElement('button',{className:'btn btn-secondary btn-sm',style:{fontSize:10},onClick:function(){exportCampaign(camp);}},'📋 Copiar'),
+                  React.createElement('button',{className:'btn btn-danger btn-sm',style:{fontSize:10},onClick:function(){deleteCampaign(camp.id);}},'🗑 Eliminar')
+                )
+              )
+            );
+          }),
+      cModal&&React.createElement(Modal,{
+        title:(cEdit?'Editar':'Nueva')+' Campaña',
+        onClose:function(){setCModal(false);setCEdit(null);setCForm(emptyCamp);},
+        footer:React.createElement(React.Fragment,null,
+          React.createElement('button',{className:'btn btn-primary',onClick:saveCampaign},'Guardar'),
+          React.createElement('button',{className:'btn btn-secondary',onClick:function(){setCModal(false);setCEdit(null);setCForm(emptyCamp);}},'Cancelar')
+        )
+      },
+        React.createElement('div',{style:{display:'flex',flexDirection:'column',gap:10}},
+          React.createElement('input',{placeholder:'Nombre de la campaña (ej. Remate Invierno 2026)',value:cForm.name,onChange:function(e){setCForm(function(f){return Object.assign({},f,{name:e.target.value});})}}),
+          React.createElement('div',{style:{display:'grid',gridTemplateColumns:'1fr 1fr',gap:8}},
+            React.createElement('div',null,React.createElement('label',{style:{fontSize:11,color:'var(--text-dim)'}},' Fecha Inicio'),React.createElement('input',{type:'date',value:cForm.dateStart,onChange:function(e){setCForm(function(f){return Object.assign({},f,{dateStart:e.target.value});})}})),
+            React.createElement('div',null,React.createElement('label',{style:{fontSize:11,color:'var(--text-dim)'}},' Fecha Final'),React.createElement('input',{type:'date',value:cForm.dateEnd,onChange:function(e){setCForm(function(f){return Object.assign({},f,{dateEnd:e.target.value});})}}))
+          ),
+          React.createElement('select',{value:cForm.status,onChange:function(e){setCForm(function(f){return Object.assign({},f,{status:e.target.value});})}},
+            CAMP_STATUSES.map(function(s){return React.createElement('option',{key:s,value:s},s);})),
+          React.createElement('textarea',{placeholder:'Observaciones generales...',value:cForm.notes||'',onChange:function(e){setCForm(function(f){return Object.assign({},f,{notes:e.target.value});})},style:{minHeight:40}}),
+          React.createElement('div',{style:{borderTop:'1px solid var(--border)',paddingTop:10}},
+            React.createElement('div',{style:{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:8}},
+              React.createElement('div',{style:{fontWeight:700,fontSize:12}},'Franquicias ('+(cForm.franchises||[]).length+')'),
+              React.createElement('button',{className:'btn btn-secondary btn-sm',style:{fontSize:11},onClick:function(){setFEdit(null);setFForm(emptyFran);setFModal(true);}},'＋ Agregar')
+            ),
+            (cForm.franchises||[]).map(function(fr){
+              var c = allClients.find(function(x){return x.id===fr.clientId;});
+              return React.createElement('div',{key:fr.id,style:{background:'var(--surface)',borderRadius:8,padding:'8px 10px',marginBottom:6,display:'flex',alignItems:'flex-start',gap:8}},
+                React.createElement('div',{style:{flex:1}},
+                  React.createElement('div',{style:{fontWeight:700,fontSize:12}},(c?(c.businessName||c.name):'?')),
+                  fr.lines&&fr.lines.length>0&&React.createElement('div',{style:{fontSize:9,color:'var(--text-dim)'}},'Líneas: '+fr.lines.join(', ')),
+                  fr.sublines&&fr.sublines.filter(function(s){return s.name;}).slice(0,3).map(function(s,si){return React.createElement('div',{key:si,style:{fontSize:10}},'• '+s.name+': '+s.discount);})
+                ),
+                React.createElement('button',{style:{background:'none',border:'none',cursor:'pointer',color:'var(--text-dim)',fontSize:13},onClick:function(){setFEdit(fr);setFForm(Object.assign({},fr,{customLine:'',sublines:fr.sublines&&fr.sublines.length?fr.sublines:[{id:'sl_1',name:'',discount:''}]}));setFModal(true);}},'✏️'),
+                React.createElement('button',{style:{background:'none',border:'none',cursor:'pointer',color:'#ef4444',fontSize:13},onClick:function(){deleteFranchise(fr.id);}},'×')
+              );
+            })
+          )
+        )
+      ),
+      fModal&&React.createElement(Modal,{
+        title:(fEdit?'Editar':'Agregar')+' Franquicia',
+        onClose:function(){setFModal(false);setFEdit(null);setFForm(emptyFran);},
+        footer:React.createElement(React.Fragment,null,
+          React.createElement('button',{className:'btn btn-primary',onClick:saveFranchise},'Guardar'),
+          React.createElement('button',{className:'btn btn-secondary',onClick:function(){setFModal(false);setFEdit(null);setFForm(emptyFran);}},'Cancelar')
+        )
+      },
+        React.createElement('div',{style:{display:'flex',flexDirection:'column',gap:10}},
+          React.createElement('select',{value:fForm.clientId,onChange:function(e){setFForm(function(f){return Object.assign({},f,{clientId:e.target.value});})}},
+            React.createElement('option',{value:''},'— Seleccionar Franquicia —'),
+            allClients.map(function(c){return React.createElement('option',{key:c.id,value:c.id},(c.businessName||c.name)+(c.clientType?' ['+c.clientType+']':''));})
+          ),
+          React.createElement('div',null,
+            React.createElement('label',{style:{fontSize:11,color:'var(--text-dim)',marginBottom:4,display:'block'}},'Líneas (selecciona las que aplican):'),
+            React.createElement('div',{style:{display:'flex',flexWrap:'wrap',gap:6,marginBottom:6}},
+              CAMP_DEFAULT_LINES.map(function(line){
+                var active = fForm.lines.includes(line);
+                return React.createElement('button',{key:line,onClick:function(){toggleLine(line);},
+                  style:{padding:'4px 10px',borderRadius:16,border:'1px solid '+(active?'var(--purple-light)':'var(--border)'),
+                    background:active?'rgba(107,63,160,0.15)':'transparent',color:active?'var(--purple-light)':'var(--text-dim)',
+                    fontSize:11,cursor:'pointer',fontWeight:active?700:400}},line);
+              }),
+              fForm.lines.filter(function(l){return !CAMP_DEFAULT_LINES.includes(l);}).map(function(line){
+                return React.createElement('button',{key:line,onClick:function(){toggleLine(line);},
+                  style:{padding:'4px 10px',borderRadius:16,border:'1px solid var(--purple-light)',
+                    background:'rgba(107,63,160,0.15)',color:'var(--purple-light)',fontSize:11,cursor:'pointer',fontWeight:700}},line+' ×');
+              })
+            ),
+            React.createElement('div',{style:{display:'flex',gap:6}},
+              React.createElement('input',{placeholder:'Agregar línea personalizada...',value:fForm.customLine||'',
+                onChange:function(e){setFForm(function(f){return Object.assign({},f,{customLine:e.target.value});})},
+                onKeyDown:function(e){if(e.key==='Enter'){e.preventDefault();addCustomLine();}},
+                style:{flex:1,fontSize:12}}),
+              React.createElement('button',{className:'btn btn-secondary btn-sm',style:{fontSize:11},onClick:addCustomLine},'＋')
+            )
+          ),
+          React.createElement('div',null,
+            React.createElement('label',{style:{fontSize:11,color:'var(--text-dim)',marginBottom:6,display:'block'}},'Sublíneas y Descuentos:'),
+            React.createElement('div',{style:{display:'flex',flexWrap:'wrap',gap:4,marginBottom:8}},
+              CAMP_DEFAULT_SUBLINES.map(function(sl){
+                var already = fForm.sublines.some(function(s){return s.name===sl;});
+                return React.createElement('button',{key:sl,disabled:already,onClick:function(){
+                    if(!already) setFForm(function(f){return Object.assign({},f,{sublines:f.sublines.concat([{id:'sl_'+Date.now(),name:sl,discount:''}])});});},
+                  style:{padding:'2px 8px',borderRadius:10,border:'1px solid var(--border)',background:already?'var(--surface)':'transparent',
+                    color:already?'var(--text-dim)':'var(--text)',fontSize:10,cursor:already?'default':'pointer'}},sl+(already?' ✓':''));
+              })
+            ),
+            fForm.sublines.map(function(sl,idx){
+              return React.createElement('div',{key:sl.id||idx,style:{display:'flex',gap:6,alignItems:'center',marginBottom:6}},
+                React.createElement('input',{placeholder:'Sublínea (ej. Poleras)',value:sl.name,
+                  onChange:function(e){updateSubline(idx,'name',e.target.value);},style:{flex:2,fontSize:12}}),
+                React.createElement('input',{placeholder:'Descuento (ej. 30% o 2x1)',value:sl.discount,
+                  onChange:function(e){updateSubline(idx,'discount',e.target.value);},style:{flex:2,fontSize:12}}),
+                React.createElement('button',{style:{background:'none',border:'none',color:'#ef4444',cursor:'pointer',fontSize:16,padding:'0 4px'},
+                  onClick:function(){removeSubline(idx);}},'×')
+              );
+            }),
+            React.createElement('button',{className:'btn btn-secondary btn-sm',style:{fontSize:11,width:'100%'},onClick:addSubline},'＋ Agregar sublínea')
+          ),
+          React.createElement('textarea',{placeholder:'Observaciones para esta franquicia...',value:fForm.notes||'',
+            onChange:function(e){setFForm(function(f){return Object.assign({},f,{notes:e.target.value});})},style:{minHeight:40}})
+        )
+      )
+    )
+  );
+};
+
 // ─── IMPORTS TRACKING ──────────────────────────────────────────
 var IMPORT_STATUSES = ['PENDIENTE','EN_TRÁNSITO','EN_ADUANA','EN_ALMACÉN','RECIBIDO','CANCELADO'];
 var IMPORT_STATUS_COLORS = {
@@ -15279,12 +15560,12 @@ var ImportsScreen = function ImportsScreen(_ref_imp) {
         React.createElement('select',{value:iForm.status,onChange:function(e){setIForm(function(f){return Object.assign({},f,{status:e.target.value});})}},
           IMPORT_STATUSES.map(function(s){return React.createElement('option',{key:s,value:s},s);})
         ),
-        React.createElement('label',{style:{fontSize:11,color:'var(--text-dim)'}},'Fecha Despacho'),
-        React.createElement('input',{type:'date',value:iForm.dateDispatch,onChange:function(e){setIForm(function(f){return Object.assign({},f,{dateDispatch:e.target.value});})}}),
-        React.createElement('div',{style:{display:'grid',gridTemplateColumns:'1fr 1fr 1fr',gap:8}},
-          React.createElement('div',null,React.createElement('label',{style:{fontSize:10,color:'var(--text-dim)'}},'ETA Arica'),React.createElement('input',{type:'date',value:iForm.etaArica,onChange:function(e){setIForm(function(f){return Object.assign({},f,{etaArica:e.target.value});})}})),
-          React.createElement('div',null,React.createElement('label',{style:{fontSize:10,color:'var(--text-dim)'}},'ETA Aduana'),React.createElement('input',{type:'date',value:iForm.etaAduana,onChange:function(e){setIForm(function(f){return Object.assign({},f,{etaAduana:e.target.value});})}})),
-          React.createElement('div',null,React.createElement('label',{style:{fontSize:10,color:'var(--text-dim)'}},'ETA Almacén'),React.createElement('input',{type:'date',value:iForm.etaStorage,onChange:function(e){setIForm(function(f){return Object.assign({},f,{etaStorage:e.target.value});})}}))
+        React.createElement('div',{style:{display:'grid',gridTemplateColumns:'1fr 1fr',gap:8}},
+          React.createElement('div',null,React.createElement('label',{style:{fontSize:11,color:'var(--text-dim)'}},'📅 Fecha Despacho'),React.createElement('input',{type:'date',value:iForm.dateDispatch,onChange:function(e){setIForm(function(f){return Object.assign({},f,{dateDispatch:e.target.value});})}})),
+          React.createElement('div',null,React.createElement('label',{style:{fontSize:11,color:'var(--text-dim)'}},'✈️ ETA Arica'),React.createElement('input',{type:'date',value:iForm.etaArica,onChange:function(e){setIForm(function(f){return Object.assign({},f,{etaArica:e.target.value});})}}))),
+        React.createElement('div',{style:{display:'grid',gridTemplateColumns:'1fr 1fr',gap:8}},
+          React.createElement('div',null,React.createElement('label',{style:{fontSize:11,color:'var(--text-dim)'}},'🏛 ETA Aduana'),React.createElement('input',{type:'date',value:iForm.etaAduana,onChange:function(e){setIForm(function(f){return Object.assign({},f,{etaAduana:e.target.value});})}})),
+          React.createElement('div',null,React.createElement('label',{style:{fontSize:11,color:'var(--text-dim)'}},'🏭 ETA Almacén'),React.createElement('input',{type:'date',value:iForm.etaStorage,onChange:function(e){setIForm(function(f){return Object.assign({},f,{etaStorage:e.target.value});})}}))
         ),
         React.createElement('div',null,
           React.createElement('label',{style:{fontSize:11,color:'var(--text-dim)'}},'Fecha Recepción Real'),
@@ -15610,7 +15891,7 @@ var App = function App() {
     items: [['projects', '📁', 'Project Manager'], ['tasks', '✅', 'Tasks & Time Sheet'], ['meetings', '📅', 'Meetings & Events'], ['routines', '🔁', 'Daily Routines'], ['resources', '🔧', 'Resources & Tools'], ['calendar', '📅', 'Unified Calendar'], ['focus', '🎯', 'Focus Mode']]
   }, {
     label: '📢 Marketing',
-    items: [['clientjourney', '🗺', 'Client Journey'], ['brandsales', '🎨', 'Brand & Sales'], ['marketing', '📢', 'Marketing Strategy']]
+    items: [['clientjourney', '🗺', 'Client Journey'], ['brandsales', '🎨', 'Brand & Sales'], ['marketing', '📢', 'Marketing Strategy'], ['campaigns', '🏷', 'Campañas']]
   }, {
     label: '🎨 Brand Hub',
     items: [['services', '💼', 'Services'], ['content', '📱', 'Content Planner']]
@@ -15653,6 +15934,8 @@ var App = function App() {
         return /*#__PURE__*/React.createElement(ContentScreen, props);
       case 'journal':
         return /*#__PURE__*/React.createElement(JournalScreen, props);
+      case 'campaigns':
+        return /*#__PURE__*/React.createElement(CampaignsScreen, props);
       case 'imports':
         return /*#__PURE__*/React.createElement(ImportsScreen, props);
       case 'habits':
