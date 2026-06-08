@@ -22,7 +22,7 @@
 <script>
 (function() {
   // ── Version ──────────────────────────────────────────────────────────────
-  window.LBP_VERSION = '4.74';
+  window.LBP_VERSION = '4.75';
 
   // ── PWA Install prompt ───────────────────────────────────────────────────
   window._installPrompt = null;
@@ -6535,9 +6535,13 @@ var MeetingsScreen = function MeetingsScreen(_ref26) {
     type: "time",
     value: form.startTime,
     onChange: function onChange(e) {
+      var _st = e.target.value;
+      var _ep = _st ? _st.split(':') : null;
+      var _autoEnd = _ep ? (function(){var _h=parseInt(_ep[0])+1;return(_h>=24?'23':_h<10?'0'+_h:''+_h)+':'+_ep[1];})() : form.endTime;
       return setForm(_objectSpread(_objectSpread({}, form), {}, {
-        startTime: e.target.value,
-        alarm: form.date ? meetingAlarmDefault(form.date, e.target.value) : form.alarm
+        startTime: _st,
+        endTime: _autoEnd,
+        alarm: form.date ? meetingAlarmDefault(form.date, _st) : form.alarm
       }));
     }
   })), /*#__PURE__*/React.createElement("div", {
@@ -11419,301 +11423,116 @@ var MarketingStrategyScreen = function MarketingStrategyScreen(_ref54) {
 
 // ─── OUTFIT PLANNER ────────────────────────────────────
 var OutfitPlannerScreen = function OutfitPlannerScreen(_ref55) {
-  var data = _ref55.data,
-    setData = _ref55.setData;
-  var _useState167 = useState(false),
-    _useState168 = _slicedToArray(_useState167, 2),
-    modal = _useState168[0],
-    setModal = _useState168[1];
-  var _useState169 = useState(null),
-    _useState170 = _slicedToArray(_useState169, 2),
-    editItem = _useState170[0],
-    setEditItem = _useState170[1];
-  var _useState171 = useState('All'),
-    _useState172 = _slicedToArray(_useState171, 2),
-    tab = _useState172[0],
-    setTab = _useState172[1];
-  var _useState173 = useState({
-      name: '',
-      occasion: '',
-      season: 'ALL',
-      items: '',
-      date: today(),
-      rating: 3,
-      notes: '',
-      color: ''
-    }),
-    _useState174 = _slicedToArray(_useState173, 2),
-    form = _useState174[0],
-    setForm = _useState174[1];
-  var seasons = ['ALL', 'SPRING', 'SUMMER', 'AUTUMN', 'WINTER'];
-  var seasonEmoji = {
-    ALL: '👗',
-    SPRING: '🌸',
-    SUMMER: '☀️',
-    AUTUMN: '🍂',
-    WINTER: '❄️'
-  };
-  var occasions = ['Casual', 'Work', 'Formal', 'Date Night', 'Workout', 'Travel', 'Event', 'Other'];
-  var outfits = (data.outfits || []).filter(function (o) {
-    return tab === 'All' || o.season === tab;
-  });
+  var data = _ref55.data, setData = _ref55.setData;
+  var _fm = useState(false), _fm2 = _slicedToArray(_fm, 2), modal = _fm2[0], setModal = _fm2[1];
+  var _fe = useState(null), _fe2 = _slicedToArray(_fe, 2), editItem = _fe2[0], setEditItem = _fe2[1];
+  var _fmb = useState('All'), _fmb2 = _slicedToArray(_fmb, 2), filterMember = _fmb2[0], setFilterMember = _fmb2[1];
+  var _ff = useState({member:'',clothingType:'',subcategory:'',size:'',notes:''}),
+      _ff2 = _slicedToArray(_ff, 2), form = _ff2[0], setForm = _ff2[1];
+  var clothingTypes = ['Zapatos','Camisas','Pantalones','Shorts','Vestidos','Ropa Interior','Abrigos','Accesorios','Ropa Deportiva','Otro'];
+  var DEFAULT_MEMBERS = ['Yo','Esposa','Isabella'];
+  var sizes = data.familySizes || [];
+  var uniqueMembers = [];
+  sizes.forEach(function(s){if(s.member&&uniqueMembers.indexOf(s.member)<0)uniqueMembers.push(s.member);});
+  // Merge defaults + custom members (preserve order: defaults first, then any extras)
+  var allMembers = DEFAULT_MEMBERS.concat(uniqueMembers.filter(function(m){return DEFAULT_MEMBERS.indexOf(m)<0;}));
+  var members = ['All'].concat(allMembers);
+  var filtered = filterMember === 'All' ? sizes : sizes.filter(function(s){return s.member === filterMember;});
+  var resetForm = function(){setForm({member:'',clothingType:'',subcategory:'',size:'',notes:''}); setEditItem(null);};
   var save = function save() {
-    if (!form.name) return;
+    if (!form.member || !form.clothingType) return;
     if (editItem) {
-      setData(function (d) {
-        return _objectSpread(_objectSpread({}, d), {}, {
-          outfits: d.outfits.map(function (x) {
-            return x.id === editItem.id ? _objectSpread(_objectSpread({}, editItem), form) : x;
-          })
-        });
-      });
+      setData(function(d){return _objectSpread(_objectSpread({},d),{},{familySizes:(d.familySizes||[]).map(function(x){return x.id===editItem.id?_objectSpread(_objectSpread({},editItem),form):x;})});});
     } else {
-      setData(function (d) {
-        return _objectSpread(_objectSpread({}, d), {}, {
-          outfits: [].concat(_toConsumableArray(d.outfits || []), [_objectSpread(_objectSpread({}, form), {}, {
-            id: uid(),
-            createdAt: now()
-          })])
-        });
-      });
+      setData(function(d){return _objectSpread(_objectSpread({},d),{},{familySizes:[].concat(_toConsumableArray(d.familySizes||[]),[_objectSpread(_objectSpread({},form),{},{id:uid(),createdAt:now()})])});});
     }
-    setForm({
-      name: '',
-      occasion: '',
-      season: 'ALL',
-      items: '',
-      date: today(),
-      rating: 3,
-      notes: '',
-      color: ''
-    });
-    setModal(false);
-    setEditItem(null);
+    setModal(false); resetForm();
   };
   var del = function del(id) {
-    return setData(function (d) {
-      return _objectSpread(_objectSpread({}, d), {}, {
-        outfits: d.outfits.filter(function (o) {
-          return o.id !== id;
-        }),
-        _deletedIds: _lbpRecordDel(d, id)
-      });
-    });
+    if(!confirm('Delete this entry?'))return;
+    setData(function(d){return _objectSpread(_objectSpread({},d),{},{familySizes:(d.familySizes||[]).filter(function(x){return x.id!==id;}),_deletedIds:_lbpRecordDel(d,id)});});
   };
-  return /*#__PURE__*/React.createElement("div", null, /*#__PURE__*/React.createElement("div", {
-    className: "page-header"
-  }, /*#__PURE__*/React.createElement("h1", null, "\uD83D\uDC57 Outfit Planner"), /*#__PURE__*/React.createElement("button", {
-    className: "btn btn-primary btn-sm",
-    onClick: function onClick() { setEditItem(null); setModal(true); }
-  }, "+ New Outfit")), /*#__PURE__*/React.createElement("div", {
-    className: "tabs"
-  }, seasons.map(function (s) {
-    return /*#__PURE__*/React.createElement("div", {
-      key: s,
-      className: "tab ".concat(tab === s ? 'active' : ''),
-      onClick: function onClick() {
-        return setTab(s);
-      }
-    }, seasonEmoji[s], " ", s);
-  })), /*#__PURE__*/React.createElement("div", {
-    className: "page-content"
-  }, outfits.length === 0 ? /*#__PURE__*/React.createElement("div", {
-    className: "empty-state"
-  }, /*#__PURE__*/React.createElement("div", {
-    className: "e-icon"
-  }, "\uD83D\uDC57"), /*#__PURE__*/React.createElement("h3", null, "No outfits planned"), /*#__PURE__*/React.createElement("p", null, "Log your looks and plan your wardrobe."), /*#__PURE__*/React.createElement("button", {
-    className: "btn btn-primary",
-    onClick: function onClick() { setEditItem(null); setModal(true); }
-  }, "+ Add Outfit")) : /*#__PURE__*/React.createElement("div", {
-    style: {
-      display: 'grid',
-      gridTemplateColumns: 'repeat(auto-fill,minmax(180px,1fr))',
-      gap: 12
-    }
-  }, outfits.map(function (o) {
-    return /*#__PURE__*/React.createElement("div", {
-      key: o.id,
-      className: "card",
-      style: {
-        borderTop: "4px solid ".concat(o.color || 'var(--purple)')
-      }
-    }, /*#__PURE__*/React.createElement("div", {
-      style: {
-        fontSize: 36,
-        textAlign: 'center',
-        marginBottom: 8
-      }
-    }, "\uD83D\uDC57"), /*#__PURE__*/React.createElement("div", {
-      style: {
-        fontWeight: 700,
-        fontSize: 14,
-        marginBottom: 4
-      }
-    }, o.name), o.occasion && /*#__PURE__*/React.createElement(Chip, {
-      label: o.occasion,
-      color: "var(--purple)"
-    }), /*#__PURE__*/React.createElement("div", {
-      style: {
-        fontSize: 11,
-        color: 'var(--text-dim)',
-        marginTop: 4
-      }
-    }, seasonEmoji[o.season], " ", o.season), o.items && /*#__PURE__*/React.createElement("div", {
-      style: {
-        fontSize: 11,
-        color: 'var(--text-dim)',
-        marginTop: 4
-      }
-    }, "\uD83E\uDDE3 ", o.items), o.date && /*#__PURE__*/React.createElement("div", {
-      style: {
-        fontSize: 11,
-        color: 'var(--text-dim)',
-        marginTop: 2
-      }
-    }, "\uD83D\uDCC5 ", o.date), o.rating > 0 && /*#__PURE__*/React.createElement("div", {
-      style: {
-        marginTop: 4
-      }
-    }, '⭐'.repeat(o.rating)), /*#__PURE__*/React.createElement("button", {
-      className: "btn btn-danger btn-sm",
-      style: {
-        marginTop: 8,
-        width: '100%'
-      },
-      onClick: function onClick(e) { e.stopPropagation(); del(o.id); }
-    }, "Delete"));
-  }))), modal && /*#__PURE__*/React.createElement(Modal, {
-    title: "New Outfit",
-    onClose: function onClose() {
-      setModal(false); setEditItem(null);
+  return React.createElement('div', null,
+    React.createElement('div', {className:'page-header'},
+      React.createElement('h1', null, '👔 Family Sizes'),
+      React.createElement('button', {className:'btn btn-primary btn-sm', onClick:function(){resetForm();setModal(true);}}, '+ Add')
+    ),
+    members.length > 1 && React.createElement('div', {className:'tabs'},
+      members.map(function(m){
+        return React.createElement('div', {key:m, className:'tab '+(filterMember===m?'active':''), onClick:function(){setFilterMember(m);}}, m);
+      })
+    ),
+    React.createElement('div', {className:'page-content'},
+      filtered.length === 0 ? React.createElement('div', {className:'empty-state'},
+        React.createElement('div', {className:'e-icon'}, '👔'),
+        React.createElement('h3', null, 'No sizes saved yet'),
+        React.createElement('p', null, 'Add clothing sizes and preferences for your family members.'),
+        React.createElement('button', {className:'btn btn-primary', onClick:function(){resetForm();setModal(true);}}, '+ Add First Entry')
+      ) : React.createElement(React.Fragment, null,
+        allMembers.filter(function(m){return filterMember==='All'||m===filterMember;}).map(function(member){
+          var memberItems = filtered.filter(function(s){return s.member===member;});
+          if(!memberItems.length) return null;
+          return React.createElement('div', {key:member, style:{marginBottom:16}},
+            React.createElement('div', {style:{fontWeight:700,fontSize:12,color:'var(--purple-light)',textTransform:'uppercase',letterSpacing:1,marginBottom:8,paddingBottom:4,borderBottom:'1px solid var(--border)'}}, member),
+            memberItems.map(function(s){
+              return React.createElement('div', {key:s.id, className:'card mb-8'},
+                React.createElement('div', {className:'row'},
+                  React.createElement('div', {style:{flex:1}},
+                    React.createElement('div', {style:{fontWeight:600,fontSize:14}}, s.clothingType+(s.subcategory?' — '+s.subcategory:'')),
+                    React.createElement('div', {style:{display:'flex',gap:8,marginTop:4,flexWrap:'wrap',alignItems:'center'}},
+                      s.size && React.createElement(Chip, {label:'📏 '+s.size, color:'#6B3FA0'}),
+                      s.notes && React.createElement('span', {style:{fontSize:12,color:'var(--text-dim)'}}, s.notes)
+                    )
+                  ),
+                  React.createElement('div', {style:{display:'flex',gap:6}},
+                    React.createElement('button', {className:'btn btn-secondary btn-sm', onClick:function(){setEditItem(s);setForm({member:s.member,clothingType:s.clothingType,subcategory:s.subcategory||'',size:s.size||'',notes:s.notes||''});setModal(true);}}, '✏️'),
+                    React.createElement('button', {className:'btn btn-danger btn-sm btn-icon', onClick:function(){del(s.id);}}, '\xD7')
+                  )
+                )
+              );
+            })
+          );
+        })
+      )
+    ),
+    modal && React.createElement(Modal, {
+      title: editItem ? 'Edit Entry' : 'Add Clothing Size',
+      onClose: function(){setModal(false);resetForm();},
+      footer: React.createElement(React.Fragment, null,
+        React.createElement('button', {className:'btn btn-secondary', onClick:function(){setModal(false);resetForm();}}, 'Cancel'),
+        React.createElement('button', {className:'btn btn-primary', onClick:save}, 'Save')
+      )
     },
-    footer: /*#__PURE__*/React.createElement(React.Fragment, null, /*#__PURE__*/React.createElement("button", {
-      className: "btn btn-secondary",
-      onClick: function onClick() {
-        return setModal(false);
-      }
-    }, "Cancel"), /*#__PURE__*/React.createElement("button", {
-      className: "btn btn-primary",
-      onClick: save
-    }, "Save"))
-  }, /*#__PURE__*/React.createElement("div", {
-    className: "form-group"
-  }, /*#__PURE__*/React.createElement("label", null, "Outfit Name *"), /*#__PURE__*/React.createElement("input", {
-    value: form.name,
-    onChange: function onChange(e) {
-      return setForm(_objectSpread(_objectSpread({}, form), {}, {
-        name: e.target.value
-      }));
-    },
-    placeholder: "e.g. Office Monday Look"
-  })), /*#__PURE__*/React.createElement("div", {
-    className: "form-group"
-  }, /*#__PURE__*/React.createElement("label", null, "Occasion"), /*#__PURE__*/React.createElement("select", {
-    value: form.occasion,
-    onChange: function onChange(e) {
-      return setForm(_objectSpread(_objectSpread({}, form), {}, {
-        occasion: e.target.value
-      }));
-    }
-  }, /*#__PURE__*/React.createElement("option", {
-    value: ""
-  }, "Select\u2026"), occasions.map(function (o) {
-    return /*#__PURE__*/React.createElement("option", {
-      key: o
-    }, o);
-  }))), /*#__PURE__*/React.createElement("div", {
-    className: "form-group"
-  }, /*#__PURE__*/React.createElement("label", null, "Season"), /*#__PURE__*/React.createElement("select", {
-    value: form.season,
-    onChange: function onChange(e) {
-      return setForm(_objectSpread(_objectSpread({}, form), {}, {
-        season: e.target.value
-      }));
-    }
-  }, seasons.map(function (s) {
-    return /*#__PURE__*/React.createElement("option", {
-      key: s
-    }, s);
-  }))), /*#__PURE__*/React.createElement("div", {
-    className: "form-group"
-  }, /*#__PURE__*/React.createElement("label", null, "Clothing Items"), /*#__PURE__*/React.createElement("textarea", {
-    value: form.items,
-    onChange: function onChange(e) {
-      return setForm(_objectSpread(_objectSpread({}, form), {}, {
-        items: e.target.value
-      }));
-    },
-    placeholder: "White blouse, black trousers, heels\u2026",
-    style: {
-      minHeight: 60
-    }
-  })), /*#__PURE__*/React.createElement("div", {
-    className: "form-group"
-  }, /*#__PURE__*/React.createElement("label", null, "Accent Color"), /*#__PURE__*/React.createElement("div", {
-    style: {
-      display: 'flex',
-      gap: 8,
-      alignItems: 'center'
-    }
-  }, /*#__PURE__*/React.createElement("input", {
-    type: "color",
-    value: form.color || '#6B3FA0',
-    onChange: function onChange(e) {
-      return setForm(_objectSpread(_objectSpread({}, form), {}, {
-        color: e.target.value
-      }));
-    },
-    style: {
-      width: 44,
-      height: 36,
-      padding: 2,
-      cursor: 'pointer'
-    }
-  }), /*#__PURE__*/React.createElement("input", {
-    value: form.color,
-    onChange: function onChange(e) {
-      return setForm(_objectSpread(_objectSpread({}, form), {}, {
-        color: e.target.value
-      }));
-    },
-    placeholder: "#hex",
-    style: {
-      flex: 1
-    }
-  }))), /*#__PURE__*/React.createElement("div", {
-    className: "form-group"
-  }, /*#__PURE__*/React.createElement("label", null, "Date Worn"), /*#__PURE__*/React.createElement("input", {
-    type: "date",
-    value: form.date,
-    onChange: function onChange(e) {
-      return setForm(_objectSpread(_objectSpread({}, form), {}, {
-        date: e.target.value
-      }));
-    }
-  })), /*#__PURE__*/React.createElement("div", {
-    className: "form-group"
-  }, /*#__PURE__*/React.createElement("label", null, "Rating (1\u20135): ", form.rating), /*#__PURE__*/React.createElement("input", {
-    type: "range",
-    min: "1",
-    max: "5",
-    value: form.rating,
-    onChange: function onChange(e) {
-      return setForm(_objectSpread(_objectSpread({}, form), {}, {
-        rating: Number(e.target.value)
-      }));
-    }
-  })), /*#__PURE__*/React.createElement("div", {
-    className: "form-group"
-  }, /*#__PURE__*/React.createElement("label", null, "Notes"), /*#__PURE__*/React.createElement("input", {
-    value: form.notes,
-    onChange: function onChange(e) {
-      return setForm(_objectSpread(_objectSpread({}, form), {}, {
-        notes: e.target.value
-      }));
-    },
-    placeholder: "How did you feel? Any tweaks?"
-  }))));
+      React.createElement('div', {className:'form-group'},
+        React.createElement('label', null, 'Family Member *'),
+        React.createElement('input', {value:form.member, list:'fs-members-list', onChange:function(e){setForm(_objectSpread(_objectSpread({},form),{},{member:e.target.value}));}, placeholder:'Selecciona o escribe un nombre...'}),
+        React.createElement('datalist', {id:'fs-members-list'},
+          allMembers.map(function(m){return React.createElement('option',{key:m,value:m});})
+        )
+      ),
+      React.createElement('div', {className:'form-group'},
+        React.createElement('label', null, 'Clothing Type *'),
+        React.createElement('select', {value:form.clothingType, onChange:function(e){setForm(_objectSpread(_objectSpread({},form),{},{clothingType:e.target.value}));}},
+          React.createElement('option', {value:''}, 'Select...'),
+          clothingTypes.map(function(t){return React.createElement('option', {key:t}, t);})
+        )
+      ),
+      React.createElement('div', {style:{display:'grid',gridTemplateColumns:'1fr 1fr',gap:10}},
+        React.createElement('div', {className:'form-group'},
+          React.createElement('label', null, 'Subcategoría'),
+          React.createElement('input', {value:form.subcategory, onChange:function(e){setForm(_objectSpread(_objectSpread({},form),{},{subcategory:e.target.value}));}, placeholder:'e.g. Sneakers, Formal...'})
+        ),
+        React.createElement('div', {className:'form-group'},
+          React.createElement('label', null, 'Talla / Size'),
+          React.createElement('input', {value:form.size, onChange:function(e){setForm(_objectSpread(_objectSpread({},form),{},{size:e.target.value}));}, placeholder:'e.g. 42, M, 10...'})
+        )
+      ),
+      React.createElement('div', {className:'form-group'},
+        React.createElement('label', null, 'Preferencias / Notas'),
+        React.createElement('input', {value:form.notes, onChange:function(e){setForm(_objectSpread(_objectSpread({},form),{},{notes:e.target.value}));}, placeholder:'Color favorito, marca, tela...'})
+      )
+    )
+  );
 };
 
 // ─── HOUSEHOLD ─────────────────────────────────────────
@@ -12031,6 +11850,123 @@ var HouseholdScreen = function HouseholdScreen(_ref56) {
 };
 
 // ─── WORKOUT PLANNER ───────────────────────────────────
+// ─── AI EXPERT CHAT SYSTEM PROMPTS ───────────────────────────
+var WORKOUT_AI_SP = 'Eres un experto en fitness y entrenamiento personal con conocimiento profundo de ejercicios, rutinas de gym y casa, grupos musculares, nutrición deportiva, recuperación y programas como Freeletics, HIIT, CrossFit, yoga y más. Das consejos prácticos, motivadores y personalizados. USA SOLO datos reales que el usuario comparta. NO inventes. Si no tienes información suficiente, pídela.';
+var RECIPES_AI_SP = 'Eres un experto en nutrición y cocina. Conoces calorías, macros, recetas saludables, planes de comida para pérdida de peso y ganancia muscular (como MyFitnessPal). Puedes analizar fotos de comida: identificar ingredientes y estimar calorías. Cuando el usuario suba una foto, analiza los alimentos visibles con detalle. USA SOLO datos reales. NO inventes calorías exactas sin verlos; da estimaciones con rango.';
+var BABY_AI_SP = 'Eres la Dra. Baby AI, pediatra virtual especializada en bebés recién nacidos y lactantes. La familia está en La Paz, Bolivia (altitud ~3600m, considera adaptación). Conoces los principales centros pediátricos en La Paz: Clínica Arco Iris, Hospital del Niño, Clínica Los Olivos, Centro Médico Boliviano-Japonés. Conoces el PAI (Programa Ampliado de Inmunización Bolivia) y medicamentos OTC disponibles en Bolivia.\n\nCONOCIMIENTO DE SUEÑO (Rested Mama, Happy Baby - Wake Time Chart):\nVentana de vigilia = tiempo desde que despierta hasta que se coloca a dormir.\n0-9 sem: 45-60min vigilia, 16-20h sueño/día, 4-8 siestas\n10-12 sem: 45min-1h15m, 16-18h, 4-5 siestas\n3-4 meses: 1h30m-1h45m, 15-17h, 3-4 siestas\n4-5 meses: 2h-2h30m, 14-16h, 3 siestas\n5-6 meses: 2h15m-2h30m, 14-15.5h, 3 siestas\n6-7 meses (3 siestas): 2h30m-2h45m, 13.5-15h\n6-7 meses (2 siestas): 3h-3h15m, 13.5-15h\n7-9 meses: 3h-3h30m, 13-14.5h, 2 siestas\n9-10 meses: 3h15m, 13-14.5h, 2 siestas\n10-12 meses: 3h15m-3h45m, 13-14h, 2 siestas\n12-13 meses (2 siestas): 3h30m-4h, 13-14h\n12-13 meses (1 siesta): 4h45m-5h45m, 12.5-14h\n14-18 meses: 5h-5h30m, 12.5-14h, 1 siesta\n18m-3 años: 5h30m-6h, 12.5-14h, 1 siesta\n4-5 años: sin siestas, 12-13h\n\nTemas: lactancia, fórmula, introducción alimentos, vacunas, desarrollo motor, cólicos, reflujo, fiebre, sueño, rutinas, medicamentos OTC.\nIMPORTANTE: USA SOLO datos reales. SIEMPRE recomienda consulta presencial para diagnósticos. NO inventes.';
+
+// ─── AI EXPERT CHAT COMPONENT ─────────────────────────────────
+var AiExpertChat = function AiExpertChat(props) {
+  var systemPrompt = props.systemPrompt || '';
+  var title = props.title || 'AI';
+  var placeholder = props.placeholder || 'Escribe tu pregunta...';
+  var allowImage = props.allowImage || false;
+  var contextFn = props.contextFn;
+  var _msgs = useState([]), _msgs2 = _slicedToArray(_msgs, 2), msgs = _msgs2[0], setMsgs = _msgs2[1];
+  var _inp = useState(''), _inp2 = _slicedToArray(_inp, 2), inp = _inp2[0], setInp = _inp2[1];
+  var _load = useState(false), _load2 = _slicedToArray(_load, 2), loading = _load2[0], setLoading = _load2[1];
+  var _imgD = useState(null), _imgD2 = _slicedToArray(_imgD, 2), imgData = _imgD2[0], setImgData = _imgD2[1];
+  var fileRef = useRef(null);
+  var msgsEndRef = useRef(null);
+  useEffect(function(){if(msgsEndRef.current)msgsEndRef.current.scrollIntoView({behavior:'smooth'});},[msgs]);
+  var renderMsg = function(text){
+    if(!text) return null;
+    var lines = text.split('\n');
+    return React.createElement('div',{style:{fontSize:13,lineHeight:1.7}},
+      lines.map(function(line,i){
+        if(line.startsWith('## ')||line.startsWith('# ')){
+          var lvl=line.startsWith('## ')?2:1;
+          return React.createElement('div',{key:i,style:{fontWeight:800,fontSize:lvl===1?14:13,color:'var(--purple-light)',marginTop:i===0?0:10,marginBottom:2}},line.replace(/^#+\s*/,''));
+        }
+        if(line.startsWith('### ')) return React.createElement('div',{key:i,style:{fontWeight:700,fontSize:12,color:'#FF9800',marginTop:8,marginBottom:2}},line.replace(/^###\s*/,''));
+        if(line.startsWith('- ')||line.startsWith('• ')) return React.createElement('div',{key:i,style:{paddingLeft:12,fontSize:13}},'• '+line.replace(/^[-•]\s*/,''));
+        if(!line.trim()) return React.createElement('div',{key:i,style:{height:4}});
+        var parts=line.split(/\*\*(.*?)\*\*/);
+        if(parts.length>1) return React.createElement('div',{key:i,style:{fontSize:13}},parts.map(function(p,j){return j%2===1?React.createElement('strong',{key:j},p):p;}));
+        return React.createElement('div',{key:i},line);
+      })
+    );
+  };
+  var send = function send() {
+    var text = inp.trim();
+    if(!text && !imgData) return;
+    if(!window.LBP_WORKER_URL){alert('Configura el Worker URL en Settings para usar IA.');return;}
+    var userContent;
+    if(imgData && allowImage){
+      userContent=[{type:'image',source:{type:'base64',media_type:imgData.type,data:imgData.data}},{type:'text',text:text||'Analiza esta imagen: identifica alimentos, ingredientes y estima las calorías.'}];
+    } else {
+      userContent = text;
+    }
+    var newMsgs = msgs.concat([{role:'user',content:userContent}]);
+    setMsgs(newMsgs);
+    setInp(''); setImgData(null); setLoading(true);
+    var ctx = contextFn ? contextFn() : '';
+    var sp = systemPrompt + (ctx ? '\n\nCONTEXTO ACTUAL DEL USUARIO:\n'+ctx : '');
+    fetch(window.LBP_WORKER_URL+'/chat',{
+      method:'POST',
+      headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({systemPrompt:sp, messages:newMsgs.map(function(m){return{role:m.role,content:m.content};})})
+    }).then(function(r){return r.json();}).then(function(d){
+      setLoading(false);
+      if(d.response) setMsgs(function(prev){return prev.concat([{role:'assistant',content:d.response}]);});
+      else if(d.error) setMsgs(function(prev){return prev.concat([{role:'assistant',content:'⚠️ Error: '+d.error}]);});
+    }).catch(function(e){setLoading(false);setMsgs(function(prev){return prev.concat([{role:'assistant',content:'⚠️ Error de conexión.'}]);});});
+  };
+  var handleImg = function(e){
+    var file = e.target.files && e.target.files[0];
+    if(!file) return;
+    var reader = new FileReader();
+    reader.onload = function(ev){
+      var b64 = ev.target.result.split(',')[1];
+      setImgData({data:b64,type:file.type,name:file.name});
+    };
+    reader.readAsDataURL(file);
+  };
+  return React.createElement('div',{style:{display:'flex',flexDirection:'column',height:'100%',minHeight:420}},
+    React.createElement('div',{style:{flex:1,overflowY:'auto',padding:'0 4px 12px',display:'flex',flexDirection:'column',gap:8}},
+      msgs.length===0 && React.createElement('div',{style:{textAlign:'center',color:'var(--text-dim)',padding:'32px 16px',fontSize:14}},
+        React.createElement('div',{style:{fontSize:32,marginBottom:8}},'🤖'),
+        React.createElement('div',null,'Pregunta sobre '+title+'...'),
+        allowImage && React.createElement('div',{style:{fontSize:12,marginTop:8,color:'var(--text-dim)'}},'📷 Puedes subir fotos de comida para análisis de calorías')
+      ),
+      msgs.map(function(m,i){
+        var isUser=m.role==='user';
+        var textContent=typeof m.content==='string'?m.content:(Array.isArray(m.content)?m.content.filter(function(c){return c.type==='text';}).map(function(c){return c.text;}).join(' '):'');
+        var hasImage=Array.isArray(m.content)&&m.content.some(function(c){return c.type==='image';});
+        return React.createElement('div',{key:i,style:{display:'flex',justifyContent:isUser?'flex-end':'flex-start'}},
+          React.createElement('div',{style:{maxWidth:'85%',padding:'10px 14px',borderRadius:isUser?'14px 14px 2px 14px':'14px 14px 14px 2px',background:isUser?'#6B3FA0':'var(--card)',border:isUser?'none':'1px solid var(--border)',color:isUser?'#fff':'var(--text)',fontSize:13,lineHeight:1.5}},
+            hasImage&&React.createElement('div',{style:{fontSize:11,opacity:0.7,marginBottom:4}},'📷 imagen adjunta'),
+            isUser ? React.createElement('div',null,textContent) : renderMsg(textContent)
+          )
+        );
+      }),
+      loading && React.createElement('div',{style:{display:'flex',justifyContent:'flex-start'}},
+        React.createElement('div',{style:{padding:'10px 14px',borderRadius:'14px 14px 14px 2px',background:'var(--card)',border:'1px solid var(--border)',color:'var(--text-dim)',fontSize:13}},'⏳ Pensando...')
+      ),
+      React.createElement('div',{ref:msgsEndRef})
+    ),
+    imgData && React.createElement('div',{style:{padding:'6px 10px',background:'var(--card)',border:'1px solid var(--border)',borderRadius:8,fontSize:12,color:'var(--text-dim)',marginBottom:6,display:'flex',alignItems:'center',justifyContent:'space-between'}},
+      React.createElement('span',null,'📷 ',imgData.name),
+      React.createElement('span',{style:{cursor:'pointer',color:'#f66',fontWeight:'bold',padding:'0 4px'},onClick:function(){setImgData(null);if(fileRef.current)fileRef.current.value='';}},'×')
+    ),
+    React.createElement('div',{style:{display:'flex',gap:8,alignItems:'flex-end',paddingTop:8,borderTop:'1px solid var(--border)'}},
+      allowImage && React.createElement(React.Fragment,null,
+        React.createElement('input',{type:'file',accept:'image/*',ref:fileRef,style:{display:'none'},onChange:handleImg}),
+        React.createElement('button',{onClick:function(){fileRef.current&&fileRef.current.click();},style:{background:'var(--card)',border:'1px solid var(--border)',color:'var(--text)',borderRadius:10,padding:'9px 11px',fontSize:16,cursor:'pointer',flexShrink:0}},'📷')
+      ),
+      React.createElement('textarea',{
+        value:inp,placeholder:placeholder,rows:2,
+        onChange:function(e){setInp(e.target.value);},
+        onKeyDown:function(e){if(e.key==='Enter'&&!e.shiftKey){e.preventDefault();send();}},
+        style:{flex:1,background:'var(--card)',border:'1px solid var(--border)',color:'var(--text)',borderRadius:10,padding:'9px 12px',fontSize:13,resize:'none',fontFamily:'inherit',lineHeight:1.5}
+      }),
+      React.createElement('button',{
+        onClick:send,disabled:loading||(!inp.trim()&&!imgData),
+        style:{background:'#6B3FA0',border:'none',color:'#fff',borderRadius:10,padding:'9px 14px',fontWeight:'bold',cursor:'pointer',opacity:(loading||(!inp.trim()&&!imgData))?0.45:1,flexShrink:0,fontSize:16}
+      },'↑')
+    )
+  );
+};
 var WorkoutPlannerScreen = function WorkoutPlannerScreen(_ref57) {
   var data = _ref57.data,
     setData = _ref57.setData;
@@ -12195,7 +12131,7 @@ var WorkoutPlannerScreen = function WorkoutPlannerScreen(_ref57) {
     onClick: function onClick() { setEditItem(null); setModal(true); }
   }, "+ Log Workout")), /*#__PURE__*/React.createElement("div", {
     className: "tabs"
-  }, ['Log', 'Templates'].map(function (t) {
+  }, ['Log', 'Templates', 'AI Coach'].map(function (t) {
     return /*#__PURE__*/React.createElement("div", {
       key: t,
       className: "tab ".concat(tab === t ? 'active' : ''),
@@ -12331,7 +12267,7 @@ var WorkoutPlannerScreen = function WorkoutPlannerScreen(_ref57) {
         whiteSpace: 'pre-wrap'
       }
     }, t.exercises));
-  }))), modal && /*#__PURE__*/React.createElement(Modal, {
+  })), tab === 'AI Coach' && React.createElement(AiExpertChat, {key:'wk-ai',systemPrompt:WORKOUT_AI_SP,title:'fitness y entrenamiento',placeholder:'Pregúntame sobre ejercicios, rutinas, grupos musculares, progreso...'})), modal && /*#__PURE__*/React.createElement(Modal, {
     title: wpEditItem ? "Edit Workout" : "Log Workout",
     onClose: function onClose() {
       setWpEditItem(null);
@@ -12710,14 +12646,14 @@ var RecipesScreen = function RecipesScreen(_ref58) {
     }
   }, "+ Item")), /*#__PURE__*/React.createElement("div", {
     className: "tabs"
-  }, ['Recipes', 'Grocery'].map(function (t) {
+  }, ['Recipes', 'Grocery', 'Nutrición AI'].map(function (t) {
     return /*#__PURE__*/React.createElement("div", {
       key: t,
       className: "tab ".concat(tab === t ? 'active' : ''),
       onClick: function onClick() {
         return setTab(t);
       }
-    }, t === 'Recipes' ? '🍽 Recipes' : '🛒 Grocery List');
+    }, t === 'Recipes' ? '🍽 Recipes' : t === 'Grocery' ? '🛒 Grocery List' : '🤖 Nutrición AI');
   })), /*#__PURE__*/React.createElement("div", {
     className: "page-content"
   }, tab === 'Recipes' && (recipes.length === 0 ? /*#__PURE__*/React.createElement("div", {
@@ -12903,7 +12839,7 @@ var RecipesScreen = function RecipesScreen(_ref58) {
         return delGroc(g.id);
       }
     }, "\xD7"));
-  })))), modal && /*#__PURE__*/React.createElement(Modal, {
+  }))), tab === 'Nutrición AI' && React.createElement(AiExpertChat, {key:'rec-ai',systemPrompt:RECIPES_AI_SP,title:'nutrición y cocina',placeholder:'Pregunta sobre recetas, calorías, plan de comidas... (puedes subir fotos)',allowImage:true})), modal && /*#__PURE__*/React.createElement(Modal, {
     title: "New Recipe",
     onClose: function onClose() {
       setModal(false); setEditItem(null);
@@ -13534,576 +13470,224 @@ var MedicationScreen = function MedicationScreen(_ref59) {
 };
 
 // ─── SKIN TRACKER ──────────────────────────────────────
-var SkinTrackerScreen = function SkinTrackerScreen(_ref60) {
-  var data = _ref60.data,
-    setData = _ref60.setData;
-  var _useState215 = useState('Log'),
-    _useState216 = _slicedToArray(_useState215, 2),
-    tab = _useState216[0],
-    setTab = _useState216[1];
-  var _useState217 = useState(false),
-    _useState218 = _slicedToArray(_useState217, 2),
-    logModal = _useState218[0],
-    setLogModal = _useState218[1];
-  var _useState219 = useState(false),
-    _useState220 = _slicedToArray(_useState219, 2),
-    prodModal = _useState220[0],
-    setProdModal = _useState220[1];
-  var _useState221 = useState({
-      date: today(),
-      condition: 3,
-      concerns: [],
-      amProducts: '',
-      pmProducts: '',
-      notes: '',
-      water: '',
-      sleep: ''
-    }),
-    _useState222 = _slicedToArray(_useState221, 2),
-    logForm = _useState222[0],
-    setLogForm = _useState222[1];
-  var _useState223 = useState({
-      name: '',
-      brand: '',
-      category: '',
-      whenToUse: 'AM',
-      notes: '',
-      isFavorite: false
-    }),
-    _useState224 = _slicedToArray(_useState223, 2),
-    prodForm = _useState224[0],
-    setProdForm = _useState224[1];
-  var skinLogs = _toConsumableArray(data.skinLogs || []).sort(function (a, b) {
-    return b.date.localeCompare(a.date);
-  });
-  var skinProducts = data.skinProducts || [];
-  var allConcerns = ['Acne', 'Dryness', 'Oiliness', 'Redness', 'Sensitivity', 'Dark Spots', 'Wrinkles', 'Pores', 'Uneven Tone', 'Dullness'];
-  var toggleConcern = function toggleConcern(c) {
-    return setLogForm(function (f) {
-      return _objectSpread(_objectSpread({}, f), {}, {
-        concerns: f.concerns.includes(c) ? f.concerns.filter(function (x) {
-          return x !== c;
-        }) : [].concat(_toConsumableArray(f.concerns), [c])
-      });
-    });
+var BabyScreen = function BabyScreen(_ref60) {
+  var data = _ref60.data, setData = _ref60.setData;
+  // Baby profile state
+  var bp = data.babyProfile || {name:'', dob:''};
+  var _bt = useState('Today'), _bt2 = _slicedToArray(_bt, 2), tab = _bt2[0], setTab = _bt2[1];
+  var _bpe = useState(false), _bpe2 = _slicedToArray(_bpe, 2), profileEdit = _bpe2[0], setProfileEdit = _bpe2[1];
+  var _bpf = useState({name:bp.name||'', dob:bp.dob||''}), _bpf2 = _slicedToArray(_bpf, 2), profileForm = _bpf2[0], setProfileForm = _bpf2[1];
+  var _blm = useState(false), _blm2 = _slicedToArray(_blm, 2), logModal = _blm2[0], setLogModal = _blm2[1];
+  var _blf = useState({type:'feeding',date:today(),time:(function(){var n=new Date();return(n.getHours()<10?'0'+n.getHours():''+n.getHours())+':'+(n.getMinutes()<10?'0'+n.getMinutes():''+n.getMinutes());})(),amount:'',unit:'ml',notes:''}),
+      _blf2 = _slicedToArray(_blf, 2), logForm = _blf2[0], setLogForm = _blf2[1];
+
+  // Compute baby age from DOB
+  var babyAge = (function(){
+    if(!bp.dob) return '';
+    var dob = new Date(bp.dob);
+    var now2 = new Date();
+    var diffMs = now2 - dob;
+    var diffDays = Math.floor(diffMs/86400000);
+    if(diffDays < 7) return diffDays+' días';
+    if(diffDays < 30) return Math.floor(diffDays/7)+' semanas';
+    if(diffDays < 365) return Math.floor(diffDays/30)+' meses';
+    var yrs = Math.floor(diffDays/365);
+    var mos = Math.floor((diffDays%365)/30);
+    return yrs+'a '+(mos>0?mos+'m':'');
+  })();
+
+  var LOG_TYPES = [
+    {id:'feeding',label:'🍼 Alimentación',color:'#6B3FA0'},
+    {id:'nap',label:'💤 Siesta',color:'#2196F3'},
+    {id:'sleep',label:'🌙 Dormir noche',color:'#1565C0'},
+    {id:'diaper',label:'💧 Pañal',color:'#4CAF50'},
+    {id:'bath',label:'🛁 Baño',color:'#00BCD4'},
+    {id:'medication',label:'💊 Medicamento',color:'#FF9800'},
+    {id:'other',label:'📝 Otro',color:'#9E9E9E'}
+  ];
+  var getTypeLabel = function(id){var t=LOG_TYPES.find(function(x){return x.id===id;});return t?t.label:id;};
+  var getTypeColor = function(id){var t=LOG_TYPES.find(function(x){return x.id===id;});return t?t.color:'#6B3FA0';};
+
+  var saveProfile = function(){
+    setData(function(d){return _objectSpread(_objectSpread({},d),{},{babyProfile:_objectSpread({},profileForm)});});
+    setProfileEdit(false);
   };
-  var _useState_skinEdit = useState(null),
-    _useState_skinEdit2 = _slicedToArray(_useState_skinEdit, 2),
-    skinEditItem = _useState_skinEdit2[0],
-    setSkinEditItem = _useState_skinEdit2[1];
-  var saveLog = function saveLog() {
-    if (skinEditItem) {
-      setData(function (d) {
-        return _objectSpread(_objectSpread({}, d), {}, {
-          skinLogs: (d.skinLogs || []).map(function(x) {
-            return x.id === skinEditItem.id ? _objectSpread(_objectSpread({}, x), logForm) : x;
-          })
-        });
-      });
-      setSkinEditItem(null);
-    } else {
-      setData(function (d) {
-        return _objectSpread(_objectSpread({}, d), {}, {
-          skinLogs: [].concat(_toConsumableArray(d.skinLogs || []), [_objectSpread(_objectSpread({}, logForm), {}, {
-            id: uid(),
-            createdAt: now()
-          })])
-        });
-      });
-    }
-    setLogForm({
-      date: today(),
-      condition: 3,
-      concerns: [],
-      amProducts: '',
-      pmProducts: '',
-      notes: '',
-      water: '',
-      sleep: ''
-    });
+
+  var saveLog = function(){
+    if(!logForm.type) return;
+    setData(function(d){return _objectSpread(_objectSpread({},d),{},{babyLog:[].concat(_toConsumableArray(d.babyLog||[]),[_objectSpread(_objectSpread({},logForm),{},{id:uid(),createdAt:now()})])});});
     setLogModal(false);
+    setLogForm({type:'feeding',date:today(),time:(function(){var n=new Date();return(n.getHours()<10?'0'+n.getHours():''+n.getHours())+':'+(n.getMinutes()<10?'0'+n.getMinutes():''+n.getMinutes());})(),amount:'',unit:'ml',notes:''});
   };
-  var saveProd = function saveProd() {
-    if (!prodForm.name) return;
-    setData(function (d) {
-      return _objectSpread(_objectSpread({}, d), {}, {
-        skinProducts: [].concat(_toConsumableArray(d.skinProducts || []), [_objectSpread(_objectSpread({}, prodForm), {}, {
-          id: uid(),
-          createdAt: now()
-        })])
+
+  var delLog = function(id){
+    setData(function(d){return _objectSpread(_objectSpread({},d),{},{babyLog:(d.babyLog||[]).filter(function(x){return x.id!==id;}),_deletedIds:_lbpRecordDel(d,id)});});
+  };
+
+  var allLogs = _toConsumableArray(data.babyLog||[]).sort(function(a,b){return (b.date+b.time).localeCompare(a.date+a.time);});
+  var todayLogs = allLogs.filter(function(l){return l.date===today();});
+
+  // Context function for Baby AI
+  var babyCtxFn = function(){
+    var lines=[];
+    if(bp.name) lines.push('Bebé: '+bp.name+(babyAge?' ('+babyAge+')':''));
+    if(bp.dob) lines.push('Fecha nacimiento: '+bp.dob);
+    if(allLogs.length>0){
+      lines.push('\nRegistros recientes (últimas 48h):');
+      var cutoff=new Date(Date.now()-172800000).toISOString().slice(0,10);
+      allLogs.filter(function(l){return l.date>=cutoff;}).slice(0,20).forEach(function(l){
+        var line=l.date+' '+l.time+' — '+getTypeLabel(l.type);
+        if(l.amount) line+=' '+l.amount+(l.unit?' '+l.unit:'');
+        if(l.notes) line+=': '+l.notes;
+        lines.push(line);
       });
-    });
-    setProdForm({
-      name: '',
-      brand: '',
-      category: '',
-      whenToUse: 'AM',
-      notes: '',
-      isFavorite: false
-    });
-    setProdModal(false);
+    }
+    return lines.join('\n');
   };
-  var delLog = function delLog(id) {
-    return setData(function (d) {
-      return _objectSpread(_objectSpread({}, d), {}, {
-        skinLogs: d.skinLogs.filter(function (l) {
-          return l.id !== id;
-        }),
-        _deletedIds: _lbpRecordDel(d, id)
-      });
-    });
-  };
-  var delProd = function delProd(id) {
-    return setData(function (d) {
-      return _objectSpread(_objectSpread({}, d), {}, {
-        skinProducts: d.skinProducts.filter(function (p) {
-          return p.id !== id;
-        }),
-        _deletedIds: _lbpRecordDel(d, id)
-      });
-    });
-  };
-  var conditionEmoji = {
-    1: '😟',
-    2: '😕',
-    3: '😐',
-    4: '🙂',
-    5: '😄'
-  };
-  var conditionColor = {
-    1: '#F44336',
-    2: '#FF5722',
-    3: '#FF9800',
-    4: '#8BC34A',
-    5: '#4CAF50'
-  };
-  var productCategories = ['Cleanser', 'Toner', 'Serum', 'Moisturizer', 'Sunscreen', 'Eye Cream', 'Mask', 'Exfoliant', 'Oil', 'Spot Treatment', 'Other'];
-  return /*#__PURE__*/React.createElement("div", null, /*#__PURE__*/React.createElement("div", {
-    className: "page-header"
-  }, /*#__PURE__*/React.createElement("h1", null, "\u2728 Skin Tracker"), /*#__PURE__*/React.createElement("div", {
-    style: {
-      display: 'flex',
-      gap: 6
-    }
-  }, tab === 'Log' && /*#__PURE__*/React.createElement("button", {
-    className: "btn btn-primary btn-sm",
-    onClick: function onClick() {
-      return setLogModal(true);
-    }
-  }, "+ Log Today"), tab === 'Products' && /*#__PURE__*/React.createElement("button", {
-    className: "btn btn-primary btn-sm",
-    onClick: function onClick() {
-      return setProdModal(true);
-    }
-  }, "+ Product"))), /*#__PURE__*/React.createElement("div", {
-    className: "tabs"
-  }, ['Log', 'Products'].map(function (t) {
-    return /*#__PURE__*/React.createElement("div", {
-      key: t,
-      className: "tab ".concat(tab === t ? 'active' : ''),
-      onClick: function onClick() {
-        return setTab(t);
-      }
-    }, t === 'Log' ? '📅 Daily Log' : '🧴 Products');
-  })), /*#__PURE__*/React.createElement("div", {
-    className: "page-content"
-  }, tab === 'Log' && (skinLogs.length === 0 ? /*#__PURE__*/React.createElement("div", {
-    className: "empty-state"
-  }, /*#__PURE__*/React.createElement("div", {
-    className: "e-icon"
-  }, "\u2728"), /*#__PURE__*/React.createElement("h3", null, "No skin logs yet"), /*#__PURE__*/React.createElement("p", null, "Track your skin health day by day."), /*#__PURE__*/React.createElement("button", {
-    className: "btn btn-primary",
-    onClick: function onClick() {
-      return setLogModal(true);
-    }
-  }, "Log Today's Skin")) : skinLogs.map(function (l) {
-    var _l$concerns;
-    return /*#__PURE__*/React.createElement("div", {
-      className: "card mb-8",
-      key: l.id
-    }, /*#__PURE__*/React.createElement("div", {
-      className: "row mb-4"
-    }, /*#__PURE__*/React.createElement("div", null, /*#__PURE__*/React.createElement("div", {
-      style: {
-        fontWeight: 700,
-        fontSize: 15
-      }
-    }, l.date), /*#__PURE__*/React.createElement("div", {
-      style: {
-        display: 'flex',
-        gap: 6,
-        alignItems: 'center',
-        marginTop: 3
-      }
-    }, /*#__PURE__*/React.createElement("span", {
-      style: {
-        fontSize: 20
-      }
-    }, conditionEmoji[l.condition] || '😐'), /*#__PURE__*/React.createElement("span", {
-      style: {
-        fontWeight: 700,
-        fontSize: 14,
-        color: conditionColor[l.condition] || '#FF9800'
-      }
-    }, "Condition: ", l.condition, "/5"))), /*#__PURE__*/React.createElement("button", {
-      className: "btn btn-danger btn-sm btn-icon",
-      onClick: function onClick() {
-        return delLog(l.id);
-      }
-    }, "\xD7"), /*#__PURE__*/React.createElement("button", {
-      className: "btn-edit",
-      onClick: function onClick() {
-        setSkinEditItem(l);
-        setLogForm(_objectSpread({}, l));
-        setLogModal(true);
-      }
-    }, "\u270F\uFE0F")), ((_l$concerns = l.concerns) === null || _l$concerns === void 0 ? void 0 : _l$concerns.length) > 0 && /*#__PURE__*/React.createElement("div", {
-      style: {
-        display: 'flex',
-        gap: 4,
-        flexWrap: 'wrap',
-        marginBottom: 6
-      }
-    }, l.concerns.map(function (c) {
-      return /*#__PURE__*/React.createElement(Chip, {
-        key: c,
-        label: c,
-        color: "#E91E63"
-      });
-    })), l.amProducts && /*#__PURE__*/React.createElement("div", {
-      style: {
-        fontSize: 12,
-        marginBottom: 3
-      }
-    }, "\uD83C\uDF05 AM: ", l.amProducts), l.pmProducts && /*#__PURE__*/React.createElement("div", {
-      style: {
-        fontSize: 12,
-        marginBottom: 3
-      }
-    }, "\uD83C\uDF19 PM: ", l.pmProducts), /*#__PURE__*/React.createElement("div", {
-      style: {
-        display: 'flex',
-        gap: 12,
-        fontSize: 11,
-        color: 'var(--text-dim)'
-      }
-    }, l.water && /*#__PURE__*/React.createElement("span", null, "\uD83D\uDCA7 ", l.water, " glasses"), l.sleep && /*#__PURE__*/React.createElement("span", null, "\uD83D\uDE34 ", l.sleep, " hrs sleep")), l.notes && /*#__PURE__*/React.createElement("div", {
-      style: {
-        fontSize: 12,
-        color: 'var(--text-dim)',
-        marginTop: 4
-      }
-    }, l.notes));
-  })), tab === 'Products' && (skinProducts.length === 0 ? /*#__PURE__*/React.createElement("div", {
-    className: "empty-state"
-  }, /*#__PURE__*/React.createElement("div", {
-    className: "e-icon"
-  }, "\uD83E\uDDF4"), /*#__PURE__*/React.createElement("h3", null, "No products yet"), /*#__PURE__*/React.createElement("button", {
-    className: "btn btn-primary",
-    onClick: function onClick() {
-      return setProdModal(true);
-    }
-  }, "+ Add Product")) : /*#__PURE__*/React.createElement("div", {
-    style: {
-      display: 'grid',
-      gridTemplateColumns: 'repeat(auto-fill,minmax(200px,1fr))',
-      gap: 12
-    }
-  }, skinProducts.map(function (p) {
-    return /*#__PURE__*/React.createElement("div", {
-      key: p.id,
-      className: "card",
-      style: {
-        position: 'relative'
-      }
-    }, /*#__PURE__*/React.createElement("div", {
-      style: {
-        fontSize: 32,
-        marginBottom: 6,
-        textAlign: 'center'
-      }
-    }, "\uD83E\uDDF4"), p.isFavorite && /*#__PURE__*/React.createElement("span", {
-      style: {
-        position: 'absolute',
-        top: 10,
-        right: 10,
-        fontSize: 16
-      }
-    }, "\u2B50"), /*#__PURE__*/React.createElement("div", {
-      style: {
-        fontWeight: 700,
-        fontSize: 14
-      }
-    }, p.name), p.brand && /*#__PURE__*/React.createElement("div", {
-      style: {
-        fontSize: 11,
-        color: 'var(--text-dim)'
-      }
-    }, p.brand), p.category && /*#__PURE__*/React.createElement("div", {
-      style: {
-        marginTop: 4
-      }
-    }, /*#__PURE__*/React.createElement(Chip, {
-      label: p.category,
-      color: "#E91E63"
-    })), p.whenToUse && /*#__PURE__*/React.createElement("div", {
-      style: {
-        fontSize: 11,
-        color: 'var(--gold)',
-        marginTop: 4
-      }
-    }, p.whenToUse === 'AM' ? '🌅 Morning' : p.whenToUse === 'PM' ? '🌙 Evening' : '🌅🌙 AM + PM'), p.notes && /*#__PURE__*/React.createElement("div", {
-      style: {
-        fontSize: 11,
-        color: 'var(--text-dim)',
-        marginTop: 4
-      }
-    }, p.notes), /*#__PURE__*/React.createElement("button", {
-      className: "btn btn-danger btn-sm",
-      style: {
-        marginTop: 8,
-        width: '100%'
-      },
-      onClick: function onClick() {
-        return delProd(p.id);
-      }
-    }, "Delete"));
-  })))), logModal && /*#__PURE__*/React.createElement(Modal, {
-    title: skinEditItem ? "Edit Skin Log" : "Daily Skin Log",
-    onClose: function onClose() {
-      setSkinEditItem(null);
-      return setLogModal(false);
+
+  return React.createElement('div', null,
+    // Header
+    React.createElement('div', {className:'page-header'},
+      React.createElement('h1', null, '👶 ', bp.name||'Baby'),
+      React.createElement('button', {className:'btn btn-primary btn-sm', onClick:function(){setLogModal(true);}}, '+ Log')
+    ),
+
+    // Baby profile bar
+    React.createElement('div', {style:{background:'var(--card)',border:'1px solid var(--border)',borderRadius:12,padding:'10px 14px',margin:'0 0 12px',display:'flex',alignItems:'center',justifyContent:'space-between'}},
+      profileEdit ? React.createElement('div', {style:{display:'flex',gap:8,flex:1,alignItems:'center',flexWrap:'wrap'}},
+        React.createElement('input', {value:profileForm.name, onChange:function(e){setProfileForm(_objectSpread(_objectSpread({},profileForm),{},{name:e.target.value}));}, placeholder:'Nombre del bebé', style:{flex:1,minWidth:100}}),
+        React.createElement('input', {type:'date', value:profileForm.dob, onChange:function(e){setProfileForm(_objectSpread(_objectSpread({},profileForm),{},{dob:e.target.value}));}, style:{flex:1}}),
+        React.createElement('button', {className:'btn btn-primary btn-sm', onClick:saveProfile}, 'Guardar'),
+        React.createElement('button', {className:'btn btn-secondary btn-sm', onClick:function(){setProfileEdit(false);}}, 'Cancelar')
+      ) : React.createElement(React.Fragment, null,
+        React.createElement('div', null,
+          React.createElement('span', {style:{fontWeight:700,fontSize:15}}, bp.name||'Mi bebé'),
+          babyAge && React.createElement('span', {style:{fontSize:13,color:'var(--text-dim)',marginLeft:8}}, babyAge),
+          !bp.name && React.createElement('span', {style:{fontSize:12,color:'var(--text-dim)'}}, 'Configura el perfil...')
+        ),
+        React.createElement('button', {className:'btn btn-secondary btn-sm', onClick:function(){setProfileForm({name:bp.name||'',dob:bp.dob||''});setProfileEdit(true);}}, '✏️ Editar')
+      )
+    ),
+
+    // Tabs
+    React.createElement('div', {className:'tabs'},
+      ['Today','📋 Registro','IA Pediatra'].map(function(t){
+        return React.createElement('div',{key:t,className:'tab '+(tab===t?'active':''),onClick:function(){setTab(t);}},t);
+      })
+    ),
+
+    // Content
+    React.createElement('div', {className:'page-content'},
+
+      // TODAY TAB
+      tab === 'Today' && React.createElement(React.Fragment, null,
+        React.createElement('div', {style:{display:'grid',gridTemplateColumns:'repeat(3,1fr)',gap:6,marginBottom:12}},
+          LOG_TYPES.slice(0,6).map(function(lt){
+            return React.createElement('button', {key:lt.id,
+              style:{background:'var(--card)',border:'1px solid var(--border)',borderRadius:10,padding:'8px 4px',fontSize:12,cursor:'pointer',textAlign:'center',color:'var(--text)'},
+              onClick:function(){setLogForm(function(f){return _objectSpread(_objectSpread({},f),{},{type:lt.id});});setLogModal(true);}
+            }, lt.label);
+          })
+        ),
+        todayLogs.length === 0 ? React.createElement('div', {className:'empty-state'},
+          React.createElement('div', {className:'e-icon'}, '👶'),
+          React.createElement('h3', null, 'Sin registros hoy'),
+          React.createElement('button', {className:'btn btn-primary', onClick:function(){setLogModal(true);}}, '+ Log actividad')
+        ) : todayLogs.map(function(l){
+          return React.createElement('div', {key:l.id, className:'card mb-8'},
+            React.createElement('div', {className:'row'},
+              React.createElement('div', null,
+                React.createElement(Chip, {label:getTypeLabel(l.type), color:getTypeColor(l.type)}),
+                React.createElement('div', {style:{fontSize:13,marginTop:4,color:'var(--text-dim)'}}, l.time, l.amount?' • '+l.amount+(l.unit?' '+l.unit:''):'', l.notes?' • '+l.notes:'')
+              ),
+              React.createElement('button', {className:'btn btn-danger btn-sm btn-icon', onClick:function(){delLog(l.id);}}, '\xD7')
+            )
+          );
+        })
+      ),
+
+      // REGISTRO TAB
+      tab === '📋 Registro' && React.createElement(React.Fragment, null,
+        allLogs.length === 0 ? React.createElement('div', {className:'empty-state'},
+          React.createElement('div', {className:'e-icon'}, '📋'),
+          React.createElement('h3', null, 'Sin registros aún')
+        ) : (function(){
+          var dates = [];
+          allLogs.forEach(function(l){if(dates.indexOf(l.date)<0)dates.push(l.date);});
+          return React.createElement(React.Fragment, null,
+            dates.map(function(d){
+              var dayLogs = allLogs.filter(function(l){return l.date===d;});
+              var dateLabel = d===today()?'Hoy':d;
+              return React.createElement('div', {key:d, style:{marginBottom:12}},
+                React.createElement('div', {style:{fontSize:11,fontWeight:700,color:'var(--purple-light)',marginBottom:6,textTransform:'uppercase'}}, dateLabel, ' — ', dayLogs.length, ' entradas'),
+                dayLogs.map(function(l){
+                  return React.createElement('div', {key:l.id, className:'card mb-6'},
+                    React.createElement('div', {className:'row'},
+                      React.createElement('div', null,
+                        React.createElement('span', {style:{fontWeight:600,fontSize:13}}, getTypeLabel(l.type)),
+                        React.createElement('span', {style:{fontSize:12,color:'var(--text-dim)',marginLeft:8}}, l.time),
+                        (l.amount||l.notes) && React.createElement('div', {style:{fontSize:12,color:'var(--text-dim)',marginTop:2}}, l.amount?(l.amount+(l.unit?' '+l.unit:'')):'', l.notes?' • '+l.notes:'')
+                      ),
+                      React.createElement('button', {className:'btn btn-danger btn-sm btn-icon', onClick:function(){delLog(l.id);}}, '\xD7')
+                    )
+                  );
+                })
+              );
+            })
+          );
+        })()
+      ),
+
+      // IA PEDIATRA TAB
+      tab === 'IA Pediatra' && React.createElement(AiExpertChat, {key:'baby-ai',systemPrompt:BABY_AI_SP,title:'pediatría y cuidado del bebé',placeholder:'Pregunta sobre sueño, lactancia, desarrollo, vacunas, medicamentos...',contextFn:babyCtxFn})
+
+    ),
+
+    // Log Modal
+    logModal && React.createElement(Modal, {
+      title: '+ Log Actividad',
+      onClose: function(){setLogModal(false);},
+      footer: React.createElement(React.Fragment, null,
+        React.createElement('button', {className:'btn btn-secondary', onClick:function(){setLogModal(false);}}, 'Cancel'),
+        React.createElement('button', {className:'btn btn-primary', onClick:saveLog}, 'Save')
+      )
     },
-    footer: /*#__PURE__*/React.createElement(React.Fragment, null, /*#__PURE__*/React.createElement("button", {
-      className: "btn btn-secondary",
-      onClick: function onClick() {
-        return setLogModal(false);
-      }
-    }, "Cancel"), /*#__PURE__*/React.createElement("button", {
-      className: "btn btn-primary",
-      onClick: saveLog
-    }, "Save Log"))
-  }, /*#__PURE__*/React.createElement("div", {
-    className: "form-group"
-  }, /*#__PURE__*/React.createElement("label", null, "Date"), /*#__PURE__*/React.createElement("input", {
-    type: "date",
-    value: logForm.date,
-    onChange: function onChange(e) {
-      return setLogForm(_objectSpread(_objectSpread({}, logForm), {}, {
-        date: e.target.value
-      }));
-    }
-  })), /*#__PURE__*/React.createElement("div", {
-    style: {
-      marginBottom: 12
-    }
-  }, /*#__PURE__*/React.createElement("label", {
-    style: {
-      fontSize: 12,
-      color: 'var(--text-dim)',
-      display: 'block',
-      marginBottom: 6
-    }
-  }, "Skin Condition: ", conditionEmoji[logForm.condition], " ", logForm.condition, "/5"), /*#__PURE__*/React.createElement("input", {
-    type: "range",
-    min: "1",
-    max: "5",
-    value: logForm.condition,
-    onChange: function onChange(e) {
-      return setLogForm(_objectSpread(_objectSpread({}, logForm), {}, {
-        condition: Number(e.target.value)
-      }));
-    },
-    style: {
-      width: '100%',
-      accentColor: conditionColor[logForm.condition]
-    }
-  })), /*#__PURE__*/React.createElement("div", {
-    style: {
-      marginBottom: 12
-    }
-  }, /*#__PURE__*/React.createElement("label", {
-    style: {
-      fontSize: 12,
-      color: 'var(--text-dim)',
-      display: 'block',
-      marginBottom: 6
-    }
-  }, "Skin Concerns"), /*#__PURE__*/React.createElement("div", {
-    style: {
-      display: 'flex',
-      gap: 6,
-      flexWrap: 'wrap'
-    }
-  }, allConcerns.map(function (c) {
-    var active = logForm.concerns.includes(c);
-    return /*#__PURE__*/React.createElement("button", {
-      key: c,
-      type: "button",
-      className: "btn btn-sm",
-      onClick: function onClick() {
-        return toggleConcern(c);
-      },
-      style: {
-        background: active ? '#E91E6330' : 'var(--card)',
-        color: active ? '#E91E63' : 'var(--text-dim)',
-        border: "1px solid ".concat(active ? '#E91E6350' : 'var(--border)')
-      }
-    }, c);
-  }))), /*#__PURE__*/React.createElement("div", {
-    className: "form-group"
-  }, /*#__PURE__*/React.createElement("label", null, "\uD83C\uDF05 AM Products Used"), /*#__PURE__*/React.createElement("input", {
-    value: logForm.amProducts,
-    onChange: function onChange(e) {
-      return setLogForm(_objectSpread(_objectSpread({}, logForm), {}, {
-        amProducts: e.target.value
-      }));
-    },
-    placeholder: "Cleanser, Vitamin C serum\u2026"
-  })), /*#__PURE__*/React.createElement("div", {
-    className: "form-group"
-  }, /*#__PURE__*/React.createElement("label", null, "\uD83C\uDF19 PM Products Used"), /*#__PURE__*/React.createElement("input", {
-    value: logForm.pmProducts,
-    onChange: function onChange(e) {
-      return setLogForm(_objectSpread(_objectSpread({}, logForm), {}, {
-        pmProducts: e.target.value
-      }));
-    },
-    placeholder: "Retinol, night cream\u2026"
-  })), /*#__PURE__*/React.createElement("div", {
-    style: {
-      display: 'grid',
-      gridTemplateColumns: '1fr 1fr',
-      gap: 10
-    }
-  }, /*#__PURE__*/React.createElement("div", {
-    className: "form-group"
-  }, /*#__PURE__*/React.createElement("label", null, "\uD83D\uDCA7 Water (glasses)"), /*#__PURE__*/React.createElement("input", {
-    type: "number",
-    value: logForm.water,
-    onChange: function onChange(e) {
-      return setLogForm(_objectSpread(_objectSpread({}, logForm), {}, {
-        water: e.target.value
-      }));
-    }
-  })), /*#__PURE__*/React.createElement("div", {
-    className: "form-group"
-  }, /*#__PURE__*/React.createElement("label", null, "\uD83D\uDE34 Sleep (hours)"), /*#__PURE__*/React.createElement("input", {
-    type: "number",
-    value: logForm.sleep,
-    onChange: function onChange(e) {
-      return setLogForm(_objectSpread(_objectSpread({}, logForm), {}, {
-        sleep: e.target.value
-      }));
-    }
-  }))), /*#__PURE__*/React.createElement("div", {
-    className: "form-group"
-  }, /*#__PURE__*/React.createElement("label", null, "Notes"), /*#__PURE__*/React.createElement("textarea", {
-    value: logForm.notes,
-    onChange: function onChange(e) {
-      return setLogForm(_objectSpread(_objectSpread({}, logForm), {}, {
-        notes: e.target.value
-      }));
-    },
-    style: {
-      minHeight: 60
-    }
-  }))), prodModal && /*#__PURE__*/React.createElement(Modal, {
-    title: "Add Skin Product",
-    onClose: function onClose() {
-      return setProdModal(false);
-    },
-    footer: /*#__PURE__*/React.createElement(React.Fragment, null, /*#__PURE__*/React.createElement("button", {
-      className: "btn btn-secondary",
-      onClick: function onClick() {
-        return setProdModal(false);
-      }
-    }, "Cancel"), /*#__PURE__*/React.createElement("button", {
-      className: "btn btn-primary",
-      onClick: saveProd
-    }, "Save"))
-  }, /*#__PURE__*/React.createElement("div", {
-    className: "form-group"
-  }, /*#__PURE__*/React.createElement("label", null, "Product Name *"), /*#__PURE__*/React.createElement("input", {
-    value: prodForm.name,
-    onChange: function onChange(e) {
-      return setProdForm(_objectSpread(_objectSpread({}, prodForm), {}, {
-        name: e.target.value
-      }));
-    }
-  })), /*#__PURE__*/React.createElement("div", {
-    className: "form-group"
-  }, /*#__PURE__*/React.createElement("label", null, "Brand"), /*#__PURE__*/React.createElement("input", {
-    value: prodForm.brand,
-    onChange: function onChange(e) {
-      return setProdForm(_objectSpread(_objectSpread({}, prodForm), {}, {
-        brand: e.target.value
-      }));
-    }
-  })), /*#__PURE__*/React.createElement("div", {
-    style: {
-      display: 'grid',
-      gridTemplateColumns: '1fr 1fr',
-      gap: 10
-    }
-  }, /*#__PURE__*/React.createElement("div", {
-    className: "form-group"
-  }, /*#__PURE__*/React.createElement("label", null, "Category"), /*#__PURE__*/React.createElement("select", {
-    value: prodForm.category,
-    onChange: function onChange(e) {
-      return setProdForm(_objectSpread(_objectSpread({}, prodForm), {}, {
-        category: e.target.value
-      }));
-    }
-  }, /*#__PURE__*/React.createElement("option", {
-    value: ""
-  }, "Select\u2026"), productCategories.map(function (c) {
-    return /*#__PURE__*/React.createElement("option", {
-      key: c
-    }, c);
-  }))), /*#__PURE__*/React.createElement("div", {
-    className: "form-group"
-  }, /*#__PURE__*/React.createElement("label", null, "When to Use"), /*#__PURE__*/React.createElement("select", {
-    value: prodForm.whenToUse,
-    onChange: function onChange(e) {
-      return setProdForm(_objectSpread(_objectSpread({}, prodForm), {}, {
-        whenToUse: e.target.value
-      }));
-    }
-  }, ['AM', 'PM', 'AM+PM'].map(function (w) {
-    return /*#__PURE__*/React.createElement("option", {
-      key: w
-    }, w);
-  })))), /*#__PURE__*/React.createElement("div", {
-    className: "form-group"
-  }, /*#__PURE__*/React.createElement("label", null, "Notes"), /*#__PURE__*/React.createElement("textarea", {
-    value: prodForm.notes,
-    onChange: function onChange(e) {
-      return setProdForm(_objectSpread(_objectSpread({}, prodForm), {}, {
-        notes: e.target.value
-      }));
-    },
-    style: {
-      minHeight: 60
-    }
-  })), /*#__PURE__*/React.createElement("div", {
-    style: {
-      display: 'flex',
-      alignItems: 'center',
-      gap: 8
-    }
-  }, /*#__PURE__*/React.createElement("input", {
-    type: "checkbox",
-    checked: prodForm.isFavorite,
-    onChange: function onChange(e) {
-      return setProdForm(_objectSpread(_objectSpread({}, prodForm), {}, {
-        isFavorite: e.target.checked
-      }));
-    },
-    style: {
-      width: 'auto'
-    }
-  }), /*#__PURE__*/React.createElement("label", null, "Mark as Favourite \u2B50"))));
+      React.createElement('div', {className:'form-group'},
+        React.createElement('label', null, 'Tipo'),
+        React.createElement('select', {value:logForm.type, onChange:function(e){setLogForm(_objectSpread(_objectSpread({},logForm),{},{type:e.target.value}));}},
+          LOG_TYPES.map(function(lt){return React.createElement('option', {key:lt.id, value:lt.id}, lt.label);})
+        )
+      ),
+      React.createElement('div', {style:{display:'grid',gridTemplateColumns:'1fr 1fr',gap:10}},
+        React.createElement('div', {className:'form-group'},
+          React.createElement('label', null, 'Fecha'),
+          React.createElement('input', {type:'date', value:logForm.date, onChange:function(e){setLogForm(_objectSpread(_objectSpread({},logForm),{},{date:e.target.value}));}})
+        ),
+        React.createElement('div', {className:'form-group'},
+          React.createElement('label', null, 'Hora'),
+          React.createElement('input', {type:'time', value:logForm.time, onChange:function(e){setLogForm(_objectSpread(_objectSpread({},logForm),{},{time:e.target.value}));}})
+        )
+      ),
+      (logForm.type==='feeding'||logForm.type==='nap'||logForm.type==='sleep'||logForm.type==='medication') && React.createElement('div', {style:{display:'grid',gridTemplateColumns:'2fr 1fr',gap:10}},
+        React.createElement('div', {className:'form-group'},
+          React.createElement('label', null, logForm.type==='feeding'?'Cantidad':logForm.type==='nap'||logForm.type==='sleep'?'Duración (min)':'Dosis'),
+          React.createElement('input', {type:'number', value:logForm.amount, onChange:function(e){setLogForm(_objectSpread(_objectSpread({},logForm),{},{amount:e.target.value}));}, placeholder:'0'})
+        ),
+        React.createElement('div', {className:'form-group'},
+          React.createElement('label', null, 'Unidad'),
+          logForm.type==='feeding' ? React.createElement('select', {value:logForm.unit, onChange:function(e){setLogForm(_objectSpread(_objectSpread({},logForm),{},{unit:e.target.value}));}},
+            React.createElement('option', {value:'ml'}, 'ml'),
+            React.createElement('option', {value:'oz'}, 'oz'),
+            React.createElement('option', {value:'min'}, 'min seno')
+          ) : React.createElement('input', {value:logForm.unit||'min', onChange:function(e){setLogForm(_objectSpread(_objectSpread({},logForm),{},{unit:e.target.value}));}, placeholder:'unidad'})
+        )
+      ),
+      React.createElement('div', {className:'form-group'},
+        React.createElement('label', null, 'Notas'),
+        React.createElement('input', {value:logForm.notes, onChange:function(e){setLogForm(_objectSpread(_objectSpread({},logForm),{},{notes:e.target.value}));}, placeholder:logForm.type==='feeding'?'Leche materna / fórmula...':logForm.type==='diaper'?'Húmedo / sucio...':logForm.type==='medication'?'Nombre del medicamento...':'Notas...'})
+      )
+    )
+  );
 };
 
 // ─── HUB SCREENS ───────────────────────────────────────
@@ -14193,6 +13777,9 @@ var INITIAL_DATA = {
   medicationLogs: [],
   skinLogs: [],
   skinProducts: [],
+  familySizes: [],
+  babyProfile: {name: 'Isabella', dob: '2026-05-25'},
+  babyLog: [],
   categories: ['Personal','Work','Home','Health','Finance','Learning','Creative'],
   imports: []
 };
@@ -15925,10 +15512,10 @@ var App = function App() {
     items: [['brainstorm','💡','Brainstorm & AI']]
   }, {
     label: '✨ Dream Life',
-    items: [['travel', '✈️', 'Travel Planner'], ['bucketlist', '⭐', 'Bucket List'], ['books', '📚', 'Book Library'], ['outfits', '👗', 'Outfit Planner'], ['household', '🏠', 'Household']]
+    items: [['travel', '✈️', 'Travel Planner'], ['bucketlist', '⭐', 'Bucket List'], ['books', '📚', 'Book Library'], ['outfits', '👔', 'Family Sizes'], ['household', '🏠', 'Household']]
   }, {
     label: '💚 Health & Wellness',
-    items: [['journal', '📓', 'Journal'], ['habits', '🔄', 'Habit Tracker'], ['workout', '🏋️', 'Workout Planner'], ['recipes', '🍽', 'Recipes & Groceries'], ['medication', '💊', 'Medication Tracker'], ['skin', '✨', 'Skin Tracker']]
+    items: [['journal', '📓', 'Journal'], ['habits', '🔄', 'Habit Tracker'], ['workout', '🏋️', 'Workout Planner'], ['recipes', '🍽', 'Recipes & Groceries'], ['medication', '💊', 'Medication Tracker'], ['baby', '👶', 'Baby']]
   }];
   var bottomTabs = [['home','home','Home'],['tasks','task','Tasks'],['search','search','Search'],['projects','business','Projects'],['journal','book','Journal'],['imports','archive','Ship']];
   var renderPage = function renderPage() {
@@ -15996,8 +15583,8 @@ var App = function App() {
         return /*#__PURE__*/React.createElement(RecipesScreen, props);
       case 'medication':
         return /*#__PURE__*/React.createElement(MedicationScreen, props);
-      case 'skin':
-        return /*#__PURE__*/React.createElement(SkinTrackerScreen, props);
+      case 'baby':
+        return /*#__PURE__*/React.createElement(BabyScreen, props);
       case 'business':
         return /*#__PURE__*/React.createElement(HubScreen, {
           title: "Business Plan",
