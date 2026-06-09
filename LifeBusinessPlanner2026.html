@@ -22,7 +22,7 @@
 <script>
 (function() {
   // ── Version ──────────────────────────────────────────────────────────────
-  window.LBP_VERSION = '4.76';
+  window.LBP_VERSION = '4.77';
 
   // ── PWA Install prompt ───────────────────────────────────────────────────
   window._installPrompt = null;
@@ -74,6 +74,8 @@
         window.dispatchEvent(new Event('lbp_gcal_authed'));
         var cbs = _gcalPendingCbs.slice(); _gcalPendingCbs = [];
         cbs.forEach(function(cb) { try { cb(window._gcalToken); } catch(e){} });
+        // Flush any meetings that were queued while token was unavailable
+        if (window._gcalFlushPushQueue) window._gcalFlushPushQueue();
       }
     });
     // No auto-reconnect on load — on mobile it causes a full-page redirect to Google sign-in.
@@ -104,10 +106,22 @@
     }
   };
 
+  window._gcalFlushPushQueue = function() {
+    var q = window._gcalPushQueue || [];
+    window._gcalPushQueue = [];
+    q.forEach(function(m){ window._gcalPush(m); });
+  };
+
   window._gcalPush = function(meeting) {
     if (!meeting || !meeting.id) return;
     window._gcalEnsureToken(function(token) {
-      if (!token) return;
+      if (!token) {
+        if (!window._gcalPushQueue) window._gcalPushQueue = [];
+        window._gcalPushQueue = window._gcalPushQueue.filter(function(m){return m.id!==meeting.id;});
+        window._gcalPushQueue.push(meeting);
+        window.dispatchEvent(new CustomEvent('lbp_gcal_push_queued',{detail:{count:window._gcalPushQueue.length}}));
+        return;
+      }
       var tz = Intl.DateTimeFormat().resolvedOptions().timeZone;
       var startDt = meeting.date + 'T' + (meeting.startTime || '09:00') + ':00';
       var endDt = meeting.date + 'T' + (meeting.endTime || meeting.startTime || '10:00') + ':00';
@@ -6311,6 +6325,7 @@ var MeetingsScreen = function MeetingsScreen(_ref26) {
   var _recS17=useState([]),_recS18=_slicedToArray(_recS17,2),recExtSel=_recS18[0],setRecExtSel=_recS18[1];
   var recSRRef=useRef(null);
   var recRunRef=useRef(false);
+  var _gcalPS=useState(false),_gcalPS2=_slicedToArray(_gcalPS,2),gcalPending=_gcalPS2[0],setGcalPending=_gcalPS2[1];
   useEffect(function() {
     var pe = window._lbpPendingEdit;
     if (pe && pe.type === 'meetings') {
@@ -6460,7 +6475,19 @@ var MeetingsScreen = function MeetingsScreen(_ref26) {
   }, /*#__PURE__*/React.createElement("h1", null, "\uD83D\uDCC5 Meetings & Events"), /*#__PURE__*/React.createElement("button", {
     className: "btn btn-primary btn-sm",
     onClick: function onClick() { setEditItem(null); setForm({title:'',date:today(),startTime:'09:00',endTime:'10:00',isOnline:false,location:'',agenda:'',notes:'',contact:'',alarm:meetingAlarmDefault(today(),'09:00')}); setModal(true); }
-  }, "+ New")), /*#__PURE__*/React.createElement("div", {
+  }, "+ New")),
+  gcalPending && /*#__PURE__*/React.createElement("div", {
+    style:{display:'flex',alignItems:'center',gap:8,background:'rgba(251,191,36,.12)',border:'1px solid rgba(251,191,36,.5)',borderRadius:10,padding:'8px 14px',margin:'8px 16px 0'}
+  },
+    /*#__PURE__*/React.createElement("span", {style:{fontSize:13}}, "\u26a0\ufe0f"),
+    /*#__PURE__*/React.createElement("span", {style:{fontSize:12,flex:1,color:'var(--text)'}}, "Reuniones pendientes de sincronizar con Google Calendar"),
+    /*#__PURE__*/React.createElement("button", {
+      className:'btn btn-secondary btn-sm',
+      style:{fontSize:11,padding:'4px 10px',whiteSpace:'nowrap'},
+      onClick:function(){if(window._gcalConnect)window._gcalConnect();}
+    }, "\uD83D\uDD04 Sincronizar")
+  ),
+  /*#__PURE__*/React.createElement("div", {
     className: "page-content"
   },
     mHighlight === 'today' && /*#__PURE__*/React.createElement("div", {style:{display:'flex',alignItems:'center',justifyContent:'space-between',background:'rgba(96,165,250,.15)',border:'1px solid rgba(96,165,250,.4)',borderRadius:10,padding:'8px 12px',marginBottom:10}},
@@ -15343,6 +15370,18 @@ var App = function App() {
     window.addEventListener('lbp_gcal_event_id', onGcalId);
     return function() { window.removeEventListener('lbp_gcal_event_id', onGcalId); };
   }, []);
+
+  // Show banner when a gcal push was queued (token unavailable), clear when auth succeeds
+  useEffect(function(){
+    var onQueued=function(){setGcalPending(true);};
+    var onAuthed=function(){setGcalPending(false);};
+    window.addEventListener('lbp_gcal_push_queued',onQueued);
+    window.addEventListener('lbp_gcal_authed',onAuthed);
+    return function(){
+      window.removeEventListener('lbp_gcal_push_queued',onQueued);
+      window.removeEventListener('lbp_gcal_authed',onAuthed);
+    };
+  },[]);
 
   // Auto-pull from Google Calendar every 15 min — NO pull on load.
   // requestAccessToken({ prompt: '' }) on load causes a full-page redirect on mobile
