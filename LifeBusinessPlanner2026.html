@@ -22,7 +22,7 @@
 <script>
 (function() {
   // ── Version ──────────────────────────────────────────────────────────────
-  window.LBP_VERSION = '4.85';
+  window.LBP_VERSION = '4.86';
 
   // ── PWA Install prompt ───────────────────────────────────────────────────
   window._installPrompt = null;
@@ -107,9 +107,22 @@
   };
 
   window._gcalFlushPushQueue = function() {
+    // Flush explicitly queued meetings
     var q = window._gcalPushQueue || [];
     window._gcalPushQueue = [];
     q.forEach(function(m){ window._gcalPush(m); });
+    // Also auto-sync any meetings that never got a gcalEventId
+    setTimeout(function() {
+      var d = window._getDataGlobal && window._getDataGlobal();
+      if (!d || !d.meetings) return;
+      var unsynced = d.meetings.filter(function(m) {
+        return !m.gcalEventId && m.status !== 'CANCELLED';
+      });
+      if (unsynced.length > 0) {
+        console.log('[LBP GCal] Auto-syncing', unsynced.length, 'unsynced meetings...');
+        unsynced.forEach(function(m) { window._gcalPush(m); });
+      }
+    }, 1500); // small delay to let React render and expose data
   };
 
   window._gcalPush = function(meeting) {
@@ -15482,6 +15495,7 @@ var App = function App() {
     data = _useStore2[0],
     setData = _useStore2[1];
   window._setDataGlobal = setData;
+  window._getDataGlobal = function() { return data; };
   window._addToastGlobal = function(t) { addToast(t); };
   var _useState225 = useState('home'),
     _useState226 = _slicedToArray(_useState225, 2),
