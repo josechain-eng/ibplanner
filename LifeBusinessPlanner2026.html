@@ -22,7 +22,7 @@
 <script>
 (function() {
   // ── Version ──────────────────────────────────────────────────────────────
-  window.LBP_VERSION = '4.77';
+  window.LBP_VERSION = '4.79';
 
   // ── PWA Install prompt ───────────────────────────────────────────────────
   window._installPrompt = null;
@@ -2144,6 +2144,38 @@ var _lbpIDB = (function() {
 })();
 window._lbpIDB = _lbpIDB;
 
+// ── Cloud file store — uploads/downloads files via Cloudflare KV ──
+// Files <= 15 MB are synced to KV so any device can access them.
+// IDB is used as a local cache; cloud is the source of truth.
+var LBP_CLOUD_FILE_MAX = 50 * 1024 * 1024; // 50 MB max for cloud sync (R2 has no per-file cap)
+var _lbpCloudFile = {
+  upload: function(fileId, dataUrl, name, mime) {
+    var syncKey = localStorage.getItem('lbp_sync_key');
+    if (!syncKey || !window.LBP_WORKER_URL) return Promise.resolve(false);
+    // dataUrl string length check: base64 of 15MB ≈ 20M chars
+    // base64 of 50 MB ≈ 67 MB chars; Worker body limit is 100 MB
+    if (!dataUrl || dataUrl.length > 90 * 1024 * 1024) return Promise.resolve(false);
+    return fetch(window.LBP_WORKER_URL + '/file', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ syncKey: syncKey, fileId: fileId, data: dataUrl, name: name || '', mime: mime || '' })
+    }).then(function(r) { return r.ok; }).catch(function() { return false; });
+  },
+  get: function(fileId) {
+    var syncKey = localStorage.getItem('lbp_sync_key');
+    if (!syncKey || !window.LBP_WORKER_URL) return Promise.resolve(null);
+    return fetch(window.LBP_WORKER_URL + '/file?key=' + encodeURIComponent(syncKey) + '&id=' + encodeURIComponent(fileId))
+      .then(function(r) { return r.ok ? r.json() : null; })
+      .then(function(obj) { return obj ? obj.data : null; })
+      .catch(function() { return null; });
+  },
+  del: function(fileId) {
+    var syncKey = localStorage.getItem('lbp_sync_key');
+    if (!syncKey || !window.LBP_WORKER_URL) return Promise.resolve();
+    return fetch(window.LBP_WORKER_URL + '/file?key=' + encodeURIComponent(syncKey) + '&id=' + encodeURIComponent(fileId), { method: 'DELETE' }).catch(function() {});
+  }
+};
+
 // Request persistent storage so browser never evicts IDB data under memory pressure
 if (navigator.storage && navigator.storage.persist) {
   navigator.storage.persist().then(function(granted) {
@@ -2186,7 +2218,14 @@ var ReadOnlyAttachments = function ReadOnlyAttachments(_ref_roa) {
     Promise.all(attachments.map(function(a) {
       if (a.type === 'link') return Promise.resolve([a.id, null]);
       if (a.data) return Promise.resolve([a.id, a.data]);
-      return _lbpIDB.get(a.id).then(function(d) { return [a.id, d]; });
+      return _lbpIDB.get(a.id).then(function(idbData) {
+        if (idbData) return [a.id, idbData];
+        // IDB miss — try cloud
+        return _lbpCloudFile.get(a.id).then(function(cloudData) {
+          if (cloudData && !cancelled) _lbpIDB.put(a.id, cloudData); // cache locally
+          return [a.id, cloudData];
+        });
+      });
     })).then(function(pairs) {
       if (cancelled) return;
       var map = {};
@@ -2272,7 +2311,7 @@ var ReadOnlyAttachments = function ReadOnlyAttachments(_ref_roa) {
         }, '📤 Share'),
         /*#__PURE__*/React.createElement("button", { className:"btn btn-secondary btn-sm", onClick:function(){setViewItem(null);} }, '✕ Close')
       ) : /*#__PURE__*/React.createElement(React.Fragment, null,
-        /*#__PURE__*/React.createElement("p", { style:{fontSize:12,color:'var(--text-dim)',textAlign:'center',margin:'4px 0 8px'} }, 'File stored on the device where it was uploaded. Open the app on that device to access it.'),
+        /*#__PURE__*/React.createElement("p", { style:{fontSize:12,color:'var(--text-dim)',textAlign:'center',margin:'4px 0 8px'} }, 'File not available on this device. It may have been uploaded before cloud sync was enabled.'),
         /*#__PURE__*/React.createElement("div", { style:{display:'flex',gap:8,justifyContent:'center'} },
           /*#__PURE__*/React.createElement("button", { className:"btn btn-secondary btn-sm", onClick:function(){setViewItem(null);} }, '✕ Close')
         )
@@ -2324,14 +2363,21 @@ var MediaAttachments = function MediaAttachments(_ref10) {
     setLinkUrl(''); setLinkName(''); setShowLinkForm(false);
   };
 
-  // Load file data from IDB whenever attachment list changes
+  // Load file data from IDB whenever attachment list changes; fall back to cloud
   useEffect(function() {
     if (!attachments.length) return;
     var cancelled = false;
     Promise.all(attachments.map(function(a) {
       // Backward compat: if data is already inline (old format), use it directly
       if (a.data) return Promise.resolve([a.id, a.data]);
-      return _lbpIDB.get(a.id).then(function(d) { return [a.id, d]; });
+      return _lbpIDB.get(a.id).then(function(idbData) {
+        if (idbData) return [a.id, idbData];
+        // IDB miss — try cloud
+        return _lbpCloudFile.get(a.id).then(function(cloudData) {
+          if (cloudData && !cancelled) _lbpIDB.put(a.id, cloudData); // cache locally
+          return [a.id, cloudData];
+        });
+      });
     })).then(function(pairs) {
       if (cancelled) return;
       var map = {};
@@ -2361,7 +2407,13 @@ var MediaAttachments = function MediaAttachments(_ref10) {
           mimeType: file.type
           // no 'data' field — stored in IDB
         };
-        _lbpIDB.put(id, e.target.result).then(function() { resolve(att); });
+        _lbpIDB.put(id, e.target.result).then(function() {
+          // Upload to cloud if within size limit (enables cross-device access)
+          if (file.size <= LBP_CLOUD_FILE_MAX) {
+            _lbpCloudFile.upload(id, e.target.result, file.name, file.type);
+          }
+          resolve(att);
+        });
       };
       reader.onerror = reject;
       reader.readAsDataURL(file);
@@ -2411,6 +2463,7 @@ var MediaAttachments = function MediaAttachments(_ref10) {
   }();
   var removeItem = function removeItem(id) {
     _lbpIDB.del(id);
+    _lbpCloudFile.del(id);
     onChange(attachments.filter(function(a) { return a.id !== id; }));
   };
   var startRecording = /*#__PURE__*/function () {
@@ -2434,6 +2487,9 @@ var MediaAttachments = function MediaAttachments(_ref10) {
                 var id = uid();
                 var att = { id: id, name: 'recording_' + new Date().toISOString().slice(0,19) + '.webm', type: 'audio', mimeType: 'audio/webm', size: blob.size };
                 _lbpIDB.put(id, ev.target.result).then(function() {
+                  if (blob.size <= LBP_CLOUD_FILE_MAX) {
+                    _lbpCloudFile.upload(id, ev.target.result, att.name, 'audio/webm');
+                  }
                   onChange([].concat(_toConsumableArray(attachments), [att]));
                 });
               };
@@ -2469,6 +2525,7 @@ var MediaAttachments = function MediaAttachments(_ref10) {
     var id = uid();
     var att = { id: id, name: 'handwriting_' + Date.now() + '.png', type: 'image', mimeType: 'image/png', size: 0 };
     _lbpIDB.put(id, dataUrl).then(function() {
+      _lbpCloudFile.upload(id, dataUrl, att.name, 'image/png');
       onChange([].concat(_toConsumableArray(attachments), [att]));
     });
   };
