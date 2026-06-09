@@ -22,7 +22,7 @@
 <script>
 (function() {
   // ── Version ──────────────────────────────────────────────────────────────
-  window.LBP_VERSION = '4.88';
+  window.LBP_VERSION = '4.89';
 
   // ── PWA Install prompt ───────────────────────────────────────────────────
   window._installPrompt = null;
@@ -4464,6 +4464,17 @@ var ProjectsScreen = function ProjectsScreen(_ref20) {
   ), displayed.map(function (p) {
     var _p$alarm2;
     var c = statusColor(p.status);
+    if (pCompact) return /*#__PURE__*/React.createElement("div", {
+      key: p.id, className: "card mb-4",
+      style: {padding:'8px 12px', cursor:'pointer'},
+      onClick: function() { setEditItem(p); setForm(Object.assign({}, p)); setModal(true); }
+    },
+      /*#__PURE__*/React.createElement("div", {style:{display:'flex',alignItems:'center',gap:8,flexWrap:'wrap'}},
+        /*#__PURE__*/React.createElement("span", {style:{fontWeight:700,fontSize:13,flex:1,minWidth:0,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}, p.name),
+        /*#__PURE__*/React.createElement(Chip, {label:p.status.replace('_',' '),color:c}),
+        /*#__PURE__*/React.createElement("span", {style:{fontSize:11,color:c,fontWeight:700,flexShrink:0}}, statusToCompletion(p.status),"%")
+      )
+    );
     return /*#__PURE__*/React.createElement("div", {
       className: "card mb-8",
       key: p.id,
