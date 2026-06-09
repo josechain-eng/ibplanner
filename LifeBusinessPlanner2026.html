@@ -22,7 +22,7 @@
 <script>
 (function() {
   // ── Version ──────────────────────────────────────────────────────────────
-  window.LBP_VERSION = '4.83';
+  window.LBP_VERSION = '4.85';
 
   // ── PWA Install prompt ───────────────────────────────────────────────────
   window._installPrompt = null;
@@ -140,6 +140,22 @@
           if (!r.ok) {
             return r.json().catch(function(){return {};}).then(function(errBody) {
               var msg = (errBody && errBody.error && errBody.error.message) || ('HTTP ' + r.status);
+              // 404 on PUT = event was deleted from GCal externally, re-create as POST
+              if (r.status === 404 && method === 'PUT') {
+                console.warn('[LBP GCal] Event not found in GCal (deleted externally), re-creating:', meeting.title);
+                window.dispatchEvent(new CustomEvent('lbp_gcal_event_id', { detail: { lbpId: meeting.id, gcalEventId: null } }));
+                fetch('https://www.googleapis.com/calendar/v3/calendars/primary/events', {
+                  method: 'POST',
+                  headers: { 'Authorization': 'Bearer ' + token, 'Content-Type': 'application/json' },
+                  body: body
+                }).then(function(r2) { return r2.ok ? r2.json() : null; }).then(function(ev2) {
+                  if (ev2 && ev2.id) {
+                    window.dispatchEvent(new CustomEvent('lbp_gcal_event_id', { detail: { lbpId: meeting.id, gcalEventId: ev2.id } }));
+                    if (window._addToastGlobal) window._addToastGlobal({id:uid(),title:'\u2705 Google Calendar',body:'Reuni\u00f3n re-creada: '+meeting.title});
+                  }
+                }).catch(function(){});
+                return null;
+              }
               console.error('[LBP GCal] Sync failed:', r.status, msg, errBody);
               if (window._addToastGlobal) window._addToastGlobal({id:uid(),title:'\u274C GCal sync failed',body:msg});
               return null;
@@ -152,12 +168,12 @@
             if (!meeting.gcalEventId) {
               window.dispatchEvent(new CustomEvent('lbp_gcal_event_id', { detail: { lbpId: meeting.id, gcalEventId: ev.id } }));
             }
-            if (window._addToastGlobal) window._addToastGlobal({id:uid(),title:'\u2705 Google Calendar',body:'Reunión sincronizada: '+meeting.title});
+            if (window._addToastGlobal) window._addToastGlobal({id:uid(),title:'\u2705 Google Calendar',body:'Reuni\u00f3n sincronizada: '+meeting.title});
           }
         })
         .catch(function(e) {
           console.error('[LBP GCal] Network error:', e);
-          if (window._addToastGlobal) window._addToastGlobal({id:uid(),title:'\u274C GCal: error de red',body:'Verifica tu conexión e intenta de nuevo'});
+          if (window._addToastGlobal) window._addToastGlobal({id:uid(),title:'\u274C GCal: error de red',body:'Verifica tu conexi\u00f3n e intenta de nuevo'});
         });
     });
   };
@@ -15995,7 +16011,25 @@ var App = function App() {
         className: "badge", style: {background:'#6B3FA0'}
       }, totalActiveProjects));
     }));
-  })), /*#__PURE__*/React.createElement("main", {
+  }),
+  /*#__PURE__*/React.createElement("div", {className:"nav-section", style:{marginTop:8}}, "\u2699\uFE0F Settings"),
+  /*#__PURE__*/React.createElement("div", {
+    className: "nav-item",
+    onClick: function() { window.dispatchEvent(new Event('lbp_open_sync')); }
+  },
+    /*#__PURE__*/React.createElement("span", {style:{fontSize:15}}, isConnected ? "\u2601\uFE0F" : "\uD83D\uDD0C"),
+    " Cloud & Sync",
+    isConnected && /*#__PURE__*/React.createElement("span", {style:{width:7,height:7,borderRadius:'50%',background:'#4ade80',display:'inline-block',marginLeft:'auto',flexShrink:0}})
+  ),
+  /*#__PURE__*/React.createElement("div", {
+    className: "nav-item",
+    onClick: function() { setNotifPopOpen(true); }
+  },
+    /*#__PURE__*/React.createElement("span", {style:{fontSize:15}}, notifPerm === 'granted' ? "\uD83D\uDD14" : "\uD83D\uDD15"),
+    " Notifications",
+    notifPerm !== 'granted' && /*#__PURE__*/React.createElement("span", {className:"badge", style:{marginLeft:'auto'}}, "!")
+  )
+  ), /*#__PURE__*/React.createElement("main", {
     className: "content"
   }, renderPage())), /*#__PURE__*/React.createElement("nav", {
     className: "bottom-nav"
