@@ -22,7 +22,7 @@
 <script>
 (function() {
   // ── Version ──────────────────────────────────────────────────────────────
-  window.LBP_VERSION = '4.79';
+  window.LBP_VERSION = '4.80';
 
   // ── PWA Install prompt ───────────────────────────────────────────────────
   window._installPrompt = null;
@@ -14459,6 +14459,9 @@ var SyncSettingsButton = function SyncSettingsButton(_ref_ssb) {
   var _lsSt = useState(localStorage.getItem('lbp_last_sync')), _lsSt2 = _slicedToArray(_lsSt, 2), lastSync = _lsSt2[0], setLastSync = _lsSt2[1];
   var _gcalS1 = useState(localStorage.getItem('lbp_gcal_connected') === '1'), _gcalS2 = _slicedToArray(_gcalS1, 2), gcalConnected = _gcalS2[0], setGcalConnected = _gcalS2[1];
   var _gcalS3 = useState(''), _gcalS4 = _slicedToArray(_gcalS3, 2), gcalStatus = _gcalS4[0], setGcalStatus = _gcalS4[1];
+  var _r2S1=useState(null),_r2S2=_slicedToArray(_r2S1,2),r2Stats=_r2S2[0],setR2Stats=_r2S2[1];
+  var _r2S3=useState(false),_r2S4=_slicedToArray(_r2S3,2),r2Loading=_r2S4[0],setR2Loading=_r2S4[1];
+  var _r2S5=useState(null),_r2S6=_slicedToArray(_r2S5,2),r2DelId=_r2S6[0],setR2DelId=_r2S6[1];
 
   var lastSyncDisplay = function() {
     if (!lastSync) return null;
@@ -14711,6 +14714,83 @@ var SyncSettingsButton = function SyncSettingsButton(_ref_ssb) {
               }, '✕ Disconnect')
             ),
             gcalStatus && /*#__PURE__*/React.createElement('p', { style:{fontSize:11,color:'var(--text-muted)',margin:0} }, gcalStatus)
+          ),
+          /*#__PURE__*/React.createElement('div', { style:{marginTop:14,background:'rgba(255,255,255,0.04)',borderRadius:12,padding:'12px 14px'} },
+            /*#__PURE__*/React.createElement('div', { style:{display:'flex',alignItems:'center',justifyContent:'space-between',marginBottom:8} },
+              /*#__PURE__*/React.createElement('span', { style:{fontSize:12,fontWeight:700,color:'var(--text-primary)'} }, '\uD83D\uDDC2 Cloud File Storage (R2)'),
+              /*#__PURE__*/React.createElement('button', {
+                style:{fontSize:10,padding:'3px 9px',borderRadius:7,background:'rgba(255,255,255,0.08)',border:'1px solid rgba(255,255,255,0.15)',color:'var(--text)',cursor:'pointer'},
+                disabled:r2Loading,
+                onClick:function(){
+                  var sk=localStorage.getItem('lbp_sync_key');
+                  if(!workerUrl||!sk){setR2Stats({error:'Worker URL not configured'});return;}
+                  setR2Loading(true);
+                  fetch(workerUrl+'/file-stats?key='+encodeURIComponent(sk))
+                    .then(function(r){return r.json();})
+                    .then(function(d){setR2Stats(d);setR2Loading(false);})
+                    .catch(function(){setR2Stats({error:'Error al consultar'});setR2Loading(false);});
+                }
+              }, r2Loading ? '\u23F3' : '\uD83D\uDD04 Verificar uso')
+            ),
+            r2Stats && r2Stats.error && /*#__PURE__*/React.createElement('p', {style:{fontSize:11,color:'#f87171',margin:'4px 0'}}, r2Stats.error),
+            r2Stats && !r2Stats.error && !r2Stats.r2 && /*#__PURE__*/React.createElement('p', {style:{fontSize:11,color:'#fbbf24',margin:'4px 0'}}, '\u26A0\uFE0F R2 no configurado en el Worker. Agrega el binding LBP_R2.'),
+            r2Stats && r2Stats.r2 && /*#__PURE__*/React.createElement(React.Fragment, null,
+              (function(){
+                var pct = r2Stats.usedPercent || 0;
+                var barColor = pct < 50 ? '#4ade80' : pct < 75 ? '#fbbf24' : pct < 90 ? '#f97316' : '#ef4444';
+                var usedMB = ((r2Stats.totalBytes||0) / (1024*1024)).toFixed(1);
+                var msg = pct >= 90 ? '\u26A0\uFE0F Casi lleno! Considera borrar archivos.' :
+                          pct >= 75 ? '\u26A0\uFE0F Uso alto — revisa tus archivos.' :
+                          pct >= 50 ? '\u26A0\uFE0F Superaste el 50% del storage gratuito.' : null;
+                return /*#__PURE__*/React.createElement(React.Fragment, null,
+                  /*#__PURE__*/React.createElement('div', {style:{display:'flex',justifyContent:'space-between',fontSize:11,color:'var(--text-dim)',marginBottom:4}},
+                    /*#__PURE__*/React.createElement('span', null, usedMB+' MB usados de 10,240 MB'),
+                    /*#__PURE__*/React.createElement('span', {style:{color:barColor,fontWeight:700}}, pct+'%')
+                  ),
+                  /*#__PURE__*/React.createElement('div', {style:{height:8,borderRadius:4,background:'rgba(255,255,255,0.1)',overflow:'hidden',marginBottom:6}},
+                    /*#__PURE__*/React.createElement('div', {style:{height:'100%',width:Math.min(pct,100)+'%',background:barColor,borderRadius:4,transition:'width 0.4s'}})
+                  ),
+                  msg && /*#__PURE__*/React.createElement('p', {style:{fontSize:11,color:barColor,margin:'2px 0 6px',fontWeight:600}}, msg),
+                  /*#__PURE__*/React.createElement('p', {style:{fontSize:11,color:'var(--text-dim)',margin:'0 0 6px'}},
+                    (r2Stats.fileCount||0)+' archivo'+(r2Stats.fileCount===1?'':'s')+' en cloud'
+                  ),
+                  (r2Stats.files||[]).length > 0 && /*#__PURE__*/React.createElement('div', {style:{maxHeight:180,overflowY:'auto',display:'flex',flexDirection:'column',gap:3}},
+                    (r2Stats.files||[]).map(function(fi){
+                      var sizeTxt = fi.size > 1024*1024 ? (fi.size/(1024*1024)).toFixed(1)+' MB' : Math.round(fi.size/1024)+' KB';
+                      var dateTxt = fi.uploaded ? new Date(fi.uploaded).toLocaleDateString('es-BO',{day:'2-digit',month:'short',year:'2-digit'}) : '';
+                      return /*#__PURE__*/React.createElement('div', {
+                        key:fi.fileId,
+                        style:{display:'flex',alignItems:'center',gap:6,background:'rgba(255,255,255,0.04)',borderRadius:7,padding:'5px 8px'}
+                      },
+                        /*#__PURE__*/React.createElement('span', {style:{flex:1,fontSize:11,color:'var(--text)',overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}, fi.name||fi.fileId),
+                        /*#__PURE__*/React.createElement('span', {style:{fontSize:10,color:'var(--text-dim)',whiteSpace:'nowrap'}}, sizeTxt),
+                        dateTxt && /*#__PURE__*/React.createElement('span', {style:{fontSize:10,color:'var(--text-dim)',whiteSpace:'nowrap'}}, dateTxt),
+                        /*#__PURE__*/React.createElement('button', {
+                          style:{fontSize:11,color:'#f87171',background:'none',border:'none',cursor:'pointer',padding:'0 2px',lineHeight:1,flexShrink:0},
+                          title:'Borrar del cloud',
+                          disabled:r2DelId===fi.fileId,
+                          onClick:function(){
+                            var sk=localStorage.getItem('lbp_sync_key');
+                            if(!workerUrl||!sk) return;
+                            setR2DelId(fi.fileId);
+                            fetch(workerUrl+'/file?key='+encodeURIComponent(sk)+'&id='+encodeURIComponent(fi.fileId),{method:'DELETE'})
+                              .then(function(){
+                                setR2DelId(null);
+                                setR2Stats(function(prev){
+                                  var newFiles=(prev.files||[]).filter(function(x){return x.fileId!==fi.fileId;});
+                                  var newBytes=(prev.totalBytes||0)-fi.size;
+                                  var newPct=Math.round(newBytes/((10*1024*1024*1024))*100*10)/10;
+                                  return Object.assign({},prev,{files:newFiles,fileCount:newFiles.length,totalBytes:newBytes,usedPercent:newPct});
+                                });
+                              }).catch(function(){setR2DelId(null);});
+                          }
+                        }, r2DelId===fi.fileId ? '\u23F3' : '\uD83D\uDDD1')
+                      );
+                    })
+                  )
+                );
+              })()
+            )
           ),
           /*#__PURE__*/React.createElement('div', { style:{marginTop:10, fontSize:10, color:'rgba(255,255,255,0.25)', textAlign:'right'} },
             'v' + (window.LBP_VERSION || '?')
