@@ -22,7 +22,7 @@
 <script>
 (function() {
   // ── Version ──────────────────────────────────────────────────────────────
-  window.LBP_VERSION = '4.86';
+  window.LBP_VERSION = '4.88';
 
   // ── PWA Install prompt ───────────────────────────────────────────────────
   window._installPrompt = null;
@@ -696,6 +696,21 @@
         navigator.serviceWorker.ready.then(function(reg) {
           _registerPush(reg, true); // forceNew=true: unsubscribe old, create fresh
         }).catch(function() {});
+      }
+      if (e.data && e.data.type === 'ALARM_FIRED') {
+        // Cloud push already showed this alarm — mark it so local check() skips it
+        var aid = e.data.alarmId;
+        if (!window._lbpFiredSet) window._lbpFiredSet = new Set();
+        window._lbpFiredSet.add(aid);
+        // Also store in localStorage so it survives a page reload within the same minute
+        try {
+          var fired = JSON.parse(localStorage.getItem('lbp_cloud_fired') || '[]');
+          fired.push({ id: aid, t: Date.now() });
+          // Keep only last 60 minutes worth
+          var cutoff = Date.now() - 3600000;
+          fired = fired.filter(function(x) { return x.t > cutoff; });
+          localStorage.setItem('lbp_cloud_fired', JSON.stringify(fired));
+        } catch(_) {}
       }
     });
   }
@@ -2209,11 +2224,18 @@ var _lbpCloudFile = {
   },
   get: function(fileId) {
     var syncKey = localStorage.getItem('lbp_sync_key');
-    if (!syncKey || !window.LBP_WORKER_URL) return Promise.resolve(null);
-    return fetch(window.LBP_WORKER_URL + '/file?key=' + encodeURIComponent(syncKey) + '&id=' + encodeURIComponent(fileId))
-      .then(function(r) { return r.ok ? r.json() : null; })
+    if (!syncKey || !window.LBP_WORKER_URL) {
+      console.warn('[LBP Cloud] get skipped: no syncKey or workerUrl', {syncKey:!!syncKey, workerUrl:!!window.LBP_WORKER_URL});
+      return Promise.resolve(null);
+    }
+    var url = window.LBP_WORKER_URL + '/file?key=' + encodeURIComponent(syncKey) + '&id=' + encodeURIComponent(fileId);
+    return fetch(url)
+      .then(function(r) {
+        if (!r.ok) { console.warn('[LBP Cloud] get failed HTTP', r.status, 'fileId:', fileId); return null; }
+        return r.json();
+      })
       .then(function(obj) { return obj ? obj.data : null; })
-      .catch(function() { return null; });
+      .catch(function(e) { console.error('[LBP Cloud] get error:', e, 'fileId:', fileId); return null; });
   },
   del: function(fileId) {
     var syncKey = localStorage.getItem('lbp_sync_key');
@@ -2728,11 +2750,26 @@ var MediaAttachments = function MediaAttachments(_ref10) {
         className: "btn btn-secondary btn-sm", onClick: function() { setViewItem(null); }
       }, "✕ Close")
     ) : /*#__PURE__*/React.createElement(React.Fragment, null,
-      /*#__PURE__*/React.createElement("p", { style:{fontSize:12,color:'var(--text-dim)',textAlign:'center',margin:'4px 0 8px'} }, 'File stored on the device where it was uploaded. Open the app on that device to access it.'),
-      /*#__PURE__*/React.createElement("div", { style:{display:'flex', gap:8, justifyContent:'center'} },
+      /*#__PURE__*/React.createElement("p", { style:{fontSize:12,color:'var(--text-dim)',textAlign:'center',margin:'4px 0 8px'} },
+        window.LBP_WORKER_URL ? '\u2601\uFE0F Archivo no encontrado en cloud. Si usaste "Subir ahora" intenta Fetch.' : 'File stored on the device where it was uploaded.'),
+      /*#__PURE__*/React.createElement("div", { style:{display:'flex', gap:8, justifyContent:'center', flexWrap:'wrap'} },
+        window.LBP_WORKER_URL && /*#__PURE__*/React.createElement("button", {
+          className: "btn btn-primary btn-sm",
+          onClick: function() {
+            _lbpCloudFile.get(viewItem.id).then(function(data) {
+              if (data) {
+                _lbpIDB.put(viewItem.id, data);
+                setViewItem(Object.assign({}, viewItem, { _src: data }));
+                setFileData(function(fd) { var n=Object.assign({},fd); n[viewItem.id]=data; return n; });
+              } else {
+                alert('No encontrado en cloud. Sube el archivo desde el dispositivo original primero.');
+              }
+            }).catch(function() { alert('Error de red — verifica tu conexión.'); });
+          }
+        }, '\u2601\uFE0F Fetch from cloud'),
         /*#__PURE__*/React.createElement("button", {
           className: "btn btn-secondary btn-sm", onClick: function() { setViewItem(null); }
-        }, "✕ Close")
+        }, "\u2715 Close")
       )
     )
   )));
@@ -7426,7 +7463,12 @@ var JournalScreen = function JournalScreen(_ref31) {
   };
   return /*#__PURE__*/React.createElement("div", null, /*#__PURE__*/React.createElement("div", {
     className: "page-header"
-  }, /*#__PURE__*/React.createElement("h1", null, "\uD83D\uDCD3 Journal"), /*#__PURE__*/React.createElement("div", {style:{display:"flex",gap:5,flexWrap:"wrap",justifyContent:"flex-end",alignItems:"center"}},
+  }, /*#__PURE__*/React.createElement("h1", null, "\uD83D\uDCD3 Journal"), /*#__PURE__*/React.createElement("button", {
+      className: "btn btn-primary btn-sm",
+      onClick: function onClick() { setEditEntry(null); setForm({title:'',content:'',gratitude:'',topWins:'',challenges:'',tomorrowFocus:'',affirmations:'',mood:'GOOD',attachments:[],category:'',tags:[],alarm:defaultAlarm(),links:[],entryType:'journal'}); setMood('GOOD'); setModal(true); }
+    
+    }, "+ Write Today")
+  ), /*#__PURE__*/React.createElement("div", {style:{display:"flex",gap:5,flexWrap:"wrap",alignItems:"center",padding:"4px 0 8px 0"}},
     ['All','Journal','Note'].map(function(f){return /*#__PURE__*/React.createElement("button",{key:f,className:"btn btn-sm "+(jTypeFilter===f?"btn-primary":"btn-secondary"),onClick:function(){setJTypeFilter(f);}},f==='All'?'All':f==='Journal'?'\ud83d\udcd3':'\ud83d\udcdd');}),
     /*#__PURE__*/React.createElement("button", {className:"btn btn-secondary btn-sm", onClick:function(){setCompact(function(c){return !c;});}, title:compact?"Expanded view":"Compact view"}, compact ? "\u2610 Expand" : "\u2630 Compact"),
     /*#__PURE__*/React.createElement("button",{className:"btn btn-secondary btn-sm",disabled:jInsLoad,
@@ -7435,12 +7477,8 @@ var JournalScreen = function JournalScreen(_ref31) {
         var content='Últimas '+entries.length+' entradas del diario:\n'+entries.map(function(e){return e.date+' ['+( e.entryType||'journal')+'] mood:'+(e.mood||'?')+' — '+(e.title||(e.content||'').replace(/<[^>]+>/g,'').slice(0,60));}).join('\n');
         fetch(window.LBP_WORKER_URL+'/chat',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({messages:[{role:'user',content:content}],systemPrompt:'Analiza estas entradas del diario y genera un informe de insights mensual con: 1) Patrón de estado de ánimo (mood), 2) Temas recurrentes, 3) Principales logros y victorias, 4) Desafíos identificados, 5) Tendencias observadas y consejo personal. Sé empático y constructivo. Usa el idioma de las entradas.'})}).then(function(r){return r.json();}).then(function(res){setJInsLoad(false);setJInsRes(res.content||('Error: '+(res.error||'')));}).catch(function(){setJInsLoad(false);setJInsRes('Error de red');});
       }
-    },jInsLoad?'⏳ Analizando...':'🔮 Insights'),
-    /*#__PURE__*/React.createElement("button", {
-      className: "btn btn-primary btn-sm",
-      onClick: function onClick() { setEditEntry(null); setForm({title:'',content:'',gratitude:'',topWins:'',challenges:'',tomorrowFocus:'',affirmations:'',mood:'GOOD',attachments:[],category:'',tags:[],alarm:defaultAlarm(),links:[],entryType:'journal'}); setMood('GOOD'); setModal(true); }
-    }, "+ Write Today")
-  )), /*#__PURE__*/React.createElement("div", {
+    },jInsLoad?'⏳ Analizando...':'🔮 Insights')
+  ), /*#__PURE__*/React.createElement("div", {
     className: "page-content"
   }, /*#__PURE__*/React.createElement("div", null,
     jManageCats && /*#__PURE__*/React.createElement("div", {style:{background:'var(--card)',borderRadius:10,padding:'10px 12px',marginBottom:10,border:'1px solid var(--border)'}},
@@ -15686,6 +15724,12 @@ var App = function App() {
       try {
         var _now = Date.now(),
           win = _now - 300000; // 5-minute window — catches alarms if app opened slightly late
+        // Build set of alarmIds already handled by cloud push (persisted across reloads)
+        var _cloudFired = new Set();
+        try {
+          var _cf = JSON.parse(localStorage.getItem('lbp_cloud_fired') || '[]');
+          _cf.forEach(function(x) { _cloudFired.add(x.id); });
+        } catch(_) {}
         var d = JSON.parse(localStorage.getItem('lbp2026_data') || '{}');
         types.forEach(function (_ref64) {
           var _ref65 = _slicedToArray(_ref64, 3),
@@ -15697,7 +15741,8 @@ var App = function App() {
             if (!(al !== null && al !== void 0 && al.enabled) || !al.datetime) return;
             var t = new Date(al.datetime).getTime();
             var k = "".concat(entity.id, "_").concat(al.datetime);
-            if (t >= win && t <= _now && !firedRef.current.has(k) && !(window._lbpFiredSet && window._lbpFiredSet.has(k))) {
+            var _alarmId = (entity.id || '') + '_' + new Date(al.datetime).getTime();
+            if (t >= win && t <= _now && !firedRef.current.has(k) && !(window._lbpFiredSet && window._lbpFiredSet.has(k)) && !_cloudFired.has(_alarmId)) {
               firedRef.current.add(k);
               if (!window._lbpFiredSet) window._lbpFiredSet = new Set();
               window._lbpFiredSet.add(k);
