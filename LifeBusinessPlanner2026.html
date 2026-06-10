@@ -71,6 +71,19 @@
         window._gcalToken = tokenResponse.access_token;
         window._gcalTokenExpiry = Date.now() + ((tokenResponse.expires_in || 3600) - 120) * 1000;
         localStorage.setItem('lbp_gcal_connected', '1');
+        // Persist token so page reloads don't force re-auth
+        try {
+          localStorage.setItem('lbp_gcal_token', tokenResponse.access_token);
+          localStorage.setItem('lbp_gcal_token_expiry', String(window._gcalTokenExpiry));
+        } catch(_e) {}
+        // Proactive silent refresh 5 min before expiry (avoids mid-session interruption)
+        if (window._gcalRefreshTimer) clearTimeout(window._gcalRefreshTimer);
+        var _refreshIn = Math.max(30000, window._gcalTokenExpiry - Date.now() - 300000);
+        window._gcalRefreshTimer = setTimeout(function() {
+          if (window._gcalTokenClient) {
+            try { window._gcalTokenClient.requestAccessToken({ prompt: '' }); } catch(_e2) {}
+          }
+        }, _refreshIn);
         window.dispatchEvent(new Event('lbp_gcal_authed'));
         var cbs = _gcalPendingCbs.slice(); _gcalPendingCbs = [];
         cbs.forEach(function(cb) { try { cb(window._gcalToken); } catch(e){} });
@@ -93,12 +106,28 @@
     }
     window._gcalToken = null;
     window._gcalTokenExpiry = 0;
+    if (window._gcalRefreshTimer) { clearTimeout(window._gcalRefreshTimer); window._gcalRefreshTimer = null; }
     localStorage.removeItem('lbp_gcal_connected');
+    localStorage.removeItem('lbp_gcal_token');
+    localStorage.removeItem('lbp_gcal_token_expiry');
     window.dispatchEvent(new Event('lbp_gcal_disconnected'));
   };
 
   window._gcalEnsureToken = function(cb) {
+    // 1. Valid in-memory token
     if (window._gcalToken && window._gcalTokenExpiry > Date.now()) { cb(window._gcalToken); return; }
+    // 2. Valid token persisted in localStorage (survives page reloads)
+    try {
+      var _lsTok = localStorage.getItem('lbp_gcal_token');
+      var _lsExp = parseInt(localStorage.getItem('lbp_gcal_token_expiry') || '0');
+      if (_lsTok && _lsExp > Date.now() + 60000) {
+        window._gcalToken = _lsTok;
+        window._gcalTokenExpiry = _lsExp;
+        cb(_lsTok);
+        return;
+      }
+    } catch(_e) {}
+    // 3. Silent refresh — no popup if user still has active Google session
     if (!window._gcalTokenClient) { cb(null); return; }
     _gcalPendingCbs.push(cb);
     if (_gcalPendingCbs.length === 1) {
@@ -3572,7 +3601,20 @@ var HomeScreen = function HomeScreen(_ref14) {
     (function(){
       var now=Date.now();
       var alerts=[];
-      // 1. Stale alarms: task alarm fired 1-14 days ago, still open
+      // 1a. Today's fired alarms: alarm fired today, task still open
+      (data.tasks||[]).forEach(function(t){
+        if(t.status==='DONE')return;
+        if(!t.alarm||!t.alarm.enabled||!t.alarm.datetime)return;
+        var ms=new Date(t.alarm.datetime).getTime();
+        var days=Math.floor((now-ms)/86400000);
+        if(ms<now&&days===0){
+          var hoursAgo=Math.floor((now-ms)/3600000);
+          alerts.push({id:'today_'+t.id,icon:'🔔',color:'#F59E0B',
+            msg:'"'+t.title.slice(0,35)+'" — alarma de hoy'+(hoursAgo>0?' (hace '+hoursAgo+'h)':'')+' sin completar',
+            action:function(){navigate('tasks');}});
+        }
+      });
+      // 1b. Stale alarms: task alarm fired 1-14 days ago, still open
       (data.tasks||[]).forEach(function(t){
         if(t.status==='DONE')return;
         if(!t.alarm||!t.alarm.enabled||!t.alarm.datetime)return;
