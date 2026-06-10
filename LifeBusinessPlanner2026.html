@@ -3384,22 +3384,37 @@ var HomeScreen = function HomeScreen(_ref14) {
       /*#__PURE__*/React.createElement("span",{style:{fontSize:12,opacity:.6}},brfOpen?"\u25B2":"\u25BC")
     ),
     brfOpen&&brfData&&/*#__PURE__*/React.createElement("div",{style:{padding:'0 14px 14px'}},
-      /*#__PURE__*/React.createElement("p",{style:{fontSize:13,lineHeight:1.6,margin:'0 0 10px',opacity:.9}},brfData.summary),
-      brfData.stats&&/*#__PURE__*/React.createElement("div",{style:{display:'grid',gridTemplateColumns:'repeat(3,1fr)',gap:6,marginBottom:10}},
-        [['tareasHoy','\uD83D\uDCCB Hoy','#60A5FA'],['reunionesHoy','\uD83D\uDCC5 Reuniones','#9C68D6'],['vencidas','\u26A0\uFE0F Vencidas','#F44336']].map(function(s){
-          return /*#__PURE__*/React.createElement("div",{key:s[0],style:{background:'rgba(255,255,255,.06)',borderRadius:8,padding:'6px 8px',textAlign:'center'}},
-            /*#__PURE__*/React.createElement("div",{style:{fontSize:18,fontWeight:800,color:s[2]}},brfData.stats[s[0]]||0),
+      brfData.summary&&/*#__PURE__*/React.createElement("div",{style:{marginBottom:12}},
+        brfData.summary.split(/(?<=[.!])\s+/).filter(function(s){return s.trim().length>4;}).map(function(sentence,i){
+          return /*#__PURE__*/React.createElement("div",{key:i,style:{display:'flex',gap:6,fontSize:12,lineHeight:1.6,padding:'2px 0',borderBottom:'1px solid rgba(255,255,255,.05)'}},
+            /*#__PURE__*/React.createElement("span",{style:{color:'#9C68D6',flexShrink:0}},"\u2022"),
+            /*#__PURE__*/React.createElement("span",{style:{opacity:.9}},sentence.trim())
+          );
+        })
+      ),
+      /*#__PURE__*/React.createElement("div",{style:{display:'grid',gridTemplateColumns:'repeat(3,1fr)',gap:6,marginBottom:10}},
+        [['tasks','\uD83D\uDCCB Hoy','#60A5FA',todayTasks.length],['meetings','\uD83D\uDCC5 Reuniones','#9C68D6',todayMeetings.length],['tasks','\u26A0\uFE0F Vencidas','#F44336',overdueTasks.length]].map(function(s,i){
+          return /*#__PURE__*/React.createElement("div",{key:i,onClick:function(){navigate(s[0]);},style:{background:'rgba(255,255,255,.06)',borderRadius:8,padding:'6px 8px',textAlign:'center',cursor:'pointer',transition:'background .15s'},
+            onMouseEnter:function(e){e.currentTarget.style.background='rgba(255,255,255,.12)';},
+            onMouseLeave:function(e){e.currentTarget.style.background='rgba(255,255,255,.06)';}},
+            /*#__PURE__*/React.createElement("div",{style:{fontSize:20,fontWeight:800,color:s[2]}},s[3]),
             /*#__PURE__*/React.createElement("div",{style:{fontSize:10,opacity:.7}},s[1])
           );
         })
       ),
-      brfData.tareasHoy&&brfData.tareasHoy.length>0&&/*#__PURE__*/React.createElement("div",{style:{marginBottom:8}},
-        /*#__PURE__*/React.createElement("div",{style:{fontSize:11,fontWeight:600,opacity:.6,marginBottom:4}},"\uD83D\uDCCB TAREAS DE HOY"),
-        brfData.tareasHoy.map(function(t,i){return /*#__PURE__*/React.createElement("div",{key:i,style:{fontSize:12,padding:'3px 0',borderBottom:'1px solid rgba(255,255,255,.06)'}},"\u2022 ",t);})
+      todayTasks.length>0&&/*#__PURE__*/React.createElement("div",{style:{marginBottom:8}},
+        /*#__PURE__*/React.createElement("div",{style:{fontSize:10,fontWeight:700,letterSpacing:.5,opacity:.5,marginBottom:5}},"\uD83D\uDCCB TAREAS DE HOY"),
+        todayTasks.slice(0,5).map(function(t,i){return /*#__PURE__*/React.createElement("div",{key:t.id||i,style:{fontSize:12,padding:'3px 0',borderBottom:'1px solid rgba(255,255,255,.06)',display:'flex',gap:6,alignItems:'center'}},
+          /*#__PURE__*/React.createElement("span",{style:{color:'#60A5FA',flexShrink:0}},"\u2022"),t.title
+        );})
       ),
-      brfData.reunionesHoy&&brfData.reunionesHoy.length>0&&/*#__PURE__*/React.createElement("div",null,
-        /*#__PURE__*/React.createElement("div",{style:{fontSize:11,fontWeight:600,opacity:.6,marginBottom:4}},"\uD83D\uDCC5 REUNIONES"),
-        brfData.reunionesHoy.map(function(m,i){return /*#__PURE__*/React.createElement("div",{key:i,style:{fontSize:12,padding:'3px 0'}},m.time?m.time+' \u2014 ':'',"",m.title,"",m.client?' ('+m.client+')':'');})
+      todayMeetings.length>0&&/*#__PURE__*/React.createElement("div",null,
+        /*#__PURE__*/React.createElement("div",{style:{fontSize:10,fontWeight:700,letterSpacing:.5,opacity:.5,marginBottom:5}},"\uD83D\uDCC5 REUNIONES DE HOY"),
+        todayMeetings.map(function(m,i){return /*#__PURE__*/React.createElement("div",{key:m.id||i,style:{fontSize:12,padding:'3px 0',display:'flex',gap:6,alignItems:'center'}},
+          /*#__PURE__*/React.createElement("span",{style:{color:'#9C68D6',flexShrink:0}},"\u2022"),
+          m.startTime&&/*#__PURE__*/React.createElement("span",{style:{opacity:.6,flexShrink:0}},m.startTime),
+          /*#__PURE__*/React.createElement("span",null,m.title)
+        );})
       )
     )
   ),
@@ -3453,7 +3468,7 @@ var HomeScreen = function HomeScreen(_ref14) {
         }
       });
       // 2. Meeting follow-up: meetings from yesterday with no tasks created after
-      var yesterday=new Date(now-86400000).toISOString().slice(0,10);
+      var _yd=new Date(now-86400000);var yesterday=_yd.getFullYear()+'-'+String(_yd.getMonth()+1).padStart(2,'0')+'-'+String(_yd.getDate()).padStart(2,'0');
       (data.meetings||[]).forEach(function(m){
         if(m.date!==yesterday)return;
         var mStart=new Date(m.date+'T'+(m.startTime||'00:00')).getTime();
@@ -16038,7 +16053,7 @@ var App = function App() {
     label: '💚 Health & Wellness',
     items: [['journal', '📓', 'Journal'], ['habits', '🔄', 'Habit Tracker'], ['workout', '🏋️', 'Workout Planner'], ['recipes', '🍽', 'Recipes & Groceries'], ['medication', '💊', 'Medication Tracker'], ['baby', '👶', 'Baby']]
   }];
-  var bottomTabs = [['home','home','Home'],['tasks','task','Tasks'],['search','search','Search'],['projects','business','Projects'],['journal','book','Journal'],['imports','archive','Ship']];
+  var bottomTabs = [['home','home','Home'],['tasks','task','Tasks'],['meetings','calendar_month','Meetings'],['projects','business','Projects'],['journal','book','Journal'],['imports','archive','Ship']];
   var renderPage = function renderPage() {
     var props = {
       data: data,
