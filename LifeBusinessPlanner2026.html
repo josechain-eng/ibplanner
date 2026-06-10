@@ -15609,6 +15609,126 @@ var ImportsScreen = function ImportsScreen(_ref_imp) {
     if(imp.status==='RECIBIDO') byBrand[brand].received++;
     else if(imp.status!=='CANCELADO') byBrand[brand].pending++;
   });
+  var _renderLogisticsAi = function(text) {
+    if (!text) return null;
+    var lines = text.split('\n');
+    var blocks = [];
+    var i = 0;
+    var _statusColor = function(line) {
+      if (/🔴|CRÍTICO|BLOQUEADO|EN RIESGO/i.test(line)) return { h:'#F44336', bg:'rgba(244,67,54,.1)', border:'rgba(244,67,54,.3)' };
+      if (/🟡|PENDIENTE/i.test(line)) return { h:'#F59E0B', bg:'rgba(245,158,11,.1)', border:'rgba(245,158,11,.3)' };
+      if (/🟠|EN PROCESO|PROCESO/i.test(line)) return { h:'#FB923C', bg:'rgba(251,146,60,.1)', border:'rgba(251,146,60,.3)' };
+      if (/🟢|✅|RECIBIDO|COMPLETADO/i.test(line)) return { h:'#4CAF50', bg:'rgba(76,175,80,.1)', border:'rgba(76,175,80,.3)' };
+      return { h:'#9C68D6', bg:'rgba(156,104,214,.08)', border:'rgba(156,104,214,.25)' };
+    };
+    while (i < lines.length) {
+      var line = lines[i];
+      // --- divider
+      if (/^---+\s*$/.test(line.trim())) {
+        blocks.push(React.createElement('div', { key:'div'+i, style:{ height:1, background:'rgba(255,255,255,.08)', margin:'14px 0' } }));
+        i++; continue;
+      }
+      // # Main title
+      if (line.startsWith('# ') && !line.startsWith('## ')) {
+        blocks.push(React.createElement('div', { key:'h1'+i, style:{ fontSize:14, fontWeight:800, color:'var(--purple-light)', marginBottom:2 } }, line.replace(/^#\s*/, '')));
+        i++; continue;
+      }
+      // ## Major section
+      if (line.startsWith('## ')) {
+        var stxt = line.replace(/^##\s*/, '');
+        blocks.push(React.createElement('div', { key:'h2'+i, style:{ display:'flex', alignItems:'center', gap:8, marginTop:16, marginBottom:8 } },
+          React.createElement('div', { style:{ flex:1, height:1, background:'rgba(156,104,214,.3)' } }),
+          React.createElement('span', { style:{ fontSize:11, fontWeight:800, letterSpacing:1, color:'var(--purple-light)', whiteSpace:'nowrap', padding:'0 8px' } }, stxt),
+          React.createElement('div', { style:{ flex:1, height:1, background:'rgba(156,104,214,.3)' } })
+        ));
+        i++; continue;
+      }
+      // ### Brand header — collect all table rows + paragraph until next ### or ##
+      if (line.startsWith('### ')) {
+        var brandTitle = line.replace(/^###\s*/, '');
+        var sc = _statusColor(brandTitle);
+        var tableRows = [];
+        var narrative = [];
+        i++;
+        while (i < lines.length && !lines[i].startsWith('### ') && !lines[i].startsWith('## ')) {
+          var l = lines[i];
+          if (/^\|.+\|/.test(l) && !/^\|[-: ]+\|/.test(l)) {
+            var cells = l.split('|').map(function(c){return c.trim();}).filter(function(c){return c.length>0;});
+            if (cells.length >= 2 && cells[0].toLowerCase()!=='campo') tableRows.push(cells);
+          } else if (!/^\|[-: ]+\|/.test(l)) {
+            var lt = l.trim();
+            if (lt) narrative.push(lt);
+          }
+          i++;
+        }
+        var brandCard = React.createElement('div', { key:'brand'+i, style:{ marginBottom:12, borderRadius:10, overflow:'hidden', border:'1px solid '+sc.border } },
+          React.createElement('div', { style:{ background:sc.bg, padding:'8px 12px', borderBottom:'1px solid '+sc.border } },
+            React.createElement('span', { style:{ fontSize:13, fontWeight:800, color:sc.h } }, brandTitle)
+          ),
+          tableRows.length > 0 && React.createElement('div', { style:{ padding:'0' } },
+            tableRows.map(function(row, ri) {
+              var fieldRaw = row[0].replace(/\*\*/g,'');
+              var valueRaw = (row[1]||'').replace(/\*\*(.*?)\*\*/g,'$1');
+              var isAlert = /BLOQUEADO|EN RIESGO|CRÍTICO|URGENTE|vencer/i.test(valueRaw);
+              return React.createElement('div', { key:ri, style:{ display:'flex', padding:'6px 12px', borderBottom:'1px solid rgba(255,255,255,.05)', background: ri%2===0?'transparent':'rgba(255,255,255,.02)' } },
+                React.createElement('div', { style:{ width:'38%', fontSize:10, fontWeight:700, color:'rgba(255,255,255,.45)', flexShrink:0, paddingRight:8, paddingTop:1 } }, fieldRaw),
+                React.createElement('div', { style:{ flex:1, fontSize:12, color: isAlert?sc.h:'var(--text)', fontWeight: isAlert?700:400, lineHeight:1.4 } }, valueRaw)
+              );
+            })
+          ),
+          narrative.length > 0 && React.createElement('div', { style:{ padding:'8px 12px', background:'rgba(0,0,0,.15)', borderTop:'1px solid rgba(255,255,255,.06)' } },
+            React.createElement('div', { style:{ fontSize:10, fontWeight:700, color:'rgba(255,255,255,.35)', letterSpacing:.5, marginBottom:4 } }, '📝 SITUACIÓN'),
+            narrative.map(function(n, ni) {
+              var parts = n.split(/\*\*(.*?)\*\*/g);
+              return React.createElement('div', { key:ni, style:{ fontSize:12, lineHeight:1.6, marginBottom:3, color:'rgba(255,255,255,.8)' } },
+                parts.map(function(p,pi){ return pi%2===1 ? React.createElement('strong',{key:pi,style:{color:'var(--text)'}},p) : p; })
+              );
+            })
+          )
+        );
+        blocks.push(brandCard);
+        continue;
+      }
+      // Bullet list item
+      if (/^[-•]\s/.test(line)) {
+        var btext = line.replace(/^[-•]\s*/,'');
+        var bparts = btext.split(/\*\*(.*?)\*\*/g);
+        blocks.push(React.createElement('div', { key:'b'+i, style:{ display:'flex', gap:8, padding:'3px 0', fontSize:12 } },
+          React.createElement('span', { style:{ color:'var(--purple-light)', flexShrink:0 } }, '›'),
+          React.createElement('div', { style:{ flex:1, lineHeight:1.5 } },
+            bparts.map(function(p,pi){ return pi%2===1 ? React.createElement('strong',{key:pi},p) : p; })
+          )
+        ));
+        i++; continue;
+      }
+      // Orphan table rows (outside brand sections)
+      if (/^\|.+\|/.test(line) && !/^\|[-: ]+\|/.test(line)) {
+        var ocells = line.split('|').map(function(c){return c.trim();}).filter(function(c){return c.length>0;});
+        if (ocells.length>=2) {
+          blocks.push(React.createElement('div', { key:'tr'+i, style:{ display:'flex', padding:'4px 0', fontSize:12, borderBottom:'1px solid rgba(255,255,255,.05)' } },
+            React.createElement('div', { style:{ width:'38%', fontSize:10, fontWeight:700, opacity:.45, paddingRight:8 } }, ocells[0].replace(/\*\*/g,'')),
+            React.createElement('div', { style:{ flex:1 } }, ocells[1].replace(/\*\*(.*?)\*\*/g,'$1'))
+          ));
+        }
+        i++; continue;
+      }
+      // Bold standalone line
+      if (/^\*\*.*\*\*$/.test(line.trim())) {
+        blocks.push(React.createElement('div', { key:'bl'+i, style:{ fontSize:12, fontWeight:700, opacity:.8, marginBottom:2 } }, line.trim().replace(/\*\*/g,'')));
+        i++; continue;
+      }
+      // Regular paragraph
+      var lt = line.trim();
+      if (lt) {
+        var pparts = lt.split(/\*\*(.*?)\*\*/g);
+        blocks.push(React.createElement('div', { key:'p'+i, style:{ fontSize:12, lineHeight:1.6, marginBottom:4, opacity:.85 } },
+          pparts.map(function(p,pi){ return pi%2===1 ? React.createElement('strong',{key:pi},p) : p; })
+        ));
+      }
+      i++;
+    }
+    return React.createElement('div', { style:{ fontSize:12 } }, blocks);
+  };
   var runAiLogistics = function() {
     if (!window.LBP_WORKER_URL) { setIAiErr('Worker no configurado'); return; }
     setIAiLoad(true); setIAiRes(null); setIAiErr('');
@@ -15774,9 +15894,8 @@ var ImportsScreen = function ImportsScreen(_ref_imp) {
         React.createElement('button',{className:'btn btn-primary',style:{width:'100%',marginBottom:12},onClick:runAiLogistics,disabled:iAiLoad},
           iAiLoad?'⏳ Analizando correos...(puede tomar ~20s)':'🤖 Analizar Logística + Correos'),
         iAiErr&&React.createElement('div',{style:{color:'#ef4444',fontSize:12,marginBottom:8}},iAiErr),
-        iAiRes&&React.createElement('div',{style:{background:'rgba(107,63,160,0.06)',border:'1px solid rgba(107,63,160,0.2)',borderRadius:12,padding:'12px'}},
-          React.createElement('div',{style:{fontSize:11,fontWeight:700,color:'var(--purple-light)',marginBottom:8}},'🤖 Análisis IA — Logística de Importaciones'),
-          typeof _renderAiMd==='function'?_renderAiMd(iAiRes):React.createElement('div',{style:{fontSize:12,whiteSpace:'pre-wrap',lineHeight:1.7}},iAiRes)
+        iAiRes&&React.createElement('div',{style:{background:'rgba(107,63,160,0.04)',borderRadius:12,padding:'4px 0 8px'}},
+          _renderLogisticsAi(iAiRes)
         )
       )
     ),
