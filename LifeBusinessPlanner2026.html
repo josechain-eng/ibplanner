@@ -22,7 +22,7 @@
 <script>
 (function() {
   // ── Version ──────────────────────────────────────────────────────────────
-  window.LBP_VERSION = '4.90';
+  window.LBP_VERSION = '4.91';
 
   // ── PWA Install prompt ───────────────────────────────────────────────────
   window._installPrompt = null;
@@ -3300,6 +3300,10 @@ var HomeScreen = function HomeScreen(_ref14) {
       var _unactioned=_past7.filter(function(m){var mEnd=new Date(m.date+'T'+(m.endTime||m.startTime||'23:59')).getTime();return!(d.tasks||[]).some(function(t){return t.createdAt&&t.createdAt>mEnd;});});
       // Stagnant projects (active, not updated in >7 days)
       var _stagnant=(d.projects||[]).filter(function(p){if(['DONE','CANCELLED','ARCHIVED'].includes(p.status))return false;var last=p.updatedAt||p.createdAt||0;return last&&(_now-last)/_dayMs>7;}).map(function(p){return{nombre:p.name,estado:p.status,diasSinCambio:Math.floor((_now-(p.updatedAt||p.createdAt||_now))/_dayMs)};}).slice(0,5);
+      // Projects with pending subtasks (active projects that have incomplete subtasks)
+      var _projSubtasks=(d.projects||[]).filter(function(p){return!['DONE','CANCELLED','ARCHIVED'].includes(p.status)&&(p.subtasks||[]).some(function(s){return!s.done;});}).map(function(p){var _pend=(p.subtasks||[]).filter(function(s){return!s.done;});var _done=(p.subtasks||[]).filter(function(s){return s.done;}).length;return{proyecto:p.name,subtareasPendientes:_pend.map(function(s){return s.title;}).slice(0,5),completadas:_done,total:(p.subtasks||[]).length,diasSinCambio:p.updatedAt?Math.floor((_now-p.updatedAt)/_dayMs):null};}).slice(0,5);
+      // Unchecked checkbox items in project notes/description
+      var _projCheckboxes=(d.projects||[]).filter(function(p){return!['DONE','CANCELLED','ARCHIVED'].includes(p.status)&&p.description;}).reduce(function(acc,p){var txt=(p.description||'').replace(/<[^>]+>/g,' ');var _unchecked=txt.match(/\[\s*\]\s*[^<]{2,}/g)||[];if(_unchecked.length>0){acc.push({proyecto:p.name,itemsPendientes:_unchecked.map(function(x){return x.replace(/\[\s*\]\s*/,'').trim();}).slice(0,5)});}return acc;},[]).slice(0,4);
       // Clients not contacted in >14 days
       var _neglected=(d.clients||[]).filter(function(c){if(!c.lastVisitDate)return false;var days=(_now-new Date(c.lastVisitDate).getTime())/_dayMs;return days>14;}).map(function(c){return{nombre:c.businessName||c.name,diasSinContacto:Math.floor((_now-new Date(c.lastVisitDate).getTime())/_dayMs)};}).sort(function(a,b){return b.diasSinContacto-a.diasSinContacto;}).slice(0,4);
       // Habits: streak at risk (not done today, not done yesterday either)
@@ -3313,12 +3317,14 @@ var HomeScreen = function HomeScreen(_ref14) {
         tareasVencidas:_over.map(function(t){return{titulo:t.title,vencio:t.dueDate,prioridad:t.priority};}),
         reunionesSinSeguimiento:_unactioned.map(function(m){return{titulo:m.title,fecha:m.date,cliente:m.clientName||''};}),
         proyectosEstancados:_stagnant,
+        proyectosConSubtareasPendientes:_projSubtasks,
+        checkboxesProyectosSinCumplir:_projCheckboxes,
         clientesSinContacto:_neglected,
         habitosEnRiesgo:_habitRisk,
         totalTareasPendientes:_allTasks.length,
         totalTareasCompletadasHoy:_doneTasks.filter(function(t){return t.updatedAt&&new Date(t.updatedAt).toISOString().slice(0,10)===_ts;}).length
       };
-      var prompt='Eres la IA Operacional del Ventura Mall (La Paz, Bolivia). Tu rol es analizar los datos reales del gerente y actuar como un jefe de operaciones proactivo: detectar problemas, inacción y riesgos, y recomendar acciones concretas e inmediatas.\n\nDatos actuales ('+_ts+'):\n'+JSON.stringify(ctx,null,2)+'\n\nResponde ÚNICAMENTE con un JSON válido con esta estructura exacta:\n{"summary":"2 oraciones: estado del día y lo más urgente","recommendations":[{"priority":"URGENTE|ALERTA|SUGERENCIA","text":"acción concreta y específica usando los datos reales","navigate":"tasks|meetings|projects|clients|habits"}]}\n\nReglas:\n- summary: máximo 2 oraciones, texto plano sin markdown\n- recommendations: máximo 6 items, ordenados por prioridad descendente\n- Cada recomendación debe mencionar datos específicos (nombre de reunión, proyecto, cliente)\n- USA SOLO datos del JSON provisto, NO inventes nada\n- Si reunionesSinSeguimiento tiene items: SIEMPRE incluir recomendación de seguimiento\n- Si proyectosEstancados tiene items: SIEMPRE incluir alerta de estancamiento\n- Solo incluir lo que tiene datos reales, ignorar categorías vacías\n- navigate debe ser la pantalla más relevante para tomar acción';
+      var prompt='Eres la IA Operacional del Ventura Mall (La Paz, Bolivia). Tu rol es analizar los datos reales del gerente y actuar como un jefe de operaciones proactivo: detectar problemas, inacción y riesgos, y recomendar acciones concretas e inmediatas.\n\nDatos actuales ('+_ts+'):\n'+JSON.stringify(ctx,null,2)+'\n\nResponde ÚNICAMENTE con un JSON válido con esta estructura exacta:\n{"summary":"2 oraciones: estado del día y lo más urgente","recommendations":[{"priority":"URGENTE|ALERTA|SUGERENCIA","text":"acción concreta y específica usando los datos reales","navigate":"tasks|meetings|projects|clients|habits"}]}\n\nReglas:\n- summary: máximo 2 oraciones, texto plano sin markdown\n- recommendations: máximo 6 items, ordenados por prioridad descendente\n- Cada recomendación debe mencionar datos específicos (nombre de reunión, proyecto, cliente)\n- USA SOLO datos del JSON provisto, NO inventes nada\n- Si reunionesSinSeguimiento tiene items: SIEMPRE incluir recomendación de seguimiento\n- Si proyectosEstancados tiene items: SIEMPRE incluir alerta de estancamiento\n- Si proyectosConSubtareasPendientes tiene items: incluir recomendación de revisar subtareas del proyecto más rezagado\n- Si checkboxesProyectosSinCumplir tiene items: incluir recordatorio de los checkboxes pendientes más importantes\n- Solo incluir lo que tiene datos reales, ignorar categorías vacías\n- navigate debe ser la pantalla más relevante para tomar acción';
       fetch(window.LBP_WORKER_URL+'/chat',{method:'POST',headers:{'Content-Type':'application/json'},
         body:JSON.stringify({messages:[{role:'user',content:prompt}],systemPrompt:'Eres una IA Operacional. Responde SOLO con JSON válido, sin texto adicional, sin markdown, sin explicaciones.'})})
       .then(function(r){return r.json();})
