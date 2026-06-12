@@ -22,7 +22,7 @@
 <script>
 (function() {
   // ── Version ──────────────────────────────────────────────────────────────
-  window.LBP_VERSION = '4.91';
+  window.LBP_VERSION = '4.92';
 
   // ── PWA Install prompt ───────────────────────────────────────────────────
   window._installPrompt = null;
@@ -6910,7 +6910,7 @@ var MeetingsScreen = function MeetingsScreen(_ref26) {
         fontSize: 11,
         color: 'var(--text-dim)'
       }
-    }, "\uD83D\uDCC5 ", m.date, " \u2022 \u23F0 ", m.startTime, m.endTime ? " \u2013 ".concat(m.endTime) : '', (function(){var y=new Date(Date.now()-86400000).toISOString().slice(0,10);if(m.date!==y)return null;var mS=new Date(m.date+'T'+(m.startTime||'00:00')).getTime();var has=(data.tasks||[]).some(function(t){return t.createdAt&&t.createdAt>mS;});return has?null:' \u26a0\ufe0f';})())) , /*#__PURE__*/React.createElement("button", {
+    }, "\uD83D\uDCC5 ", m.date, " \u2022 \u23F0 ", m.startTime, m.endTime ? " \u2013 ".concat(m.endTime) : '', (function(){if(m.followedUp)return ' ✅';var mSfu=new Date(m.date+'T'+(m.startTime||'00:00')).getTime();if(mSfu>Date.now())return null;var hasFu=(data.tasks||[]).concat(data.projects||[]).concat(data.journal||[]).some(function(e){return e.meetingId===m.id||(e.createdAt&&e.createdAt>mSfu&&e.createdAt<mSfu+172800000);});return hasFu?null:' ⚠️';})())) , /*#__PURE__*/React.createElement("button", {
       className: "btn-edit",
       onClick: function onClick(e) {
         e.stopPropagation();
@@ -6931,7 +6931,7 @@ var MeetingsScreen = function MeetingsScreen(_ref26) {
           });
         }else{sendPrep(baseContent);}
       }
-    },mePrepLoad&&mePrepItem&&mePrepItem.id===m.id?'⏳':'🤖'), " ", /*#__PURE__*/React.createElement("button",{className:"btn btn-secondary btn-sm",style:{fontSize:10},title:"Grabar reunión",onClick:function(e){e.stopPropagation();recOpen(m);}}, '🎙️'), " ",localStorage.getItem('lbp_gcal_connected')=='1' && /*#__PURE__*/React.createElement("button",{className:"btn btn-secondary btn-sm",style:{fontSize:11,padding:'2px 6px',color:m.gcalEventId?'#4ade80':'#fb923c'},title:m.gcalEventId?'\u2705 Synced to GCal — tap to re-sync':'\u26A0\uFE0F Not in GCal — tap to sync now',onClick:function(e){e.stopPropagation();if(window._gcalPush)window._gcalPush(m);}}, m.gcalEventId ? '📅✅' : '📅⚠️'), " ",/*#__PURE__*/React.createElement("button", {
+    },mePrepLoad&&mePrepItem&&mePrepItem.id===m.id?'⏳':'🤖'), " ", /*#__PURE__*/React.createElement("button",{className:"btn btn-secondary btn-sm",style:{fontSize:10},title:"Grabar reunión",onClick:function(e){e.stopPropagation();recOpen(m);}}, '🎙️'), " ",localStorage.getItem('lbp_gcal_connected')=='1' && /*#__PURE__*/React.createElement("button",{className:"btn btn-secondary btn-sm",style:{fontSize:11,padding:'2px 6px',color:m.gcalEventId?'#4ade80':'#fb923c'},title:m.gcalEventId?'\u2705 Synced to GCal — tap to re-sync':'\u26A0\uFE0F Not in GCal — tap to sync now',onClick:function(e){e.stopPropagation();if(window._gcalPush)window._gcalPush(m);}}, m.gcalEventId ? '📅✅' : '📅⚠️'), " ",/*#__PURE__*/React.createElement("button",{className:"btn btn-secondary btn-sm",style:{fontSize:10,color:m.followedUp?'#4ade80':'var(--text-dim)',background:m.followedUp?'rgba(74,222,128,.15)':''},title:m.followedUp?"Seguimiento marcado — click para desmarcar":"Marcar como seguimiento hecho",onClick:function(e){e.stopPropagation();setData(function(d){return Object.assign({},d,{meetings:(d.meetings||[]).map(function(x){return x.id===m.id?Object.assign({},x,{followedUp:!x.followedUp}):x;})});});}},m.followedUp?'✅ Seguido':'📋 Seguimiento'), " ",/*#__PURE__*/React.createElement("button", {
       className: "btn btn-danger btn-sm",
       onClick: function onClick(e) { e.stopPropagation(); del(m.id); }
     }, "Delete")), m.isOnline ? /*#__PURE__*/React.createElement("div", {
