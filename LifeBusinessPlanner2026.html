@@ -22,7 +22,7 @@
 <script>
 (function() {
   // ── Version ──────────────────────────────────────────────────────────────
-  window.LBP_VERSION = '4.92';
+  window.LBP_VERSION = '4.93';
 
   // ── PWA Install prompt ───────────────────────────────────────────────────
   window._installPrompt = null;
@@ -1230,6 +1230,7 @@
   @keyframes bellSwing{0%{transform:rotate(-18deg)}100%{transform:rotate(18deg)}}
   .alarm-title{font-size:20px;font-weight:800;color:var(--text);margin-bottom:6px;}
   .alarm-body{font-size:14px;color:var(--text-dim);margin-bottom:18px;}
+@keyframes lbp-rec-pulse{0%,100%{opacity:1;transform:scale(1);}50%{opacity:.3;transform:scale(1.4);}}
   /* ─── Edit button ─── */
   .btn-edit{background:rgba(107,63,160,.2);border:1px solid rgba(107,63,160,.4);
     color:var(--purple-light);border-radius:6px;padding:3px 8px;cursor:pointer;font-size:12px;}
@@ -6806,6 +6807,8 @@ var MeetingsScreen = function MeetingsScreen(_ref26) {
   var _recS17=useState([]),_recS18=_slicedToArray(_recS17,2),recExtSel=_recS18[0],setRecExtSel=_recS18[1];
   var recSRRef=useRef(null);
   var recRunRef=useRef(false);
+  var recWakeLockRef=useRef(null);
+  var _recSS1=useState(false),_recSS2=_slicedToArray(_recSS1,2),recSleepScreen=_recSS2[0],setRecSleepScreen=_recSS2[1];
   var _gcalPS=useState(false),_gcalPS2=_slicedToArray(_gcalPS,2),gcalPending=_gcalPS2[0],setGcalPending=_gcalPS2[1];
   useEffect(function() {
     var pe = window._lbpPendingEdit;
@@ -6879,8 +6882,8 @@ var MeetingsScreen = function MeetingsScreen(_ref26) {
   };
   var recOpen=function(m){setRecMeeting(m||null);setRecModal(true);setRecFinal('');setRecInterim('');setRecActive(false);setRecSumRes(null);setRecExtTasks(null);setRecExtSel([]);recRunRef.current=false;if(recSRRef.current){try{recSRRef.current.abort();}catch(e){}recSRRef.current=null;}};
   var recClose=function(){recRunRef.current=false;if(recSRRef.current){try{recSRRef.current.abort();}catch(e){}recSRRef.current=null;}setRecActive(false);setRecModal(false);setRecMeeting(null);};
-  var recStart=function(){var SR=window.SpeechRecognition||window.webkitSpeechRecognition;if(!SR){alert('Grabación requiere Chrome o un navegador Chromium.');return;}if(recSRRef.current){try{recSRRef.current.abort();}catch(e){}}var sr=new SR();recSRRef.current=sr;sr.continuous=true;sr.interimResults=true;sr.lang='es';sr.onresult=function(e){var fin='',intr='';for(var i=e.resultIndex;i<e.results.length;i++){if(e.results[i].isFinal)fin+=e.results[i][0].transcript+' ';else intr+=e.results[i][0].transcript;}if(fin)setRecFinal(function(p){return p+fin;});setRecInterim(intr);};sr.onend=function(){if(recRunRef.current){try{sr.start();}catch(e){}}else{setRecActive(false);setRecInterim('');}};sr.onerror=function(e){if(e.error!=='aborted')setRecInterim('[Error: '+e.error+']');};recRunRef.current=true;try{sr.start();}catch(e){alert('No se pudo iniciar la grabación: '+e.message);}setRecActive(true);};
-  var recStop=function(){recRunRef.current=false;if(recSRRef.current){try{recSRRef.current.stop();}catch(e){}recSRRef.current=null;}setRecInterim('');};
+  var recStart=function(){var SR=window.SpeechRecognition||window.webkitSpeechRecognition;if(!SR){alert('Grabación requiere Chrome o un navegador Chromium.');return;}if(recSRRef.current){try{recSRRef.current.abort();}catch(e){}}if(navigator.wakeLock){navigator.wakeLock.request('screen').then(function(wl){recWakeLockRef.current=wl;}).catch(function(){});}var sr=new SR();recSRRef.current=sr;sr.continuous=true;sr.interimResults=true;sr.lang='es';sr.onresult=function(e){var fin='',intr='';for(var i=e.resultIndex;i<e.results.length;i++){if(e.results[i].isFinal)fin+=e.results[i][0].transcript+' ';else intr+=e.results[i][0].transcript;}if(fin)setRecFinal(function(p){return p+fin;});setRecInterim(intr);};sr.onend=function(){if(recRunRef.current){try{sr.start();}catch(e){}}else{setRecActive(false);setRecInterim('');}};sr.onerror=function(e){if(e.error!=='aborted')setRecInterim('[Error: '+e.error+']');};recRunRef.current=true;try{sr.start();}catch(e){alert('No se pudo iniciar la grabación: '+e.message);}setRecActive(true);};
+  var recStop=function(){recRunRef.current=false;if(recSRRef.current){try{recSRRef.current.stop();}catch(e){}recSRRef.current=null;}setRecInterim('');setRecSleepScreen(false);if(recWakeLockRef.current){try{recWakeLockRef.current.release();}catch(e){}recWakeLockRef.current=null;}};
   var recGenSummary=function(){if(!window.LBP_WORKER_URL||!recFinal.trim())return;setRecSumLoad(true);setRecSumRes(null);setRecExtTasks(null);var m=recMeeting||{};var ctx='Reunión: '+(m.title||'Sin título')+(m.date?'\nFecha: '+m.date:'')+(m.agenda?'\nAgenda: '+m.agenda:'')+'\n\nTranscripción:\n'+recFinal;fetch(window.LBP_WORKER_URL+'/chat',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({messages:[{role:'user',content:ctx}],systemPrompt:'Eres un asistente ejecutivo. Analiza la transcripción y genera un summary ejecutivo estructurado con estas secciones:\n📌 Puntos clave discutidos\n✅ Decisiones tomadas\n📋 Action items\n🔜 Próximos pasos\n⚠️ Temas pendientes\n\nSé conciso y específico. Usa el idioma de la transcripción.'})}).then(function(r){return r.json();}).then(function(res){setRecSumLoad(false);setRecSumRes(res.content||('Error: '+(res.error||'')));}).catch(function(){setRecSumLoad(false);setRecSumRes('Error de red');});};
   var recSaveNotes=function(){if(!recMeeting||!recSumRes)return;var note='\n\n--- Summary de Reunión ---\n'+recSumRes;setData(function(d){return Object.assign({},d,{meetings:(d.meetings||[]).map(function(m){return m.id===recMeeting.id?Object.assign({},m,{notes:(m.notes||'')+note}):m;})});});};
   var recExtractFromSummary=function(){if(!recSumRes||!window.LBP_WORKER_URL)return;setRecSumLoad(true);fetch(window.LBP_WORKER_URL+'/chat',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({messages:[{role:'user',content:'Extrae los action items de este summary:\n\n'+recSumRes}],systemPrompt:'Extrae los action items. Responde SOLO con JSON array de strings. Ejemplo: ["Enviar propuesta","Agendar call"]. Usa el idioma del texto.'})}).then(function(r){return r.json();}).then(function(res){setRecSumLoad(false);try{var t=res.content||'';var si=t.indexOf('[');var ei=t.lastIndexOf(']')+1;if(si>=0&&ei>si){var a=JSON.parse(t.slice(si,ei));setRecExtTasks(a);setRecExtSel(a.map(function(_,i){return i;}));}else{setRecExtTasks([]);}}catch(e){setRecExtTasks([]);}}).catch(function(){setRecSumLoad(false);});};
@@ -7154,6 +7157,18 @@ var MeetingsScreen = function MeetingsScreen(_ref26) {
     },
     label: form.title || 'Meeting'
   }), editItem && editItem.id && /*#__PURE__*/React.createElement(JournalLinksSection, {data:data,setData:setData,itemType:'meeting',itemId:editItem.id})),
+  recSleepScreen&&/*#__PURE__*/React.createElement('div',{
+    onClick:function(){setRecSleepScreen(false);},
+    style:{position:'fixed',inset:0,background:'#000',zIndex:99999,display:'flex',flexDirection:'column',alignItems:'center',justifyContent:'center',cursor:'pointer',userSelect:'none'}
+  },
+    /*#__PURE__*/React.createElement('div',{style:{width:14,height:14,borderRadius:'50%',background:'#ef4444',marginBottom:20,animation:'lbp-rec-pulse 1.2s ease-in-out infinite'}}),
+    /*#__PURE__*/React.createElement('span',{style:{fontSize:12,color:'rgba(255,255,255,0.25)',letterSpacing:1}},
+      '\uD83C\uDFA4 Grabando'
+    ),
+    /*#__PURE__*/React.createElement('span',{style:{fontSize:11,color:'rgba(255,255,255,0.15)',marginTop:40}},
+      'Toca para volver'
+    )
+  ),
   recModal&&recMeeting&&/*#__PURE__*/React.createElement(Modal,{
     title:'🎙️ Reunión — '+(recMeeting.title||'Sin título'),
     onClose:recClose,
@@ -7170,9 +7185,14 @@ var MeetingsScreen = function MeetingsScreen(_ref26) {
       !recActive
         ?/*#__PURE__*/React.createElement('button',{className:'btn btn-primary',onClick:recStart},'▶ Iniciar')
         :/*#__PURE__*/React.createElement('button',{className:'btn btn-danger',onClick:recStop},'⏹ Detener'),
-      recActive&&/*#__PURE__*/React.createElement('span',{style:{fontSize:12,color:'#ef4444',fontWeight:700,display:'flex',alignItems:'center',gap:4}},
-        /*#__PURE__*/React.createElement('span',{style:{width:8,height:8,borderRadius:'50%',background:'#ef4444',display:'inline-block'}},''),
-        ' Grabando...'
+      recActive&&/*#__PURE__*/React.createElement(React.Fragment,null,
+        /*#__PURE__*/React.createElement('span',{style:{fontSize:12,color:'#ef4444',fontWeight:700,display:'flex',alignItems:'center',gap:4}},
+          /*#__PURE__*/React.createElement('span',{style:{width:8,height:8,borderRadius:'50%',background:'#ef4444',display:'inline-block'}},''),
+          ' Grabando...'
+        ),
+        /*#__PURE__*/React.createElement('button',{className:'btn btn-secondary btn-sm',style:{fontSize:11,marginLeft:4},title:'Apagar pantalla (sigue grabando)',onClick:function(){setRecSleepScreen(true);}},
+          '\uD83C\uDF19 Pantalla oscura'
+        )
       ),
       !recActive&&recFinal&&/*#__PURE__*/React.createElement('span',{style:{fontSize:11,color:'var(--text-dim)'}},Math.round(recFinal.trim().split(/\s+/).length)+' palabras')
     ),
