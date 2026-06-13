@@ -22,7 +22,7 @@
 <script>
 (function() {
   // ── Version ──────────────────────────────────────────────────────────────
-  window.LBP_VERSION = '4.93';
+  window.LBP_VERSION = '4.94';
 
   // ── PWA Install prompt ───────────────────────────────────────────────────
   window._installPrompt = null;
@@ -1235,6 +1235,14 @@
   .btn-edit{background:rgba(107,63,160,.2);border:1px solid rgba(107,63,160,.4);
     color:var(--purple-light);border-radius:6px;padding:3px 8px;cursor:pointer;font-size:12px;}
   .btn-edit:hover{background:rgba(107,63,160,.35);}
+  @media (max-width: 600px) {
+    .page-content { padding: 10px 12px 80px; }
+    .page-header { padding: 14px 12px 0; }
+    .page-header h1 { font-size: 18px; }
+    .btn-sm { padding: 4px 8px; font-size: 11px; }
+    .btn-edit { padding: 2px 6px; font-size: 11px; }
+    .card { padding: 12px; }
+  }
 
 </style>
 </head>
@@ -5456,9 +5464,9 @@ var TasksScreen = function TasksScreen(_ref21) {
       },
       onClick: function onClick(e) { e.stopPropagation(); },
       style: {
-        fontSize: 11,
-        padding: '3px 6px',
-        width: 110
+        fontSize: 10,
+        padding: '2px 4px',
+        width: 95
       }
     }, ['INBOX', 'HIGH_PRIORITY', 'SOMEDAY', 'IN_PROGRESS', 'DONE'].map(function (s) {
       return /*#__PURE__*/React.createElement("option", {
@@ -5475,11 +5483,12 @@ var TasksScreen = function TasksScreen(_ref21) {
       }
     }, "\u270F\uFE0F"), " ", /*#__PURE__*/React.createElement("button", {
       className: "btn btn-danger btn-sm",
+      style:{padding:'3px 7px',fontSize:12},
       onClick: function onClick(e) {
         e.stopPropagation();
         del(t.id);
       }
-    }, "Delete")));
+    }, "\uD83D\uDDD1")));
   })), modal && /*#__PURE__*/React.createElement(Modal, {
     title: editItem ? "Edit Task" : "New Task",
     onClose: function onClose() {
@@ -6903,17 +6912,20 @@ var MeetingsScreen = function MeetingsScreen(_ref26) {
       }
     }, /*#__PURE__*/React.createElement("div", {
       className: "row mb-4"
-    }, /*#__PURE__*/React.createElement("div", null, /*#__PURE__*/React.createElement("div", {
+    }, /*#__PURE__*/React.createElement("div", {style:{display:'flex',gap:8,alignItems:'flex-start'}}, /*#__PURE__*/React.createElement("div", {style:{flex:1,minWidth:0,overflow:'hidden'}}, /*#__PURE__*/React.createElement("div", {
       style: {
         fontWeight: 700,
-        fontSize: 14
+        fontSize: 14,
+        overflow: 'hidden',
+        textOverflow: 'ellipsis',
+        whiteSpace: 'nowrap'
       }
     }, m.title), /*#__PURE__*/React.createElement("div", {
       style: {
         fontSize: 11,
         color: 'var(--text-dim)'
       }
-    }, "\uD83D\uDCC5 ", m.date, " \u2022 \u23F0 ", m.startTime, m.endTime ? " \u2013 ".concat(m.endTime) : '', (function(){if(m.followedUp)return ' ✅';var mSfu=new Date(m.date+'T'+(m.startTime||'00:00')).getTime();if(mSfu>Date.now())return null;var hasFu=(data.tasks||[]).concat(data.projects||[]).concat(data.journal||[]).some(function(e){return e.meetingId===m.id||(e.createdAt&&e.createdAt>mSfu&&e.createdAt<mSfu+172800000);});return hasFu?null:' ⚠️';})())) , /*#__PURE__*/React.createElement("button", {
+    }, "\uD83D\uDCC5 ", m.date, " \u2022 \u23F0 ", m.startTime, m.endTime ? " \u2013 ".concat(m.endTime) : '', (function(){if(m.followedUp)return ' ✅';var mSfu=new Date(m.date+'T'+(m.startTime||'00:00')).getTime();if(mSfu>Date.now())return null;var hasFu=(data.tasks||[]).concat(data.projects||[]).concat(data.journal||[]).some(function(e){return e.meetingId===m.id||(e.createdAt&&e.createdAt>mSfu&&e.createdAt<mSfu+172800000);});return hasFu?null:' ⚠️';})())) ,), /*#__PURE__*/React.createElement("div", {style:{display:'flex',flexWrap:'wrap',gap:3,flexShrink:0,justifyContent:'flex-end',maxWidth:120,alignContent:'flex-start'}}, /*#__PURE__*/React.createElement("button", {
       className: "btn-edit",
       onClick: function onClick(e) {
         e.stopPropagation();
@@ -6937,7 +6949,7 @@ var MeetingsScreen = function MeetingsScreen(_ref26) {
     },mePrepLoad&&mePrepItem&&mePrepItem.id===m.id?'⏳':'🤖'), " ", /*#__PURE__*/React.createElement("button",{className:"btn btn-secondary btn-sm",style:{fontSize:10},title:"Grabar reunión",onClick:function(e){e.stopPropagation();recOpen(m);}}, '🎙️'), " ",localStorage.getItem('lbp_gcal_connected')=='1' && /*#__PURE__*/React.createElement("button",{className:"btn btn-secondary btn-sm",style:{fontSize:11,padding:'2px 6px',color:m.gcalEventId?'#4ade80':'#fb923c'},title:m.gcalEventId?'\u2705 Synced to GCal — tap to re-sync':'\u26A0\uFE0F Not in GCal — tap to sync now',onClick:function(e){e.stopPropagation();if(window._gcalPush)window._gcalPush(m);}}, m.gcalEventId ? '📅✅' : '📅⚠️'), " ",/*#__PURE__*/React.createElement("button",{className:"btn btn-secondary btn-sm",style:{fontSize:10,color:m.followedUp?'#4ade80':'var(--text-dim)',background:m.followedUp?'rgba(74,222,128,.15)':''},title:m.followedUp?"Seguimiento marcado — click para desmarcar":"Marcar como seguimiento hecho",onClick:function(e){e.stopPropagation();setData(function(d){return Object.assign({},d,{meetings:(d.meetings||[]).map(function(x){return x.id===m.id?Object.assign({},x,{followedUp:!x.followedUp}):x;})});});}},m.followedUp?'✅ Seguido':'📋 Seguimiento'), " ",/*#__PURE__*/React.createElement("button", {
       className: "btn btn-danger btn-sm",
       onClick: function onClick(e) { e.stopPropagation(); del(m.id); }
-    }, "Delete")), m.isOnline ? /*#__PURE__*/React.createElement("div", {
+    }, "🗑"))), m.isOnline ? /*#__PURE__*/React.createElement("div", {
       style: {
         fontSize: 12,
         color: '#2196F3'
@@ -12463,7 +12475,7 @@ var AiExpertChat = function AiExpertChat(props) {
       body:JSON.stringify({systemPrompt:sp, messages:newMsgs.map(function(m){return{role:m.role,content:m.content};})})
     }).then(function(r){return r.json();}).then(function(d){
       setLoading(false);
-      if(d.response) setMsgs(function(prev){return prev.concat([{role:'assistant',content:d.response}]);});
+      if(d.content) setMsgs(function(prev){return prev.concat([{role:'assistant',content:d.content}]);});
       else if(d.error) setMsgs(function(prev){return prev.concat([{role:'assistant',content:'⚠️ Error: '+d.error}]);});
     }).catch(function(e){setLoading(false);setMsgs(function(prev){return prev.concat([{role:'assistant',content:'⚠️ Error de conexión.'}]);});});
   };
@@ -14726,18 +14738,18 @@ var BrainstormScreen = function(props) {
       )
     ),
     React.createElement('div',{className:'page-content'},
-      React.createElement('div',{style:{display:'flex',gap:16,height:'calc(100vh - 150px)',minHeight:400}},
-        React.createElement('div',{style:{width:210,flexShrink:0,display:'flex',flexDirection:'column',gap:8}},
+      React.createElement('div',{style:{display:'flex',flexDirection:'column',gap:12}},
+        React.createElement('div',{style:{display:'flex',flexDirection:'column',gap:6,marginBottom:4}},
           React.createElement('select',{value:areaFilter,onChange:function(e){setAreaFilter(e.target.value);},style:{fontSize:12,marginBottom:4}},
             [React.createElement('option',{key:'All',value:'All'},'All Areas')].concat(
               AREAS.map(function(a){return React.createElement('option',{key:a,value:a},AREA_EMOJIS[a]+' '+a);})
             )
           ),
-          React.createElement('div',{style:{flex:1,overflowY:'auto',display:'flex',flexDirection:'column',gap:6}},
+          React.createElement('div',{style:{display:'flex',flexDirection:'row',gap:6,overflowX:'auto',paddingBottom:4,flexWrap:'wrap'}},
             filtered.length===0&&React.createElement('div',{style:{color:'var(--text-dim)',fontSize:12,textAlign:'center',paddingTop:20}},'No sessions yet.\nCreate one!'),
             filtered.map(function(s){
               var c=AREA_COLORS[s.area]||'#6B3FA0';var isAct=s.id===activeId;
-              return React.createElement('div',{key:s.id,onClick:function(){setActiveId(s.id);},style:{background:isAct?'rgba(107,63,160,.25)':'var(--card)',border:'1px solid '+(isAct?'var(--purple-light)':'var(--border)'),borderRadius:10,padding:'8px 10px',cursor:'pointer',borderLeft:'3px solid '+c}},
+              return React.createElement('div',{key:s.id,onClick:function(){setActiveId(s.id);},style:{background:isAct?'rgba(107,63,160,.25)':'var(--card)',border:'1px solid '+(isAct?'var(--purple-light)':'var(--border)'),borderRadius:8,padding:'6px 10px',cursor:'pointer',borderLeft:'3px solid '+c,flexShrink:0,minWidth:120,maxWidth:180}},
                 React.createElement('div',{style:{fontSize:11,fontWeight:700,color:c,marginBottom:2}},AREA_EMOJIS[s.area]+' '+s.area),
                 React.createElement('div',{style:{fontSize:12,fontWeight:600,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}},s.title),
                 React.createElement('div',{style:{fontSize:10,color:'var(--text-muted)',marginTop:2}},(s.messages||[]).length+' messages')
@@ -14745,7 +14757,7 @@ var BrainstormScreen = function(props) {
             })
           )
         ),
-        React.createElement('div',{style:{flex:1,display:'flex',flexDirection:'column',minWidth:0}},
+        React.createElement('div',{style:{display:'flex',flexDirection:'column',minWidth:0,flex:1}},
           !active
             ?React.createElement('div',{style:{flex:1,display:'flex',flexDirection:'column',alignItems:'center',justifyContent:'center',color:'var(--text-dim)',textAlign:'center',gap:12}},
               React.createElement('div',{style:{fontSize:56}},'💡'),
@@ -14761,7 +14773,7 @@ var BrainstormScreen = function(props) {
                 React.createElement('button',{className:'btn btn-danger btn-sm',onClick:function(){if(window.confirm('Delete this session?')) deleteSession(active.id);}},'🗑')
               ),
               errMsg&&React.createElement('div',{style:{background:'rgba(244,67,54,.15)',border:'1px solid rgba(244,67,54,.4)',borderRadius:8,padding:'8px 12px',fontSize:12,color:'#f88',marginBottom:8}},errMsg),
-              React.createElement('div',{ref:chatRef,style:{flex:1,overflowY:'auto',display:'flex',flexDirection:'column',gap:10,padding:'4px 2px',marginBottom:10}},
+              React.createElement('div',{ref:chatRef,style:{overflowY:'auto',display:'flex',flexDirection:'column',gap:10,padding:'4px 2px',marginBottom:10,minHeight:200,maxHeight:'55vh'}},
                 (active.messages||[]).length===0&&React.createElement('div',{style:{color:'var(--text-dim)',fontSize:13,textAlign:'center',padding:'30px 16px'}},
                   '👋 Hi! I\'m ready to help you brainstorm '+active.area+' ideas for Ventura Mall. Ask me anything!'
                 ),
