@@ -4809,7 +4809,7 @@ var ProjectsScreen = function ProjectsScreen(_ref20) {
       onClick: function() { setEditItem(p); setForm(Object.assign({}, p)); setModal(true); }
     },
       /*#__PURE__*/React.createElement("div", {style:{display:'flex',alignItems:'center',gap:8,flexWrap:'wrap'}},
-        /*#__PURE__*/React.createElement("span", {style:{fontWeight:700,fontSize:13,flex:1,minWidth:0,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}, p.name),
+        /*#__PURE__*/React.createElement("span", {style:{fontWeight:700,fontSize:13,flex:1,minWidth:0,wordBreak:'break-word'}}, p.name),
         /*#__PURE__*/React.createElement(Chip, {label:p.status.replace('_',' '),color:c}),
         /*#__PURE__*/React.createElement("span", {style:{fontSize:11,color:c,fontWeight:700,flexShrink:0}}, statusToCompletion(p.status),"%")
       )
@@ -5373,7 +5373,7 @@ var TasksScreen = function TasksScreen(_ref21) {
           onClick: function(e) { e.stopPropagation(); changeStatus(t.id, t.status === 'DONE' ? 'INBOX' : 'DONE'); },
           style: {display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0}
         }, t.status === 'DONE' && /*#__PURE__*/React.createElement(Icon, {name:"check",size:12})),
-        /*#__PURE__*/React.createElement("span", {style:{flex:1,fontSize:13,fontWeight:600,textDecoration:t.status==='DONE'?'line-through':'',overflow:"hidden",whiteSpace:"nowrap",textOverflow:"ellipsis"}}, t.title),
+        /*#__PURE__*/React.createElement("span", {style:{flex:1,fontSize:13,fontWeight:600,textDecoration:t.status==='DONE'?'line-through':'',wordBreak:'break-word'}}, t.title),
         /*#__PURE__*/React.createElement(Chip, {label:t.priority, color:priorityColor(t.priority)}),
         t.dueDate && /*#__PURE__*/React.createElement("span", {style:{fontSize:11,color:"var(--text-dim)",flexShrink:0}}, "📅 ", t.dueDate),
         (t.alarm && t.alarm.enabled) && /*#__PURE__*/React.createElement("span", {style:{fontSize:12,flexShrink:0}}, "🔔")
@@ -6916,9 +6916,7 @@ var MeetingsScreen = function MeetingsScreen(_ref26) {
       style: {
         fontWeight: 700,
         fontSize: 14,
-        overflow: 'hidden',
-        textOverflow: 'ellipsis',
-        whiteSpace: 'nowrap'
+        wordBreak: 'break-word'
       }
     }, m.title), /*#__PURE__*/React.createElement("div", {
       style: {
@@ -7914,7 +7912,7 @@ var JournalScreen = function JournalScreen(_ref31) {
       },
         /*#__PURE__*/React.createElement("span", {style:{fontSize:16,flexShrink:0}}, _moji),
         /*#__PURE__*/React.createElement("span", {style:{fontSize:11,color:"var(--text-dim)",flexShrink:0,fontWeight:600,minWidth:80}}, e.date),
-        /*#__PURE__*/React.createElement("span", {style:{flex:1,fontSize:13,overflow:"hidden",whiteSpace:"nowrap",textOverflow:"ellipsis"}},
+        /*#__PURE__*/React.createElement("span", {style:{flex:1,fontSize:13,wordBreak:'break-word'}},
           e.title || (e.content ? e.content.replace(/<[^>]+>/g,'').slice(0,60) : '—')
         ),
         /*#__PURE__*/React.createElement("span", {style:{fontSize:10,padding:"2px 6px",borderRadius:8,background:e.entryType==="note"?"var(--surface2)":"rgba(107,63,160,0.3)",color:"var(--text-dim)",flexShrink:0}},
