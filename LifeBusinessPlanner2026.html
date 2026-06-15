@@ -3127,9 +3127,26 @@ document.addEventListener('visibilitychange', function() {
     } else {
       // App becoming visible: check push health (re-register if subscription expired)
       if (window._checkPushHealth) window._checkPushHealth();
-      // App becoming visible: fire any missed alarms and clean up
+      // App becoming visible: re-sync all future alarms to Cloudflare KV
+      // This ensures alarms are always in KV even if they expired or first registration failed
+      (function() {
+        var _future = _pend.filter(function(a) { return a.triggerAt > _now; });
+        if (_future.length > 0 && window.LBP_WORKER_URL) {
+          var _sk = localStorage.getItem('lbp_sync_key');
+          if (_sk) {
+            fetch(window.LBP_WORKER_URL + '/alarms/batch', {
+              method: 'POST',
+              headers: {'Content-Type':'application/json'},
+              body: JSON.stringify({syncKey: _sk, alarms: _future})
+            }).then(function(r) {
+              if (r && r.ok) console.log('[LBP] Cloud alarms re-synced on visibility:', _future.length);
+            }).catch(function() {});
+          }
+        }
+      })();
+      // App becoming visible: fire any missed alarms (4h window)
       var _shownSet;try{_shownSet=new Set(JSON.parse(localStorage.getItem('lbp_shown_alarms')||'[]').map(function(x){return x.k;}));}catch(_){_shownSet=new Set();}
-      var _missed = _pend.filter(function(a) { return a.triggerAt <= _now && (_now - a.triggerAt) < 3600000 && !_shownSet.has(a.alarmId) && !_shownSet.has(a.alarmId+'_missed'); });
+      var _missed = _pend.filter(function(a) { return a.triggerAt <= _now && (_now - a.triggerAt) < 14400000 && !_shownSet.has(a.alarmId) && !_shownSet.has(a.alarmId+'_missed'); });
       if (_missed.length > 0 && 'serviceWorker' in navigator) {
         navigator.serviceWorker.ready.then(function(reg) {
           if (reg.active) reg.active.postMessage({type:'CHECK_MISSED', alarms:_missed});
