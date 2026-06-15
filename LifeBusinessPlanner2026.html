@@ -1811,8 +1811,9 @@ var defaultAlarm = function defaultAlarm() {
     customInterval: 1,
     customUnit: 'days',
     label: '',
-    repeatCount: 0,
+    repeatCount: 4,
     repeatInterval: 5,
+    repeatIntervals: [5, 15, 30, 60],
     sound: 'bell',
     vibration: 'long'
   };
@@ -2022,43 +2023,33 @@ var AlarmPanel = function AlarmPanel(_ref8) {
     style: {
       marginBottom: 0
     }
-  }, /*#__PURE__*/React.createElement("label", null, "Repeat"), /*#__PURE__*/React.createElement("select", {
-    value: alarm.repeatCount || 0,
+  }, /*#__PURE__*/React.createElement("label", null, "Recordatorios"), /*#__PURE__*/React.createElement("select", {
+    value: alarm.repeatIntervals ? 'escalating' : (alarm.repeatCount || 0),
     onChange: function onChange(e) {
-      return update({
-        repeatCount: Number(e.target.value)
-      });
+      var v = e.target.value;
+      if (v === 'escalating') {
+        update({repeatCount: 4, repeatInterval: 5, repeatIntervals: [5, 15, 30, 60]});
+      } else {
+        update({repeatCount: Number(v), repeatInterval: alarm.repeatInterval || 5, repeatIntervals: null});
+      }
     }
-  }, /*#__PURE__*/React.createElement("option", {
-    value: 0
-  }, "No repeat"), /*#__PURE__*/React.createElement("option", {
-    value: 1
-  }, "1 more time"), /*#__PURE__*/React.createElement("option", {
-    value: 2
-  }, "2 more times"), /*#__PURE__*/React.createElement("option", {
-    value: 3
-  }, "3 more times"))), (alarm.repeatCount || 0) > 0 && /*#__PURE__*/React.createElement("div", {
+  }, /*#__PURE__*/React.createElement("option", {value: 0}, "Sin recordatorio"),
+     /*#__PURE__*/React.createElement("option", {value: 'escalating'}, "Escalante (+5, +15, +30, +60 min)"),
+     /*#__PURE__*/React.createElement("option", {value: 1}, "1 vez m\xe1s"),
+     /*#__PURE__*/React.createElement("option", {value: 2}, "2 veces m\xe1s"),
+     /*#__PURE__*/React.createElement("option", {value: 3}, "3 veces m\xe1s")
+  )), !alarm.repeatIntervals && (alarm.repeatCount || 0) > 0 && /*#__PURE__*/React.createElement("div", {
     className: "form-group",
-    style: {
-      marginBottom: 0
-    }
-  }, /*#__PURE__*/React.createElement("label", null, "Every (min)"), /*#__PURE__*/React.createElement("input", {
-    type: "number",
-    min: "1",
-    max: "120",
+    style: { marginBottom: 0 }
+  }, /*#__PURE__*/React.createElement("label", null, "Cada (min)"), /*#__PURE__*/React.createElement("input", {
+    type: "number", min: "1", max: "120",
     value: alarm.repeatInterval || 5,
-    onChange: function onChange(e) {
-      return update({
-        repeatInterval: Number(e.target.value)
-      });
-    }
+    onChange: function onChange(e) { return update({repeatInterval: Number(e.target.value)}); }
   }))), (alarm.repeatCount || 0) > 0 && /*#__PURE__*/React.createElement("div", {
-    style: {
-      fontSize: 11,
-      color: 'var(--text-muted)',
-      marginTop: 6
-    }
-  }, "Will fire ", (alarm.repeatCount || 0) + 1, "\xD7 total \xB7 every ", alarm.repeatInterval || 5, " min"))));
+    style: { fontSize: 11, color: 'var(--text-muted)', marginTop: 6 }
+  }, alarm.repeatIntervals
+    ? "Recordatorios a los +5, +15, +30 y +60 min si no se cierra"
+    : ("Dispara " + ((alarm.repeatCount || 0) + 1) + "\xD7 total \xB7 cada " + (alarm.repeatInterval || 5) + " min")))));
 };
 
 // ═══════════════════════════════════════════════════════
@@ -16260,14 +16251,16 @@ var App = function App() {
               var body = al.label
                 ? (_eName ? _eName + ' · ' + al.label : al.label)
                 : (_eName ? _eName + ' · ' + _tLabel + ' reminder' : 'Your ' + typeName.toLowerCase() + ' reminder');
-              var rCnt = al.repeatCount || 0;
+              var rIntervals = Array.isArray(al.repeatIntervals) ? al.repeatIntervals : null;
+              var rCnt = rIntervals ? rIntervals.length : (al.repeatCount || 0);
               var rMin = al.repeatInterval || 5;
               fireAlarmOnce(title, body, 0, rCnt, rMin, al.sound, al.vibration);
-              for (var i = 1; i <= rCnt; i++) {
+              for (var i = 0; i < rCnt; i++) {
                 (function (idx) {
+                  var delay = rIntervals ? rIntervals[idx] * 60000 : (idx + 1) * rMin * 60000;
                   return setTimeout(function () {
-                    return fireAlarmOnce(title, body, idx, rCnt, rMin, al.sound, al.vibration);
-                  }, idx * rMin * 60000);
+                    return fireAlarmOnce(title, body, idx + 1, rCnt, rIntervals ? rIntervals[idx] : rMin, al.sound, al.vibration);
+                  }, delay);
                 })(i);
               }
             }
