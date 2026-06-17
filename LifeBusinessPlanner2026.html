@@ -3068,6 +3068,12 @@ var scheduleAlarms = function scheduleAlarms(entities, type, addToast) {
     console.log('[LBP] scheduleAlarms: found alarm "' + title + '" in ' + Math.round(diff/60000) + 'min, cloud=' + (!!window.LBP_WORKER_URL) + ', syncKey=' + (!!localStorage.getItem('lbp_sync_key')));
     // ── Always register with Cloudflare (fires even weeks away) ──
     if (window._cloudScheduleAlarm) window._cloudScheduleAlarm(alarmId, alarmMs, title, body, alarm.vibration);
+    // Register each reminder as a separate cloud alarm so they fire even when app is sleeping
+    if (window._cloudScheduleAlarm && alarm.repeatIntervals && Array.isArray(alarm.repeatIntervals)) {
+      alarm.repeatIntervals.forEach(function(mins, idx) {
+        window._cloudScheduleAlarm(alarmId + '_r' + (idx + 1), alarmMs + mins * 60000, title, body + ' (recordatorio +' + mins + 'min)', alarm.vibration);
+      });
+    }
     // ── SW + local fallback only for alarms within 24h ──
     if (diff <= oneDayMs) {
       _postAlarmToSW(alarmId, alarmMs, title, body, alarm.vibration);
@@ -3080,6 +3086,12 @@ var scheduleAlarms = function scheduleAlarms(entities, type, addToast) {
             var pending = JSON.parse(localStorage.getItem('lbp_pending_alarms') || '[]');
             localStorage.setItem('lbp_pending_alarms', JSON.stringify(pending.filter(function(a){ return a.alarmId !== alarmId; })));
           } catch(_e) {}
+          // Cancel cloud reminders — local timeouts handle them from here
+          if (alarm.repeatIntervals && Array.isArray(alarm.repeatIntervals)) {
+            alarm.repeatIntervals.forEach(function(_, idx) {
+              if (window._cloudCancelAlarm) window._cloudCancelAlarm(alarmId + '_r' + (idx + 1));
+            });
+          }
           playAlarmSound(alarm.sound || 'bell');
           if ('Notification' in window && Notification.permission === 'granted') {
             _fireNotification(title, body, 'lbp_' + alarmId, alarm.vibration);
@@ -3134,6 +3146,24 @@ document.addEventListener('visibilitychange', function() {
             }).catch(function() {});
           }
         }
+      })();
+      // App becoming visible: cancel cloud reminders for alarms already shown on this device
+      (function() {
+        try {
+          var _shown = JSON.parse(localStorage.getItem('lbp_shown_alarms') || '[]');
+          var _cutoff = _now - 7200000;
+          var _recentShown = _shown.filter(function(x) { return x.t > _cutoff && x.k.indexOf('_missed') < 0 && x.k.indexOf('_r') < 0; });
+          if (_recentShown.length > 0 && window.LBP_WORKER_URL) {
+            var _sk2 = localStorage.getItem('lbp_sync_key');
+            if (_sk2) {
+              _recentShown.forEach(function(x) {
+                for (var _ri = 1; _ri <= 4; _ri++) {
+                  fetch(window.LBP_WORKER_URL + '/alarm?key=' + encodeURIComponent(_sk2) + '&id=' + encodeURIComponent(x.k + '_r' + _ri), {method: 'DELETE'}).catch(function(){});
+                }
+              });
+            }
+          }
+        } catch(_e) {}
       })();
       // App becoming visible: fire any missed alarms (4h window)
       var _shownSet;try{_shownSet=new Set(JSON.parse(localStorage.getItem('lbp_shown_alarms')||'[]').map(function(x){return x.k;}));}catch(_){_shownSet=new Set();}
