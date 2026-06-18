@@ -42,12 +42,21 @@ function showAlarm(title, body, tag, vibration) {
 self.addEventListener('push', function(e) {
   var data = {};
   try { data = e.data ? e.data.json() : {}; } catch(_) {}
-  e.waitUntil(showAlarm(
-    data.title || 'Reminder',
-    data.body || '',
-    'lbp_push_' + (data.alarmId || Date.now()),
-    data.vibration || 'long'
-  ));
+  var alarmId = data.alarmId || String(Date.now());
+  // Cancel SW-side timer for this alarm — cloud push already handled it
+  if (_timers[alarmId]) { clearTimeout(_timers[alarmId]); delete _timers[alarmId]; }
+  // Use same tag prefix as SW timer so OS deduplicates if both fire
+  var tag = 'lbp_' + alarmId;
+  var p = showAlarm(data.title || 'Reminder', data.body || '', tag, data.vibration || 'long');
+  // Tell open app windows this alarm fired so page-side check() skips it
+  var broadcast = self.clients.matchAll({ type: 'window', includeUncontrolled: true }).then(function(cs) {
+    cs.forEach(function(c) { c.postMessage({ type: 'ALARM_FIRED', alarmId: alarmId }); });
+  });
+  // Persist fired alarmId in Cache API so app reads it on next open (prevents duplicate local firing)
+  var cacheStore = caches.open('lbp-fired-v1').then(function(cache) {
+    return cache.put(new Request('https://lbp.local/fired/' + encodeURIComponent(alarmId)), new Response(String(Date.now())));
+  }).catch(function(){});
+  e.waitUntil(Promise.all([p, broadcast, cacheStore]));
 });
 
 // ── pushsubscriptionchange: Android/FCM invalidated the token ──────────────
@@ -114,6 +123,12 @@ self.addEventListener('message', function(e) {
     // Store config so pushsubscriptionchange can re-register without app being open
     if (d.workerUrl) _swWorkerUrl = d.workerUrl;
     if (d.syncKey) _swSyncKey = d.syncKey;
+    // Persist config to Cache API so notificationclick can read it even if SW was killed
+    if (d.workerUrl && d.syncKey) {
+      caches.open('lbp-config-v1').then(function(cache) {
+        cache.put(new Request('https://lbp.local/config'), new Response(JSON.stringify({workerUrl: d.workerUrl, syncKey: d.syncKey})));
+      }).catch(function(){});
+    }
     var now = Date.now();
     (d.alarms || []).forEach(function(a) {
       if (a.triggerAt > now && !_timers[a.alarmId])
@@ -144,8 +159,31 @@ self.addEventListener('message', function(e) {
 // ── Handle notification action buttons ─────────────────────────
 self.addEventListener('notificationclick', function(e) {
   e.notification.close();
-  if (e.action === 'dismiss') return; // just close
-  // 'open' action or tap on notification body — focus or open app
+  // Cancel cloud reminder alarms when user interacts with the notification
+  var tag = e.notification.tag || '';
+  var baseId = tag.indexOf('lbp_') === 0 ? tag.slice(4) : '';
+  if (baseId && baseId.indexOf('_r') < 0) {
+    var _doCancelReminders = function(wUrl, sKey) {
+      if (!wUrl || !sKey) return;
+      for (var _ri = 1; _ri <= 4; _ri++) {
+        fetch(wUrl + '/alarm?key=' + encodeURIComponent(sKey) + '&id=' + encodeURIComponent(baseId + '_r' + _ri), {method: 'DELETE'}).catch(function(){});
+      }
+    };
+    if (_swWorkerUrl && _swSyncKey) {
+      _doCancelReminders(_swWorkerUrl, _swSyncKey);
+    } else {
+      // SW was killed and restarted — read config from Cache API
+      caches.open('lbp-config-v1').then(function(cache) {
+        return cache.match('https://lbp.local/config');
+      }).then(function(resp) {
+        return resp ? resp.json() : null;
+      }).then(function(cfg) {
+        if (cfg) { _swWorkerUrl = cfg.workerUrl; _swSyncKey = cfg.syncKey; }
+        _doCancelReminders(_swWorkerUrl, _swSyncKey);
+      }).catch(function(){});
+    }
+  }
+  if (e.action === 'dismiss') return;
   e.waitUntil(
     self.clients.matchAll({ type: 'window', includeUncontrolled: true }).then(function(cs) {
       if (cs.length) return cs[0].focus();

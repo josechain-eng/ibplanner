@@ -742,6 +742,43 @@
         } catch(_) {}
       }
     });
+    // Sync cloud-fired alarms from SW Cache API into localStorage.
+    // When a push arrives with the app CLOSED, the SW stores the alarmId in Cache API
+    // (lbp-fired-v1). On next open, we read those IDs here so check() skips re-firing.
+    if ('caches' in window) {
+      caches.open('lbp-fired-v1').then(function(cache) {
+        return cache.keys().then(function(keys) {
+          if (!keys.length) return;
+          var fired2 = [];
+          try { fired2 = JSON.parse(localStorage.getItem('lbp_cloud_fired') || '[]'); } catch(_) {}
+          var now2 = Date.now(), cutoff2 = now2 - 3600000;
+          var changed = false;
+          keys.forEach(function(req) {
+            var parts = req.url.split('/fired/');
+            if (parts.length < 2) return;
+            var id2 = decodeURIComponent(parts[1]);
+            if (!id2) return;
+            if (!window._lbpFiredSet) window._lbpFiredSet = new Set();
+            window._lbpFiredSet.add(id2);
+            if (!fired2.some(function(x) { return x.id === id2; })) {
+              fired2.push({ id: id2, t: now2 }); changed = true;
+            }
+          });
+          if (changed) {
+            fired2 = fired2.filter(function(x) { return x.t > cutoff2; });
+            localStorage.setItem('lbp_cloud_fired', JSON.stringify(fired2));
+          }
+          // Prune stale Cache entries
+          return Promise.all(keys.map(function(req) {
+            return cache.match(req).then(function(resp) {
+              return resp ? resp.text().then(function(t2) {
+                if (Number(t2) < cutoff2) return cache.delete(req);
+              }) : null;
+            });
+          }));
+        });
+      }).catch(function() {});
+    }
   }
 
   // Pull cloud data and smart-merge with local.
@@ -3069,9 +3106,13 @@ var scheduleAlarms = function scheduleAlarms(entities, type, addToast) {
     // ── Always register with Cloudflare (fires even weeks away) ──
     if (window._cloudScheduleAlarm) window._cloudScheduleAlarm(alarmId, alarmMs, title, body, alarm.vibration);
     // Register each reminder as a separate cloud alarm so they fire even when app is sleeping
-    if (window._cloudScheduleAlarm && alarm.repeatIntervals && Array.isArray(alarm.repeatIntervals)) {
+    if (alarm.repeatIntervals && Array.isArray(alarm.repeatIntervals)) {
       alarm.repeatIntervals.forEach(function(mins, idx) {
-        window._cloudScheduleAlarm(alarmId + '_r' + (idx + 1), alarmMs + mins * 60000, title, body + ' (recordatorio +' + mins + 'min)', alarm.vibration);
+        var rId = alarmId + '_r' + (idx + 1);
+        var rAt = alarmMs + mins * 60000;
+        if (window._cloudScheduleAlarm) window._cloudScheduleAlarm(rId, rAt, title, body + ' (recordatorio +' + mins + 'min)', alarm.vibration);
+        // Also add to SW pending so local missed-detection fires reminders if cloud fails
+        if (rAt > nowMs) _postAlarmToSW(rId, rAt, title, body + ' (recordatorio +' + mins + 'min)', alarm.vibration);
       });
     }
     // ── SW + local fallback only for alarms within 24h ──
