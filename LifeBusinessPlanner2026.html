@@ -372,63 +372,89 @@
     function clientOf(id) { return clients.find(function(c) { return c.id === id; }); }
     function inWeek(ts) { return !!ts && ts >= startMs && ts <= endMs; }
     var groups = {};
-    function addItem(clientId, icon, title) {
-      if (!clientId) return;
+    function group(clientId) {
+      if (!clientId) return null;
       var c = clientOf(clientId);
-      if (!c) return;
-      if (!groups[clientId]) groups[clientId] = { client: c, items: [] };
-      groups[clientId].items.push({ icon: icon, title: title });
+      if (!c) return null;
+      if (!groups[clientId]) groups[clientId] = { client: c, done: [], progress: [] };
+      return groups[clientId];
     }
     (data.tasks || []).forEach(function(t) {
       if (t.status !== 'DONE' || !['HIGH','MEDIUM'].includes(t.priority) || !t.clientId) return;
-      if (!inWeek(t.updatedAt || t.createdAt)) return;
-      addItem(t.clientId, '✅', t.title);
+      if (!inWeek(t.completedAt || t.updatedAt)) return;
+      var g = group(t.clientId); if (g) g.done.push({ icon: 'DONE_TASK', title: t.title });
     });
     (data.projects || []).forEach(function(p) {
       if (p.status !== 'DONE' || !['HIGH','MEDIUM'].includes(p.priority) || !p.clientId) return;
-      if (!inWeek(p.updatedAt || p.createdAt)) return;
-      addItem(p.clientId, '🏆', 'Proyecto completado: ' + p.name);
+      if (!inWeek(p.completedAt || p.updatedAt)) return;
+      var g = group(p.clientId); if (g) g.done.push({ icon: 'DONE_PROJECT', title: 'Proyecto completado: ' + p.name });
     });
     (data.projects || []).forEach(function(p) {
-      if (!p.clientId || !inWeek(p.updatedAt || p.createdAt)) return;
-      (p.subtasks || []).forEach(function(s) {
-        if (!s.done) return;
-        if (s.priority && !['HIGH','MEDIUM'].includes(s.priority)) return;
-        addItem(p.clientId, '☑', s.title + ' (' + p.name + ')');
+      if (!p.clientId) return;
+      var doneSubs = (p.subtasks || []).filter(function(s) {
+        if (!s.done) return false;
+        if (s.priority && !['HIGH','MEDIUM'].includes(s.priority)) return false;
+        return inWeek(s.completedAt || (p.status !== 'DONE' ? p.updatedAt : null));
+      });
+      doneSubs.forEach(function(s) {
+        var g = group(p.clientId); if (g) g.done.push({ icon: 'DONE_SUB', title: s.title + ' (' + p.name + ')' });
       });
     });
     (data.meetings || []).forEach(function(m) {
       if (!m.clientId) return;
       var mTs = m.date ? new Date(m.date).getTime() : null;
       if (!inWeek(mTs)) return;
-      addItem(m.clientId, '📅', 'Reunión: ' + m.title);
+      var g = group(m.clientId); if (g) g.done.push({ icon: 'DONE_MEETING', title: 'Reunion: ' + m.title });
+    });
+    (data.tasks || []).forEach(function(t) {
+      if (t.status === 'DONE' || !['IN_PROGRESS','HIGH_PRIORITY'].includes(t.status)) return;
+      if (!['HIGH','MEDIUM'].includes(t.priority) || !t.clientId) return;
+      if (!inWeek(t.updatedAt)) return;
+      var g = group(t.clientId); if (g) g.progress.push({ icon: 'PROG_TASK', title: t.title });
+    });
+    (data.projects || []).forEach(function(p) {
+      if (p.status === 'DONE' || !['HIGH','MEDIUM'].includes(p.priority) || !p.clientId) return;
+      var subsDoneThisWeek = (p.subtasks || []).filter(function(s) { return s.done && inWeek(s.completedAt); }).length;
+      if (subsDoneThisWeek > 0) {
+        var g1 = group(p.clientId);
+        if (g1) g1.progress.push({ icon: 'PROG_PROJECT', title: 'Proyecto "' + p.name + '": ' + subsDoneThisWeek + ' subtarea' + (subsDoneThisWeek > 1 ? 's' : '') + ' completada' + (subsDoneThisWeek > 1 ? 's' : '') + ' esta semana' });
+      } else if (inWeek(p.updatedAt)) {
+        var g2 = group(p.clientId);
+        if (g2) g2.progress.push({ icon: 'PROG_PROJECT', title: 'Avance en proyecto: ' + p.name });
+      }
     });
     var byClient = Object.keys(groups).map(function(k) { return groups[k]; })
-      .sort(function(a, b) { return b.items.length - a.items.length; });
+      .sort(function(a, b) { return (b.done.length + b.progress.length) - (a.done.length + a.progress.length); });
     function fmt(d) { return d.toLocaleDateString('es-BO', { day: 'numeric', month: 'short' }); }
     return { weekStartLabel: fmt(start), weekEndLabel: fmt(end), byClient: byClient };
   };
 
   window._exportWeeklyReportDoc = function(rep) {
+    var ICONS = { DONE_TASK:'[OK]', DONE_PROJECT:'[TROFEO]', DONE_SUB:'[CHECK]', DONE_MEETING:'[REUNION]', PROG_TASK:'[EN CURSO]', PROG_PROJECT:'[AVANCE]' };
     var rows = rep.byClient.map(function(g) {
-      var itemsHtml = g.items.map(function(it) {
-        return '<p style="margin:2px 0 2px 14px;font-size:11pt;">' + it.icon + ' ' + it.title + '</p>';
-      }).join('');
-      return '<h3 style="color:#6B3FA0;font-size:13pt;margin:14px 0 4px;">🏪 ' + (g.client.businessName || g.client.name) + '</h3>' + itemsHtml;
+      var name = g.client.businessName || g.client.name;
+      var doneHtml = g.done.length ? '<ul style="margin:2px 0 6px 0;">' + g.done.map(function(it) {
+        return '<li style="font-size:11pt;margin:2px 0;">' + ICONS[it.icon] + ' ' + it.title + '</li>';
+      }).join('') + '</ul>' : '';
+      var progHtml = g.progress.length ? '<p style="font-size:10pt;color:#777;margin:2px 0 0 0;"><i>En curso:</i></p><ul style="margin:2px 0 6px 0;">' + g.progress.map(function(it) {
+        return '<li style="font-size:10pt;color:#555;margin:2px 0;">' + ICONS[it.icon] + ' ' + it.title + '</li>';
+      }).join('') + '</ul>' : '';
+      return '<table width="100%" cellpadding="0" cellspacing="0" style="margin:14px 0 4px 0;"><tr><td style="background:#6B3FA0;color:#fff;padding:5px 10px;font-size:12pt;font-weight:bold;">' + name + '</td></tr></table>' + doneHtml + progHtml;
     }).join('');
-    var totalAcciones = rep.byClient.reduce(function(s, g) { return s + g.items.length; }, 0);
+    var totalDone = rep.byClient.reduce(function(s, g) { return s + g.done.length; }, 0);
+    var totalProg = rep.byClient.reduce(function(s, g) { return s + g.progress.length; }, 0);
     var html = '<html xmlns:o="urn:schemas-microsoft-com:office:office" xmlns:w="urn:schemas-microsoft-com:office:word" xmlns="http://www.w3.org/TR/REC-html40">' +
       '<head><meta charset="utf-8"><title>Informe Semanal</title></head>' +
       '<body style="font-family:Calibri,Arial,sans-serif;color:#222;">' +
-      '<h1 style="color:#6B3FA0;font-size:18pt;margin-bottom:2px;">Informe Semanal</h1>' +
-      '<p style="font-size:11pt;color:#555;margin-top:0;">Semana: ' + rep.weekStartLabel + ' — ' + rep.weekEndLabel + '</p>' +
-      '<p style="font-size:11pt;"><b>Total de acciones completadas:</b> ' + totalAcciones + ' &nbsp;|&nbsp; <b>Franquicias atendidas:</b> ' + rep.byClient.length + '</p>' +
+      '<h1 style="color:#6B3FA0;font-size:18pt;margin:0 0 2px 0;">Informe Semanal</h1>' +
+      '<p style="font-size:11pt;color:#555;margin:0 0 8px 0;">Semana: ' + rep.weekStartLabel + ' a ' + rep.weekEndLabel + '</p>' +
+      '<p style="font-size:11pt;margin:0 0 10px 0;"><b>Acciones completadas:</b> ' + totalDone + ' &nbsp;|&nbsp; <b>En curso:</b> ' + totalProg + ' &nbsp;|&nbsp; <b>Franquicias atendidas:</b> ' + rep.byClient.length + '</p>' +
       '<hr/>' +
-      '<h2 style="font-size:14pt;color:#333;">Logros por Franquicia</h2>' +
+      '<h2 style="font-size:14pt;color:#333;margin:10px 0 4px 0;">Logros por Franquicia</h2>' +
       (rows || '<p style="font-size:11pt;color:#888;">Sin acciones de alta/media prioridad vinculadas a clientes esta semana.</p>') +
       '<hr/>' +
-      '<h2 style="font-size:14pt;color:#333;">Plan Próxima Semana</h2>' +
-      '<p style="font-size:11pt;color:#888;">— Completar manualmente —</p>' +
+      '<h2 style="font-size:14pt;color:#333;margin:10px 0 4px 0;">Plan Proxima Semana</h2>' +
+      '<p style="font-size:11pt;color:#888;">-- Completar manualmente --</p>' +
       '</body></html>';
     var blob = new Blob(['\ufeff', html], { type: 'application/msword' });
     var url = URL.createObjectURL(blob);
@@ -3363,7 +3389,8 @@ var HomeScreen = function HomeScreen(_ref14) {
       return _objectSpread(_objectSpread({}, d), {}, {
         tasks: d.tasks.map(function (t) {
           return t.id === id ? _objectSpread(_objectSpread({}, t), {}, {
-            status: 'DONE'
+            status: 'DONE',
+            completedAt: Date.now()
           }) : t;
         })
       });
@@ -4837,7 +4864,7 @@ var ProjectsScreen = function ProjectsScreen(_ref20) {
   var save = function save() {
     if (!form.name) return;
     if (editItem) {
-      var _formWithCompletion = _objectSpread(_objectSpread({}, form), {}, {completion: statusToCompletion(form.status)});
+      var _formWithCompletion = _objectSpread(_objectSpread({}, form), {}, {completion: statusToCompletion(form.status), completedAt: (form.status === 'DONE' && editItem.status !== 'DONE') ? Date.now() : editItem.completedAt});
       setData(function (d) {
         return _objectSpread(_objectSpread({}, d), {}, {
           projects: d.projects.map(function (x) {
@@ -4851,7 +4878,8 @@ var ProjectsScreen = function ProjectsScreen(_ref20) {
           projects: [].concat(_toConsumableArray(d.projects || []), [_objectSpread(_objectSpread({}, form), {}, {
             id: uid(),
             createdAt: now(),
-            completion: statusToCompletion(form.status)
+            completion: statusToCompletion(form.status),
+            completedAt: form.status === 'DONE' ? Date.now() : null
           })])
         });
       });
@@ -4879,7 +4907,8 @@ var ProjectsScreen = function ProjectsScreen(_ref20) {
         projects: d.projects.map(function (p) {
           return p.id === id ? _objectSpread(_objectSpread({}, p), {}, {
             status: 'DONE',
-            completion: 100
+            completion: 100,
+            completedAt: Date.now()
           }) : p;
         })
       });
@@ -5219,7 +5248,7 @@ var ProjectsScreen = function ProjectsScreen(_ref20) {
         dueDate: e.target.value
       }));
     }
-  })), /*#__PURE__*/React.createElement("hr", {className:"divider"}), /*#__PURE__*/React.createElement("div", {className:"form-group"}, /*#__PURE__*/React.createElement("div", {style:{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:8}},   /*#__PURE__*/React.createElement("label", {style:{margin:0}}, "📋 Subtasks"),   /*#__PURE__*/React.createElement("button", {className:"btn btn-primary btn-sm",     onClick:function(){setSubtaskForm(defaultSubtaskForm());setEditSubtask(null);setSubtaskModal(true);}},     "+ Add Subtask")), (form.subtasks||[]).length === 0 && /*#__PURE__*/React.createElement("div",   {style:{fontSize:12,color:"var(--text-dim)",textAlign:"center",padding:"8px 0"}},   "No subtasks yet"), (form.subtasks||[]).map(function(st){   return React.createElement("div", {key:st.id, style:{display:"flex",alignItems:"center",gap:6,padding:"5px 0",borderBottom:"1px solid var(--border)"}},     React.createElement("input",{type:"checkbox",checked:st.done||false,       onChange:function(){setForm(_objectSpread(_objectSpread({},form),{},{subtasks:(form.subtasks||[]).map(function(x){return x.id===st.id?_objectSpread(_objectSpread({},x),{},{done:!x.done}):x;})}));},       style:{width:14,height:14,accentColor:"#9C68D6",flexShrink:0}}),     React.createElement("div",{style:{flex:1,minWidth:0}},       React.createElement("div",{style:{fontSize:12,fontWeight:600,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap",         color:st.done?"var(--text-dim)":"var(--text)",textDecoration:st.done?"line-through":"none"}},st.title),       React.createElement("div",{style:{display:"flex",gap:6,marginTop:2}},         st.priority && React.createElement("span",{style:{fontSize:10,color:"var(--text-dim)"}},st.priority),         st.dueDate && React.createElement("span",{style:{fontSize:10,color:"var(--text-dim)"}},st.dueDate))),     React.createElement("button",{onClick:function(){setSubtaskForm(Object.assign({},st));setEditSubtask(st);setSubtaskModal(true);},       style:{background:"none",border:"none",color:"var(--purple-light)",cursor:"pointer",fontSize:14,padding:"0 4px"}}, "✏"),     React.createElement("button",{onClick:function(){setForm(_objectSpread(_objectSpread({},form),{},{subtasks:(form.subtasks||[]).filter(function(x){return x.id!==st.id;})}));},       style:{background:"none",border:"none",color:"var(--text-dim)",cursor:"pointer",fontSize:14,padding:"0 4px"}}, "×")); })), /*#__PURE__*/React.createElement("hr", {className:"divider"}), /*#__PURE__*/React.createElement(MediaAttachments, {attachments:form.attachments||[], onChange:function(a){setForm(function(f){return Object.assign({},f,{attachments:a});});}}), /*#__PURE__*/React.createElement(CategoryTagInput,{category:form.category||'',tags:Array.isArray(form.tags)?form.tags:[],allCategories:(function(){var _dc=['Personal','Work','Home','Health','Finance','Learning','Creative'];return _dc.concat((data.categories||[]).filter(function(x){return _dc.indexOf(x)<0;}));}()),onChange:function(c,t){setForm(function(f){return Object.assign({},f,{category:c,tags:t});});},onAddCategory:function(v){setData(function(d){var _dc=['Personal','Work','Home','Health','Finance','Learning','Creative'];var _mg=_dc.concat((d.categories||[]).filter(function(x){return _dc.indexOf(x)<0;}));return Object.assign({},d,{categories:_mg.indexOf(v)<0?_mg.concat([v]):_mg});});}}), /*#__PURE__*/React.createElement(AlarmPanel, {
+  })), /*#__PURE__*/React.createElement("hr", {className:"divider"}), /*#__PURE__*/React.createElement("div", {className:"form-group"}, /*#__PURE__*/React.createElement("div", {style:{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:8}},   /*#__PURE__*/React.createElement("label", {style:{margin:0}}, "📋 Subtasks"),   /*#__PURE__*/React.createElement("button", {className:"btn btn-primary btn-sm",     onClick:function(){setSubtaskForm(defaultSubtaskForm());setEditSubtask(null);setSubtaskModal(true);}},     "+ Add Subtask")), (form.subtasks||[]).length === 0 && /*#__PURE__*/React.createElement("div",   {style:{fontSize:12,color:"var(--text-dim)",textAlign:"center",padding:"8px 0"}},   "No subtasks yet"), (form.subtasks||[]).map(function(st){   return React.createElement("div", {key:st.id, style:{display:"flex",alignItems:"center",gap:6,padding:"5px 0",borderBottom:"1px solid var(--border)"}},     React.createElement("input",{type:"checkbox",checked:st.done||false,       onChange:function(){setForm(_objectSpread(_objectSpread({},form),{},{subtasks:(form.subtasks||[]).map(function(x){return x.id===st.id?_objectSpread(_objectSpread({},x),{},{done:!x.done,completedAt:!x.done?Date.now():null}):x;})}));},       style:{width:14,height:14,accentColor:"#9C68D6",flexShrink:0}}),     React.createElement("div",{style:{flex:1,minWidth:0}},       React.createElement("div",{style:{fontSize:12,fontWeight:600,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap",         color:st.done?"var(--text-dim)":"var(--text)",textDecoration:st.done?"line-through":"none"}},st.title),       React.createElement("div",{style:{display:"flex",gap:6,marginTop:2}},         st.priority && React.createElement("span",{style:{fontSize:10,color:"var(--text-dim)"}},st.priority),         st.dueDate && React.createElement("span",{style:{fontSize:10,color:"var(--text-dim)"}},st.dueDate))),     React.createElement("button",{onClick:function(){setSubtaskForm(Object.assign({},st));setEditSubtask(st);setSubtaskModal(true);},       style:{background:"none",border:"none",color:"var(--purple-light)",cursor:"pointer",fontSize:14,padding:"0 4px"}}, "✏"),     React.createElement("button",{onClick:function(){setForm(_objectSpread(_objectSpread({},form),{},{subtasks:(form.subtasks||[]).filter(function(x){return x.id!==st.id;})}));},       style:{background:"none",border:"none",color:"var(--text-dim)",cursor:"pointer",fontSize:14,padding:"0 4px"}}, "×")); })), /*#__PURE__*/React.createElement("hr", {className:"divider"}), /*#__PURE__*/React.createElement(MediaAttachments, {attachments:form.attachments||[], onChange:function(a){setForm(function(f){return Object.assign({},f,{attachments:a});});}}), /*#__PURE__*/React.createElement(CategoryTagInput,{category:form.category||'',tags:Array.isArray(form.tags)?form.tags:[],allCategories:(function(){var _dc=['Personal','Work','Home','Health','Finance','Learning','Creative'];return _dc.concat((data.categories||[]).filter(function(x){return _dc.indexOf(x)<0;}));}()),onChange:function(c,t){setForm(function(f){return Object.assign({},f,{category:c,tags:t});});},onAddCategory:function(v){setData(function(d){var _dc=['Personal','Work','Home','Health','Finance','Learning','Creative'];var _mg=_dc.concat((d.categories||[]).filter(function(x){return _dc.indexOf(x)<0;}));return Object.assign({},d,{categories:_mg.indexOf(v)<0?_mg.concat([v]):_mg});});}}), /*#__PURE__*/React.createElement(AlarmPanel, {
     alarm: form.alarm,
     onChange: function onChange(a) {
       return setForm(_objectSpread(_objectSpread({}, form), {}, {
@@ -5402,7 +5431,8 @@ var TasksScreen = function TasksScreen(_ref21) {
       return _objectSpread(_objectSpread({}, d), {}, {
         tasks: d.tasks.map(function (t) {
           return t.id === id ? _objectSpread(_objectSpread({}, t), {}, {
-            status: status
+            status: status,
+            completedAt: status === 'DONE' ? Date.now() : (t.status === 'DONE' ? null : t.completedAt)
           }) : t;
         })
       });
@@ -14720,7 +14750,7 @@ var FocusScreen = function FocusScreen(props) {
   var activeTasks=(data.tasks||[]).filter(function(t){return t.status!=='DONE';});
   var completeFocusTask=function(){
     if(!focusTask)return;
-    setData(function(d){return Object.assign({},d,{tasks:d.tasks.map(function(t){return t.id===focusTask.id?Object.assign({},t,{status:'DONE'}):t;})});});
+    setData(function(d){return Object.assign({},d,{tasks:d.tasks.map(function(t){return t.id===focusTask.id?Object.assign({},t,{status:'DONE',completedAt:Date.now()}):t;})});});
     setFocusTask(null);setTimerOn(false);setTimerLeft(25*60);setTimerPhase('work');
   };
   var mins=Math.floor(timerLeft/60);
