@@ -362,6 +362,85 @@
   // ── AI Data Digest ─────────────────────────
   window._buildDataDigest=function(data){if(!data)return'';var now=Date.now(),T=new Date().toISOString().slice(0,10),L=['=== '+T+' ==='];var open=(data.tasks||[]).filter(function(t){return t.status!=='DONE';});L.push('TAREAS('+open.length+'):');open.slice(0,12).forEach(function(t){var c=(data.clients||[]).find(function(x){return x.id===t.clientId;});L.push(' '+t.priority+' "'+t.title+'"'+(t.dueDate&&t.dueDate<T?' VENC':'')+(c?' ['+c.name+']':''));});var pjs=(data.projects||[]).filter(function(p){return !['DONE','ON_HOLD'].includes(p.status);});L.push('PROYECTOS('+pjs.length+'):');pjs.forEach(function(p){var c=(data.clients||[]).find(function(x){return x.id===p.clientId;});L.push(' "'+p.name+'" '+p.status+(c?' ['+c.name+']':''));});var cls=(data.clients||[]).filter(function(c){return ['ACTIVE','CLIENT','LEAD'].includes(c.status);});L.push('CLIENTES('+cls.length+'):');cls.forEach(function(c){var lm=(data.meetings||[]).filter(function(m){return m.clientId===c.id;}).sort(function(a,b){return b.date.localeCompare(a.date);})[0];var ot=(data.tasks||[]).filter(function(t){return t.clientId===c.id&&t.status!=='DONE';}).length;L.push(' "'+(c.businessName||c.name)+'"'+(c.clientType?' ['+c.clientType+']':'')+(c.businessName?' ('+c.name+')':'')+' '+c.status+(lm?' últ:'+lm.date:'')+(ot?' '+ot+'T':'')+(c.stockStatus?' stk:'+c.stockStatus:'')+(c.contacts&&c.contacts.length?' contactos:'+c.contacts.map(function(x){return x.name+(x.role?' '+x.role:'');}).join(','):''));});var mtgs=(data.meetings||[]).filter(function(m){return new Date(m.date).getTime()>now-30*86400000;}).sort(function(a,b){return b.date.localeCompare(a.date);}).slice(0,8);L.push('REUNIONES 30d('+mtgs.length+'):');mtgs.forEach(function(m){var c=(data.clients||[]).find(function(x){return x.id===m.clientId;});L.push(' "'+m.title+'" '+m.date+(c?' '+c.name:''));});var txs=(data.transactions||[]).filter(function(t){return t.date&&new Date(t.date).getTime()>now-30*86400000;});if(txs.length){var i=txs.filter(function(t){return t.type==='INCOME';}).reduce(function(s,t){return s+Number(t.amount||0);},0);L.push('FINANZAS 30d: $'+i.toFixed(0)+' ing');}return L.join('\n');};
 
+  // ── Weekly Report: collects high/medium priority client-linked completions ──
+  window._buildWeeklyReport = function(data) {
+    var now = new Date();
+    var end = new Date(now); end.setHours(23,59,59,999);
+    var start = new Date(now); start.setDate(start.getDate() - 6); start.setHours(0,0,0,0);
+    var startMs = start.getTime(), endMs = end.getTime();
+    var clients = data.clients || [];
+    function clientOf(id) { return clients.find(function(c) { return c.id === id; }); }
+    function inWeek(ts) { return !!ts && ts >= startMs && ts <= endMs; }
+    var groups = {};
+    function addItem(clientId, icon, title) {
+      if (!clientId) return;
+      var c = clientOf(clientId);
+      if (!c) return;
+      if (!groups[clientId]) groups[clientId] = { client: c, items: [] };
+      groups[clientId].items.push({ icon: icon, title: title });
+    }
+    (data.tasks || []).forEach(function(t) {
+      if (t.status !== 'DONE' || !['HIGH','MEDIUM'].includes(t.priority) || !t.clientId) return;
+      if (!inWeek(t.updatedAt || t.createdAt)) return;
+      addItem(t.clientId, '✅', t.title);
+    });
+    (data.projects || []).forEach(function(p) {
+      if (p.status !== 'DONE' || !['HIGH','MEDIUM'].includes(p.priority) || !p.clientId) return;
+      if (!inWeek(p.updatedAt || p.createdAt)) return;
+      addItem(p.clientId, '🏆', 'Proyecto completado: ' + p.name);
+    });
+    (data.projects || []).forEach(function(p) {
+      if (!p.clientId || !inWeek(p.updatedAt || p.createdAt)) return;
+      (p.subtasks || []).forEach(function(s) {
+        if (!s.done) return;
+        if (s.priority && !['HIGH','MEDIUM'].includes(s.priority)) return;
+        addItem(p.clientId, '☑', s.title + ' (' + p.name + ')');
+      });
+    });
+    (data.meetings || []).forEach(function(m) {
+      if (!m.clientId) return;
+      var mTs = m.date ? new Date(m.date).getTime() : null;
+      if (!inWeek(mTs)) return;
+      addItem(m.clientId, '📅', 'Reunión: ' + m.title);
+    });
+    var byClient = Object.keys(groups).map(function(k) { return groups[k]; })
+      .sort(function(a, b) { return b.items.length - a.items.length; });
+    function fmt(d) { return d.toLocaleDateString('es-BO', { day: 'numeric', month: 'short' }); }
+    return { weekStartLabel: fmt(start), weekEndLabel: fmt(end), byClient: byClient };
+  };
+
+  window._exportWeeklyReportDoc = function(rep) {
+    var rows = rep.byClient.map(function(g) {
+      var itemsHtml = g.items.map(function(it) {
+        return '<p style="margin:2px 0 2px 14px;font-size:11pt;">' + it.icon + ' ' + it.title + '</p>';
+      }).join('');
+      return '<h3 style="color:#6B3FA0;font-size:13pt;margin:14px 0 4px;">🏪 ' + (g.client.businessName || g.client.name) + '</h3>' + itemsHtml;
+    }).join('');
+    var totalAcciones = rep.byClient.reduce(function(s, g) { return s + g.items.length; }, 0);
+    var html = '<html xmlns:o="urn:schemas-microsoft-com:office:office" xmlns:w="urn:schemas-microsoft-com:office:word" xmlns="http://www.w3.org/TR/REC-html40">' +
+      '<head><meta charset="utf-8"><title>Informe Semanal</title></head>' +
+      '<body style="font-family:Calibri,Arial,sans-serif;color:#222;">' +
+      '<h1 style="color:#6B3FA0;font-size:18pt;margin-bottom:2px;">Informe Semanal</h1>' +
+      '<p style="font-size:11pt;color:#555;margin-top:0;">Semana: ' + rep.weekStartLabel + ' — ' + rep.weekEndLabel + '</p>' +
+      '<p style="font-size:11pt;"><b>Total de acciones completadas:</b> ' + totalAcciones + ' &nbsp;|&nbsp; <b>Franquicias atendidas:</b> ' + rep.byClient.length + '</p>' +
+      '<hr/>' +
+      '<h2 style="font-size:14pt;color:#333;">Logros por Franquicia</h2>' +
+      (rows || '<p style="font-size:11pt;color:#888;">Sin acciones de alta/media prioridad vinculadas a clientes esta semana.</p>') +
+      '<hr/>' +
+      '<h2 style="font-size:14pt;color:#333;">Plan Próxima Semana</h2>' +
+      '<p style="font-size:11pt;color:#888;">— Completar manualmente —</p>' +
+      '</body></html>';
+    var blob = new Blob(['\ufeff', html], { type: 'application/msword' });
+    var url = URL.createObjectURL(blob);
+    var a = document.createElement('a');
+    a.href = url;
+    a.download = 'Informe_Semanal_' + rep.weekStartLabel.replace(/\s/g,'') + '_' + rep.weekEndLabel.replace(/\s/g,'') + '.doc';
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+  };
+
   // Array sections that hold user-created items — used for cross-device merge
   var _SYNC_LISTS = ['projects','tasks','goals','habits','meetings','routines',
     'habitEntries','journal','content','travel','bucketList','books','services',
@@ -3466,7 +3545,13 @@ var HomeScreen = function HomeScreen(_ref14) {
       fontWeight: 800,
       marginBottom: 14
     }
-  }, greeting, ", ", firstName, " \uD83D\uDC4B"), /*#__PURE__*/React.createElement("div", {
+  }, greeting, ", ", firstName, " \uD83D\uDC4B"),
+  /*#__PURE__*/React.createElement("button", {
+    className: "btn btn-secondary btn-sm",
+    style: {marginBottom: 10},
+    onClick: function(){ window._exportWeeklyReportDoc(window._buildWeeklyReport(data)); }
+  }, "\uD83D\uDCCA Informe Semanal"),
+  /*#__PURE__*/React.createElement("div", {
     style: {
       display: 'grid',
       gridTemplateColumns: 'repeat(4,1fr)',
