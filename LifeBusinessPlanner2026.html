@@ -452,10 +452,31 @@
         if (g2) g2.progress.push({ icon: 'PROG_PROJECT', title: 'Avance en proyecto: ' + p.name });
       }
     });
+    // Despachos (Ship/imports) — siempre tienen clientId, se agrupan por franquicia como el resto
+    (data.imports || []).forEach(function(imp) {
+      if (!imp.clientId) return;
+      var g = group(imp.clientId);
+      if (!g) return;
+      var label = (imp.items ? imp.items + ' — ' : '') + (imp.season || 'Despacho');
+      if (imp.status === 'RECIBIDO') {
+        if (inWeek(imp.received ? new Date(imp.received).getTime() : null)) {
+          g.done.push({ icon: 'DONE_SHIP', title: 'Mercadería recibida: ' + label });
+        }
+      } else if (imp.status !== 'CANCELADO') {
+        g.progress.push({ icon: 'PROG_SHIP', title: 'Despacho en curso (' + imp.status + '): ' + label });
+      }
+    });
     var byClient = Object.keys(groups).map(function(k) { return groups[k]; })
       .sort(function(a, b) { return (b.done.length + b.progress.length) - (a.done.length + a.progress.length); });
+    // Campañas de marketing — no tienen clientId (son a nivel mall), van en una sección aparte
+    var campaignsDone = (data.campaigns || []).filter(function(c) {
+      return c.status === 'COMPLETED' && inWeek(c.endDate ? new Date(c.endDate).getTime() : null);
+    }).map(function(c) { return c.name + (c.platform ? ' (' + c.platform + ')' : ''); });
+    var campaignsActive = (data.campaigns || []).filter(function(c) {
+      return c.status === 'ACTIVE';
+    }).map(function(c) { return c.name + (c.platform ? ' (' + c.platform + ')' : ''); });
     function fmt(d) { return d.toLocaleDateString('es-BO', { day: 'numeric', month: 'short' }); }
-    return { weekStartLabel: fmt(start), weekEndLabel: fmt(end), byClient: byClient };
+    return { weekStartLabel: fmt(start), weekEndLabel: fmt(end), byClient: byClient, campaignsDone: campaignsDone, campaignsActive: campaignsActive };
   };
 
   window._diagWeeklyReport = function(data) {
@@ -492,6 +513,15 @@
       '  - con cliente asignado: ' + doneProjectsClient.length + '\n' +
       '  - completados ESTA SEMANA: ' + doneProjectsWeek.length + '\n' +
       '    - con cliente: ' + doneProjectsWeekClient.length + '\n\n' +
+      'DESPACHOS (Ship)\n' +
+      '- Total: ' + (data.imports || []).length + '\n' +
+      '  - con cliente asignado: ' + (data.imports || []).filter(function(i){return !!i.clientId;}).length + '\n' +
+      '  - RECIBIDO esta semana: ' + (data.imports || []).filter(function(i){return i.status==='RECIBIDO' && inWeek(i.received?new Date(i.received).getTime():null);}).length + '\n' +
+      '  - en curso (no recibido/cancelado): ' + (data.imports || []).filter(function(i){return i.status!=='RECIBIDO'&&i.status!=='CANCELADO';}).length + '\n\n' +
+      'CAMPAÑAS\n' +
+      '- Total: ' + (data.campaigns || []).length + '\n' +
+      '  - ACTIVE: ' + (data.campaigns || []).filter(function(c){return c.status==='ACTIVE';}).length + '\n' +
+      '  - COMPLETED esta semana: ' + (data.campaigns || []).filter(function(c){return c.status==='COMPLETED'&&inWeek(c.endDate?new Date(c.endDate).getTime():null);}).length + '\n\n' +
       'CLIENTES REGISTRADOS: ' + (data.clients || []).length + '\n' +
       (data.clients || []).slice(0, 8).map(function(c){ return '  - ' + (c.businessName || c.name); }).join('\n') + '\n\n' +
       'EJEMPLOS — tareas DONE esta semana sin cliente:\n' +
@@ -540,7 +570,14 @@
       '</tr></table><br/>' +
       '<h2 style="font-size:15pt;color:#333;margin:18px 0 2px 0;border-bottom:2px solid #6B3FA0;padding-bottom:4px;">Logros por Franquicia</h2>' +
       (rows || '<br/><p style="font-size:11pt;color:#888;">Sin acciones de alta/media prioridad vinculadas a clientes esta semana.</p>') +
-      '<br/><br/><h2 style="font-size:15pt;color:#333;margin:10px 0 2px 0;border-bottom:2px solid #6B3FA0;padding-bottom:4px;">Plan Próxima Semana</h2><br/>' +
+      '<br/><br/><h2 style="font-size:15pt;color:#333;margin:10px 0 2px 0;border-bottom:2px solid #6B3FA0;padding-bottom:4px;">Marketing</h2><br/>' +
+      (rep.campaignsDone.length || rep.campaignsActive.length ? (
+        (rep.campaignsDone.length ? '<p style="font-size:10pt;font-weight:bold;color:#2E7D32;margin:6px 0 2px 0;">CAMPAÑAS COMPLETADAS</p><br/>' +
+          rep.campaignsDone.map(function(c){ return '<p style="font-size:11pt;margin:2px 0;color:#222;">&bull;&nbsp; ' + c + '</p><br/>'; }).join('') : '') +
+        (rep.campaignsActive.length ? '<p style="font-size:10pt;font-weight:bold;color:#B07D00;margin:6px 0 2px 0;">CAMPAÑAS ACTIVAS</p><br/>' +
+          rep.campaignsActive.map(function(c){ return '<p style="font-size:10pt;margin:2px 0;color:#555;">&bull;&nbsp; ' + c + '</p><br/>'; }).join('') : '')
+      ) : '<p style="font-size:11pt;color:#888;">Sin campañas activas o completadas esta semana.</p><br/>') +
+      '<br/><h2 style="font-size:15pt;color:#333;margin:10px 0 2px 0;border-bottom:2px solid #6B3FA0;padding-bottom:4px;">Plan Próxima Semana</h2><br/>' +
       '<table width="100%" cellpadding="0" cellspacing="0" style="border:1px dashed #ccc;"><tr><td style="padding:14px 12px;">' +
       '<p style="font-size:11pt;color:#999;margin:0;">— Completar manualmente —</p>' +
       '</td></tr></table>' +
@@ -2072,7 +2109,7 @@ var defaultTaskAlarm = function defaultTaskAlarm() {
   };
 };
 var _defaultTaskForm = function _defaultTaskForm() {
-  return {title:'',description:'',status:'INBOX',priority:'MEDIUM',dueDate:tomorrowStr(),estimatedHours:'',projectId:'',clientId:'',attachments:[],category:'',tags:[],alarm:defaultTaskAlarm()};
+  return {title:'',description:'',status:'INBOX',priority:'MEDIUM',dueDate:tomorrowStr(),estimatedHours:'',projectId:'',clientId:'',attachments:[],category:'Work',tags:[],alarm:defaultTaskAlarm()};
 };
 var AlarmPanel = function AlarmPanel(_ref8) {
   var _ref8$alarm = _ref8.alarm,
@@ -3691,7 +3728,50 @@ var HomeScreen = function HomeScreen(_ref14) {
         setData(function(d) { return Object.assign({}, d, {tasks: newTasks, projects: newProjects}); });
         alert('Auto-vinculaci\u00F3n completada.\n\nTareas vinculadas: ' + updatedT + '\nProyectos vinculados: ' + updatedP + '\n\nRevis\u00E1 Tasks/Projects para corregir alg\u00FAn v\u00EDnculo incorrecto si lo hay.');
       }
-    }, "\uD83D\uDD27 Auto-vincular clientes")
+    }, "\uD83D\uDD27 Auto-vincular clientes"),
+    /*#__PURE__*/React.createElement("button", {
+      className: "btn btn-secondary btn-sm",
+      onClick: function(){
+        var lists = ['tasks','goals','journal','habits','resources','routines'];
+        var counts = {};
+        var patch = {};
+        lists.forEach(function(k) {
+          var arr = data[k] || [];
+          var n = 0;
+          var updated = arr.map(function(item) {
+            if (item.category) return item;
+            n++;
+            return Object.assign({}, item, {category: 'Work'});
+          });
+          if (n > 0) { patch[k] = updated; counts[k] = n; }
+        });
+        // Projects: backfill project-level AND subtask-level category in a single pass
+        var projN = 0, subN = 0;
+        var projects = (data.projects || []).map(function(p) {
+          var changed = false;
+          var newP = p;
+          if (!p.category) { newP = Object.assign({}, newP, {category: 'Work'}); changed = true; projN++; }
+          if (p.subtasks && p.subtasks.length) {
+            var subsChanged = false;
+            var subs = p.subtasks.map(function(s) {
+              if (s.category) return s;
+              subsChanged = true; subN++;
+              return Object.assign({}, s, {category: 'Work'});
+            });
+            if (subsChanged) { newP = Object.assign({}, newP, {subtasks: subs}); changed = true; }
+          }
+          return changed ? newP : p;
+        });
+        if (projN > 0 || subN > 0) {
+          patch.projects = projects;
+          counts.projects = projN;
+          counts.subtareas = subN;
+        }
+        setData(function(d) { return Object.assign({}, d, patch); });
+        var summary = Object.keys(counts).map(function(k) { return k + ': ' + counts[k]; }).join('\n') || 'Nada para actualizar \u2014 todo ya ten\u00EDa categor\u00EDa.';
+        alert('Categor\u00EDa "Work" aplicada a entries sin categor\u00EDa:\n\n' + summary);
+      }
+    }, "\uD83C\uDFF7\uFE0F Categor\u00EDa Work a sin categor\u00EDa")
   ),
   /*#__PURE__*/React.createElement("div", {
     style: {
@@ -4544,7 +4624,7 @@ var GoalsScreen = function GoalsScreen(_ref19) {
       description: '',
       vision: '',
       period: 'YEARLY',
-      category: '',
+      category: 'Work',
       targetDate: '',
       progress: 0,
       tags: [],
@@ -4584,7 +4664,7 @@ var GoalsScreen = function GoalsScreen(_ref19) {
       description: '',
       vision: '',
       period: 'YEARLY',
-      category: '',
+      category: 'Work',
       targetDate: '',
       progress: 0,
       alarm: defaultAlarm()
@@ -4776,7 +4856,7 @@ var GoalsScreen = function GoalsScreen(_ref19) {
       dueDate: '',
       status: 'PLANNING',
       completion: 0,
-      category: '',
+      category: 'Work',
       tags: [],
       subtasks: [],
       attachments: [],
@@ -4890,7 +4970,7 @@ var ProjectsScreen = function ProjectsScreen(_ref20) {
       dueDate: '',
       status: 'PLANNING',
       completion: 0,
-      category: '',
+      category: 'Work',
       tags: [],
       subtasks: [],
       attachments: [],
@@ -5007,7 +5087,7 @@ var ProjectsScreen = function ProjectsScreen(_ref20) {
       dueDate: '',
       status: 'PLANNING',
       completion: 0,
-      category: '',
+      category: 'Work',
       tags: [],
       subtasks: [],
       attachments: [],
@@ -5063,7 +5143,7 @@ var ProjectsScreen = function ProjectsScreen(_ref20) {
       dueDate: '',
       status: 'PLANNING',
       completion: 0,
-      category: '',
+      category: 'Work',
       tags: [],
       subtasks: [],
       attachments: [],
@@ -7089,7 +7169,7 @@ var meetingAlarmDefault = function meetingAlarmDefault(date, startTime) {
 var defaultSubtaskForm = function defaultSubtaskForm() {
   return {
     title: '', description: '', status: 'INBOX', priority: 'MEDIUM',
-    dueDate: '', estimatedHours: '', attachments: [], category: '', tags: [],
+    dueDate: '', estimatedHours: '', attachments: [], category: 'Work', tags: [],
     alarm: defaultAlarm(), done: false
   };
 };
@@ -8028,7 +8108,7 @@ var JournalScreen = function JournalScreen(_ref31) {
       affirmations: '',
       mood: 'GOOD',
       attachments: [],
-      category: '',
+      category: 'Work',
       tags: [],
       alarm: defaultAlarm(),
       links: [],
@@ -8617,7 +8697,7 @@ var HabitsScreen = function HabitsScreen(_ref38) {
       description: '',
       emoji: '✅',
       color: '#6B3FA0',
-      category: '',
+      category: 'Work',
       tags: [],
       alarm: defaultAlarm()
     }),
@@ -8700,7 +8780,7 @@ var HabitsScreen = function HabitsScreen(_ref38) {
       description: '',
       emoji: '✅',
       color: '#6B3FA0',
-      category: '',
+      category: 'Work',
       alarm: defaultAlarm()
     });
     setModal(false);
@@ -8965,7 +9045,7 @@ var BucketListScreen = function BucketListScreen(_ref39) {
   var _useState87 = useState({
       title: '',
       description: '',
-      category: '',
+      category: 'Work',
       priority: 3,
       targetDate: ''
     }),
@@ -9008,7 +9088,7 @@ var BucketListScreen = function BucketListScreen(_ref39) {
     setForm({
       title: '',
       description: '',
-      category: '',
+      category: 'Work',
       priority: 3,
       targetDate: ''
     });
@@ -10654,7 +10734,7 @@ var RoutinesScreen = function RoutinesScreen(_ref47) {
       name: '',
       duration: '',
       time: '',
-      category: '',
+      category: 'Work',
       type: 'MORNING',
       tags: [],
       alarm: defaultAlarm()
@@ -10721,7 +10801,7 @@ var RoutinesScreen = function RoutinesScreen(_ref47) {
       name: '',
       duration: '',
       time: '',
-      category: '',
+      category: 'Work',
       type: 'MORNING',
       alarm: defaultAlarm()
     });
