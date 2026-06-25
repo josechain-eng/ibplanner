@@ -429,6 +429,44 @@
     return { weekStartLabel: fmt(start), weekEndLabel: fmt(end), byClient: byClient };
   };
 
+  window._diagWeeklyReport = function(data) {
+    var now = new Date();
+    var end = new Date(now); end.setHours(23,59,59,999);
+    var start = new Date(now); start.setDate(start.getDate() - 6); start.setHours(0,0,0,0);
+    var startMs = start.getTime(), endMs = end.getTime();
+    function inWeek(ts) { return !!ts && ts >= startMs && ts <= endMs; }
+    var tasks = data.tasks || [], projects = data.projects || [];
+    var doneTasks = tasks.filter(function(t){ return t.status === 'DONE'; });
+    var doneTasksClient = doneTasks.filter(function(t){ return !!t.clientId; });
+    var doneTasksWeek = doneTasks.filter(function(t){ return inWeek(t.completedAt || t.updatedAt); });
+    var doneTasksWeekClient = doneTasksWeek.filter(function(t){ return !!t.clientId; });
+    var doneProjects = projects.filter(function(p){ return p.status === 'DONE'; });
+    var doneProjectsClient = doneProjects.filter(function(p){ return !!p.clientId; });
+    var doneProjectsWeek = doneProjects.filter(function(p){ return inWeek(p.completedAt || p.updatedAt); });
+    var doneProjectsWeekClient = doneProjectsWeek.filter(function(p){ return !!p.clientId; });
+    var inProgTasks = tasks.filter(function(t){ return ['IN_PROGRESS','HIGH_PRIORITY'].includes(t.status); });
+    var inProgTasksClient = inProgTasks.filter(function(t){ return !!t.clientId; });
+    var inProgTasksWeekClient = inProgTasksClient.filter(function(t){ return inWeek(t.updatedAt); });
+    var msg = 'DIAGNÓSTICO INFORME SEMANAL\n\n' +
+      'TAREAS\n' +
+      '- Total: ' + tasks.length + '\n' +
+      '- Marcadas DONE (todas): ' + doneTasks.length + '\n' +
+      '  - con cliente asignado: ' + doneTasksClient.length + '\n' +
+      '  - completadas ESTA SEMANA: ' + doneTasksWeek.length + '\n' +
+      '    - con cliente: ' + doneTasksWeekClient.length + '\n' +
+      '- En curso (IN_PROGRESS/HIGH_PRIORITY): ' + inProgTasks.length + '\n' +
+      '  - con cliente: ' + inProgTasksClient.length + '\n' +
+      '  - con cliente + tocadas esta semana: ' + inProgTasksWeekClient.length + '\n\n' +
+      'PROYECTOS\n' +
+      '- Total: ' + projects.length + '\n' +
+      '- Marcados DONE (todos): ' + doneProjects.length + '\n' +
+      '  - con cliente asignado: ' + doneProjectsClient.length + '\n' +
+      '  - completados ESTA SEMANA: ' + doneProjectsWeek.length + '\n' +
+      '    - con cliente: ' + doneProjectsWeekClient.length + '\n\n' +
+      'Si "con cliente" da 0 en todas las filas, el problema es que tus tareas/proyectos no tienen el campo Cliente/Franquicia asignado.';
+    alert(msg);
+  };
+
   window._exportWeeklyReportDoc = function(rep) {
     var ICONS = { DONE_TASK:'[OK]', DONE_PROJECT:'[TROFEO]', DONE_SUB:'[CHECK]', DONE_MEETING:'[REUNION]', PROG_TASK:'[EN CURSO]', PROG_PROJECT:'[AVANCE]' };
     var rows = rep.byClient.map(function(g) {
@@ -3573,11 +3611,16 @@ var HomeScreen = function HomeScreen(_ref14) {
       marginBottom: 14
     }
   }, greeting, ", ", firstName, " \uD83D\uDC4B"),
-  /*#__PURE__*/React.createElement("button", {
-    className: "btn btn-secondary btn-sm",
-    style: {marginBottom: 10},
-    onClick: function(){ window._exportWeeklyReportDoc(window._buildWeeklyReport(data)); }
-  }, "\uD83D\uDCCA Informe Semanal"),
+  /*#__PURE__*/React.createElement("div", {style:{display:'flex', gap:6, marginBottom:10}},
+    /*#__PURE__*/React.createElement("button", {
+      className: "btn btn-secondary btn-sm",
+      onClick: function(){ window._exportWeeklyReportDoc(window._buildWeeklyReport(data)); }
+    }, "\uD83D\uDCCA Informe Semanal"),
+    /*#__PURE__*/React.createElement("button", {
+      className: "btn btn-secondary btn-sm",
+      onClick: function(){ window._diagWeeklyReport(data); }
+    }, "\uD83D\uDD0D Diagn\u00F3stico")
+  ),
   /*#__PURE__*/React.createElement("div", {
     style: {
       display: 'grid',
