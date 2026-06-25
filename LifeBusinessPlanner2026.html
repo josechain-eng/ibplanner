@@ -363,6 +363,24 @@
   window._buildDataDigest=function(data){if(!data)return'';var now=Date.now(),T=new Date().toISOString().slice(0,10),L=['=== '+T+' ==='];var open=(data.tasks||[]).filter(function(t){return t.status!=='DONE';});L.push('TAREAS('+open.length+'):');open.slice(0,12).forEach(function(t){var c=(data.clients||[]).find(function(x){return x.id===t.clientId;});L.push(' '+t.priority+' "'+t.title+'"'+(t.dueDate&&t.dueDate<T?' VENC':'')+(c?' ['+c.name+']':''));});var pjs=(data.projects||[]).filter(function(p){return !['DONE','ON_HOLD'].includes(p.status);});L.push('PROYECTOS('+pjs.length+'):');pjs.forEach(function(p){var c=(data.clients||[]).find(function(x){return x.id===p.clientId;});L.push(' "'+p.name+'" '+p.status+(c?' ['+c.name+']':''));});var cls=(data.clients||[]).filter(function(c){return ['ACTIVE','CLIENT','LEAD'].includes(c.status);});L.push('CLIENTES('+cls.length+'):');cls.forEach(function(c){var lm=(data.meetings||[]).filter(function(m){return m.clientId===c.id;}).sort(function(a,b){return b.date.localeCompare(a.date);})[0];var ot=(data.tasks||[]).filter(function(t){return t.clientId===c.id&&t.status!=='DONE';}).length;L.push(' "'+(c.businessName||c.name)+'"'+(c.clientType?' ['+c.clientType+']':'')+(c.businessName?' ('+c.name+')':'')+' '+c.status+(lm?' últ:'+lm.date:'')+(ot?' '+ot+'T':'')+(c.stockStatus?' stk:'+c.stockStatus:'')+(c.contacts&&c.contacts.length?' contactos:'+c.contacts.map(function(x){return x.name+(x.role?' '+x.role:'');}).join(','):''));});var mtgs=(data.meetings||[]).filter(function(m){return new Date(m.date).getTime()>now-30*86400000;}).sort(function(a,b){return b.date.localeCompare(a.date);}).slice(0,8);L.push('REUNIONES 30d('+mtgs.length+'):');mtgs.forEach(function(m){var c=(data.clients||[]).find(function(x){return x.id===m.clientId;});L.push(' "'+m.title+'" '+m.date+(c?' '+c.name:''));});var txs=(data.transactions||[]).filter(function(t){return t.date&&new Date(t.date).getTime()>now-30*86400000;});if(txs.length){var i=txs.filter(function(t){return t.type==='INCOME';}).reduce(function(s,t){return s+Number(t.amount||0);},0);L.push('FINANZAS 30d: $'+i.toFixed(0)+' ing');}return L.join('\n');};
 
   // ── Weekly Report: collects high/medium priority client-linked completions ──
+  // Detecta el clientId a partir del nombre/businessName/contactos mencionados en un texto.
+  // Usa el match mas largo para evitar falsos positivos con nombres cortos/ambiguos.
+  window._detectClientId = function(text, clients) {
+    if (!text) return null;
+    var t = text.toLowerCase();
+    var bestId = null, bestLen = 0;
+    (clients || []).forEach(function(c) {
+      var candidates = [c.businessName, c.name].concat((c.contacts || []).map(function(x) { return x.name; }));
+      candidates.forEach(function(cand) {
+        if (!cand || cand.length < 4) return;
+        if (t.indexOf(cand.toLowerCase()) >= 0 && cand.length > bestLen) {
+          bestId = c.id; bestLen = cand.length;
+        }
+      });
+    });
+    return bestId;
+  };
+
   window._buildWeeklyReport = function(data) {
     var now = new Date();
     var end = new Date(now); end.setHours(23,59,59,999);
@@ -371,6 +389,7 @@
     var clients = data.clients || [];
     function clientOf(id) { return clients.find(function(c) { return c.id === id; }); }
     function inWeek(ts) { return !!ts && ts >= startMs && ts <= endMs; }
+    function resolveClientId(item, text) { return item.clientId || window._detectClientId(text, clients); }
     var groups = {};
     function group(clientId) {
       if (!clientId) return null;
@@ -380,46 +399,53 @@
       return groups[clientId];
     }
     (data.tasks || []).forEach(function(t) {
-      if (t.status !== 'DONE' || !['URGENT','HIGH','MEDIUM'].includes(t.priority) || !t.clientId) return;
+      if (t.status !== 'DONE' || !['URGENT','HIGH','MEDIUM'].includes(t.priority)) return;
       if (!inWeek(t.completedAt || t.updatedAt)) return;
-      var g = group(t.clientId); if (g) g.done.push({ icon: 'DONE_TASK', title: t.title });
+      var cid = resolveClientId(t, (t.title || '') + ' ' + (t.description || ''));
+      var g = group(cid); if (g) g.done.push({ icon: 'DONE_TASK', title: t.title });
     });
     (data.projects || []).forEach(function(p) {
-      if (p.status !== 'DONE' || !p.clientId) return;
+      if (p.status !== 'DONE') return;
       if (!inWeek(p.completedAt || p.updatedAt)) return;
-      var g = group(p.clientId); if (g) g.done.push({ icon: 'DONE_PROJECT', title: 'Proyecto completado: ' + p.name });
+      var cid = resolveClientId(p, (p.name || '') + ' ' + (p.description || ''));
+      var g = group(cid); if (g) g.done.push({ icon: 'DONE_PROJECT', title: 'Proyecto completado: ' + p.name });
     });
     (data.projects || []).forEach(function(p) {
-      if (!p.clientId) return;
+      var cid = resolveClientId(p, (p.name || '') + ' ' + (p.description || ''));
+      if (!cid) return;
       var doneSubs = (p.subtasks || []).filter(function(s) {
         if (!s.done) return false;
         if (s.priority && !['URGENT','HIGH','MEDIUM'].includes(s.priority)) return false;
         return inWeek(s.completedAt || (p.status !== 'DONE' ? p.updatedAt : null));
       });
       doneSubs.forEach(function(s) {
-        var g = group(p.clientId); if (g) g.done.push({ icon: 'DONE_SUB', title: s.title + ' (' + p.name + ')' });
+        var g = group(cid); if (g) g.done.push({ icon: 'DONE_SUB', title: s.title + ' (' + p.name + ')' });
       });
     });
     (data.meetings || []).forEach(function(m) {
-      if (!m.clientId) return;
+      var cid = resolveClientId(m, (m.title || '') + ' ' + (m.notes || ''));
+      if (!cid) return;
       var mTs = m.date ? new Date(m.date).getTime() : null;
       if (!inWeek(mTs)) return;
-      var g = group(m.clientId); if (g) g.done.push({ icon: 'DONE_MEETING', title: 'Reunion: ' + m.title });
+      var g = group(cid); if (g) g.done.push({ icon: 'DONE_MEETING', title: 'Reunion: ' + m.title });
     });
     (data.tasks || []).forEach(function(t) {
       if (t.status === 'DONE' || !['IN_PROGRESS','HIGH_PRIORITY'].includes(t.status)) return;
-      if (!['URGENT','HIGH','MEDIUM'].includes(t.priority) || !t.clientId) return;
+      if (!['URGENT','HIGH','MEDIUM'].includes(t.priority)) return;
       if (!inWeek(t.updatedAt)) return;
-      var g = group(t.clientId); if (g) g.progress.push({ icon: 'PROG_TASK', title: t.title });
+      var cid = resolveClientId(t, (t.title || '') + ' ' + (t.description || ''));
+      var g = group(cid); if (g) g.progress.push({ icon: 'PROG_TASK', title: t.title });
     });
     (data.projects || []).forEach(function(p) {
-      if (p.status === 'DONE' || !p.clientId) return;
+      if (p.status === 'DONE') return;
+      var cid = resolveClientId(p, (p.name || '') + ' ' + (p.description || ''));
+      if (!cid) return;
       var subsDoneThisWeek = (p.subtasks || []).filter(function(s) { return s.done && inWeek(s.completedAt); }).length;
       if (subsDoneThisWeek > 0) {
-        var g1 = group(p.clientId);
+        var g1 = group(cid);
         if (g1) g1.progress.push({ icon: 'PROG_PROJECT', title: 'Proyecto "' + p.name + '": ' + subsDoneThisWeek + ' subtarea' + (subsDoneThisWeek > 1 ? 's' : '') + ' completada' + (subsDoneThisWeek > 1 ? 's' : '') + ' esta semana' });
       } else if (inWeek(p.updatedAt)) {
-        var g2 = group(p.clientId);
+        var g2 = group(cid);
         if (g2) g2.progress.push({ icon: 'PROG_PROJECT', title: 'Avance en proyecto: ' + p.name });
       }
     });
@@ -3619,7 +3645,28 @@ var HomeScreen = function HomeScreen(_ref14) {
     /*#__PURE__*/React.createElement("button", {
       className: "btn btn-secondary btn-sm",
       onClick: function(){ window._diagWeeklyReport(data); }
-    }, "\uD83D\uDD0D Diagn\u00F3stico")
+    }, "\uD83D\uDD0D Diagn\u00F3stico"),
+    /*#__PURE__*/React.createElement("button", {
+      className: "btn btn-secondary btn-sm",
+      onClick: function(){
+        var clients = data.clients || [];
+        var updatedT = 0, updatedP = 0;
+        var newTasks = (data.tasks || []).map(function(t) {
+          if (t.clientId) return t;
+          var cid = window._detectClientId((t.title || '') + ' ' + (t.description || ''), clients);
+          if (cid) { updatedT++; return Object.assign({}, t, {clientId: cid}); }
+          return t;
+        });
+        var newProjects = (data.projects || []).map(function(p) {
+          if (p.clientId) return p;
+          var cid = window._detectClientId((p.name || '') + ' ' + (p.description || ''), clients);
+          if (cid) { updatedP++; return Object.assign({}, p, {clientId: cid}); }
+          return p;
+        });
+        setData(function(d) { return Object.assign({}, d, {tasks: newTasks, projects: newProjects}); });
+        alert('Auto-vinculaci\u00F3n completada.\n\nTareas vinculadas: ' + updatedT + '\nProyectos vinculados: ' + updatedP + '\n\nRevis\u00E1 Tasks/Projects para corregir alg\u00FAn v\u00EDnculo incorrecto si lo hay.');
+      }
+    }, "\uD83D\uDD27 Auto-vincular clientes")
   ),
   /*#__PURE__*/React.createElement("div", {
     style: {
