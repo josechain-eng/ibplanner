@@ -489,7 +489,12 @@
       '  - con cliente asignado: ' + doneProjectsClient.length + '\n' +
       '  - completados ESTA SEMANA: ' + doneProjectsWeek.length + '\n' +
       '    - con cliente: ' + doneProjectsWeekClient.length + '\n\n' +
-      'Si "con cliente" da 0 en todas las filas, el problema es que tus tareas/proyectos no tienen el campo Cliente/Franquicia asignado.';
+      'CLIENTES REGISTRADOS: ' + (data.clients || []).length + '\n' +
+      (data.clients || []).slice(0, 8).map(function(c){ return '  - ' + (c.businessName || c.name); }).join('\n') + '\n\n' +
+      'EJEMPLOS — tareas DONE esta semana sin cliente:\n' +
+      doneTasksWeek.filter(function(t){return !t.clientId;}).slice(0,5).map(function(t){ return '  - "' + t.title + '"'; }).join('\n') + '\n\n' +
+      'EJEMPLOS — proyectos sin cliente:\n' +
+      projects.filter(function(p){return !p.clientId;}).slice(0,5).map(function(p){ return '  - "' + p.name + '" (' + p.status + ')'; }).join('\n');
     alert(msg);
   };
 
