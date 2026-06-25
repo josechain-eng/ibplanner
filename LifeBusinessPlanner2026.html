@@ -7408,7 +7408,13 @@ var MeetingsScreen = function MeetingsScreen(_ref26) {
         location: e.target.value
       }));
     }
-  })), /*#__PURE__*/React.createElement("div", {
+  })), /*#__PURE__*/React.createElement("div", {className:"form-group"},
+    /*#__PURE__*/React.createElement("label", null, "🏪 Cliente/Franquicia"),
+    /*#__PURE__*/React.createElement("select", {value:form.clientId||'', onChange:function(e){setForm(_objectSpread(_objectSpread({},form),{},{clientId:e.target.value}));}},
+      /*#__PURE__*/React.createElement("option", {value:''}, "— Ninguno —"),
+      (data.clients||[]).map(function(c){return /*#__PURE__*/React.createElement("option",{key:c.id,value:c.id}, c.businessName||c.name);})
+    )
+  ), /*#__PURE__*/React.createElement("div", {
     className: "form-group"
   }, /*#__PURE__*/React.createElement("label", null, "Agenda"), /*#__PURE__*/React.createElement("textarea", {
     value: form.agenda,
