@@ -380,12 +380,12 @@
       return groups[clientId];
     }
     (data.tasks || []).forEach(function(t) {
-      if (t.status !== 'DONE' || !['HIGH','MEDIUM'].includes(t.priority) || !t.clientId) return;
+      if (t.status !== 'DONE' || !['URGENT','HIGH','MEDIUM'].includes(t.priority) || !t.clientId) return;
       if (!inWeek(t.completedAt || t.updatedAt)) return;
       var g = group(t.clientId); if (g) g.done.push({ icon: 'DONE_TASK', title: t.title });
     });
     (data.projects || []).forEach(function(p) {
-      if (p.status !== 'DONE' || !['HIGH','MEDIUM'].includes(p.priority) || !p.clientId) return;
+      if (p.status !== 'DONE' || !p.clientId) return;
       if (!inWeek(p.completedAt || p.updatedAt)) return;
       var g = group(p.clientId); if (g) g.done.push({ icon: 'DONE_PROJECT', title: 'Proyecto completado: ' + p.name });
     });
@@ -393,7 +393,7 @@
       if (!p.clientId) return;
       var doneSubs = (p.subtasks || []).filter(function(s) {
         if (!s.done) return false;
-        if (s.priority && !['HIGH','MEDIUM'].includes(s.priority)) return false;
+        if (s.priority && !['URGENT','HIGH','MEDIUM'].includes(s.priority)) return false;
         return inWeek(s.completedAt || (p.status !== 'DONE' ? p.updatedAt : null));
       });
       doneSubs.forEach(function(s) {
@@ -408,12 +408,12 @@
     });
     (data.tasks || []).forEach(function(t) {
       if (t.status === 'DONE' || !['IN_PROGRESS','HIGH_PRIORITY'].includes(t.status)) return;
-      if (!['HIGH','MEDIUM'].includes(t.priority) || !t.clientId) return;
+      if (!['URGENT','HIGH','MEDIUM'].includes(t.priority) || !t.clientId) return;
       if (!inWeek(t.updatedAt)) return;
       var g = group(t.clientId); if (g) g.progress.push({ icon: 'PROG_TASK', title: t.title });
     });
     (data.projects || []).forEach(function(p) {
-      if (p.status === 'DONE' || !['HIGH','MEDIUM'].includes(p.priority) || !p.clientId) return;
+      if (p.status === 'DONE' || !p.clientId) return;
       var subsDoneThisWeek = (p.subtasks || []).filter(function(s) { return s.done && inWeek(s.completedAt); }).length;
       if (subsDoneThisWeek > 0) {
         var g1 = group(p.clientId);
@@ -436,24 +436,24 @@
       var doneHtml = g.done.length ? '<ul style="margin:2px 0 6px 0;">' + g.done.map(function(it) {
         return '<li style="font-size:11pt;margin:2px 0;">' + ICONS[it.icon] + ' ' + it.title + '</li>';
       }).join('') + '</ul>' : '';
-      var progHtml = g.progress.length ? '<p style="font-size:10pt;color:#777;margin:2px 0 0 0;"><i>En curso:</i></p><ul style="margin:2px 0 6px 0;">' + g.progress.map(function(it) {
+      var progHtml = g.progress.length ? '<p style="font-size:10pt;color:#777;margin:2px 0 0 0;"><i>En curso:</i></p><br/><ul style="margin:2px 0 6px 0;">' + g.progress.map(function(it) {
         return '<li style="font-size:10pt;color:#555;margin:2px 0;">' + ICONS[it.icon] + ' ' + it.title + '</li>';
       }).join('') + '</ul>' : '';
-      return '<table width="100%" cellpadding="0" cellspacing="0" style="margin:14px 0 4px 0;"><tr><td style="background:#6B3FA0;color:#fff;padding:5px 10px;font-size:12pt;font-weight:bold;">' + name + '</td></tr></table>' + doneHtml + progHtml;
+      return '<br/><table width="100%" cellpadding="0" cellspacing="0" style="margin:14px 0 4px 0;"><tr><td style="background:#6B3FA0;color:#fff;padding:5px 10px;font-size:12pt;font-weight:bold;">' + name + '</td></tr></table><br/>' + doneHtml + progHtml + '<br/>';
     }).join('');
     var totalDone = rep.byClient.reduce(function(s, g) { return s + g.done.length; }, 0);
     var totalProg = rep.byClient.reduce(function(s, g) { return s + g.progress.length; }, 0);
     var html = '<html xmlns:o="urn:schemas-microsoft-com:office:office" xmlns:w="urn:schemas-microsoft-com:office:word" xmlns="http://www.w3.org/TR/REC-html40">' +
       '<head><meta charset="utf-8"><title>Informe Semanal</title></head>' +
       '<body style="font-family:Calibri,Arial,sans-serif;color:#222;">' +
-      '<h1 style="color:#6B3FA0;font-size:18pt;margin:0 0 2px 0;">Informe Semanal</h1>' +
-      '<p style="font-size:11pt;color:#555;margin:0 0 8px 0;">Semana: ' + rep.weekStartLabel + ' a ' + rep.weekEndLabel + '</p>' +
-      '<p style="font-size:11pt;margin:0 0 10px 0;"><b>Acciones completadas:</b> ' + totalDone + ' &nbsp;|&nbsp; <b>En curso:</b> ' + totalProg + ' &nbsp;|&nbsp; <b>Franquicias atendidas:</b> ' + rep.byClient.length + '</p>' +
-      '<hr/>' +
-      '<h2 style="font-size:14pt;color:#333;margin:10px 0 4px 0;">Logros por Franquicia</h2>' +
-      (rows || '<p style="font-size:11pt;color:#888;">Sin acciones de alta/media prioridad vinculadas a clientes esta semana.</p>') +
-      '<hr/>' +
-      '<h2 style="font-size:14pt;color:#333;margin:10px 0 4px 0;">Plan Proxima Semana</h2>' +
+      '<h1 style="color:#6B3FA0;font-size:18pt;margin:0 0 2px 0;">Informe Semanal</h1><br/>' +
+      '<p style="font-size:11pt;color:#555;margin:0 0 8px 0;">Semana: ' + rep.weekStartLabel + ' a ' + rep.weekEndLabel + '</p><br/>' +
+      '<p style="font-size:11pt;margin:0 0 10px 0;"><b>Acciones completadas:</b> ' + totalDone + ' &nbsp;|&nbsp; <b>En curso:</b> ' + totalProg + ' &nbsp;|&nbsp; <b>Franquicias atendidas:</b> ' + rep.byClient.length + '</p><br/>' +
+      '<hr/><br/>' +
+      '<h2 style="font-size:14pt;color:#333;margin:10px 0 4px 0;">Logros por Franquicia</h2><br/>' +
+      (rows || '<p style="font-size:11pt;color:#888;">Sin acciones de alta/media prioridad vinculadas a clientes esta semana.</p><br/>') +
+      '<hr/><br/>' +
+      '<h2 style="font-size:14pt;color:#333;margin:10px 0 4px 0;">Plan Proxima Semana</h2><br/>' +
       '<p style="font-size:11pt;color:#888;">-- Completar manualmente --</p>' +
       '</body></html>';
     var blob = new Blob(['\ufeff', html], { type: 'application/msword' });
