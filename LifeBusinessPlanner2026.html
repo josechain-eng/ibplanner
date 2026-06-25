@@ -367,13 +367,16 @@
   // Usa el match mas largo para evitar falsos positivos con nombres cortos/ambiguos.
   window._detectClientId = function(text, clients) {
     if (!text) return null;
-    var t = text.toLowerCase();
     var bestId = null, bestLen = 0;
     (clients || []).forEach(function(c) {
       var candidates = [c.businessName, c.name].concat((c.contacts || []).map(function(x) { return x.name; }));
       candidates.forEach(function(cand) {
-        if (!cand || cand.length < 4) return;
-        if (t.indexOf(cand.toLowerCase()) >= 0 && cand.length > bestLen) {
+        if (!cand || cand.length < 2) return;
+        // Word-boundary match so even short codes (e.g. "AX", "CK") don't false-positive
+        // inside unrelated words, while still matching as a standalone token.
+        var esc = cand.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+        var re = new RegExp('\\b' + esc + '\\b', 'i');
+        if (re.test(text) && cand.length > bestLen) {
           bestId = c.id; bestLen = cand.length;
         }
       });
@@ -400,13 +403,13 @@
     }
     (data.tasks || []).forEach(function(t) {
       if (t.status !== 'DONE' || !['URGENT','HIGH','MEDIUM'].includes(t.priority)) return;
-      if (!inWeek(t.completedAt || t.updatedAt)) return;
+      if (!inWeek(t.completedAt)) return;
       var cid = resolveClientId(t, (t.title || '') + ' ' + (t.description || ''));
       var g = group(cid); if (g) g.done.push({ icon: 'DONE_TASK', title: t.title });
     });
     (data.projects || []).forEach(function(p) {
       if (p.status !== 'DONE') return;
-      if (!inWeek(p.completedAt || p.updatedAt)) return;
+      if (!inWeek(p.completedAt)) return;
       var cid = resolveClientId(p, (p.name || '') + ' ' + (p.description || ''));
       var g = group(cid); if (g) g.done.push({ icon: 'DONE_PROJECT', title: 'Proyecto completado: ' + p.name });
     });
@@ -416,7 +419,7 @@
       var doneSubs = (p.subtasks || []).filter(function(s) {
         if (!s.done) return false;
         if (s.priority && !['URGENT','HIGH','MEDIUM'].includes(s.priority)) return false;
-        return inWeek(s.completedAt || (p.status !== 'DONE' ? p.updatedAt : null));
+        return inWeek(s.completedAt);
       });
       doneSubs.forEach(function(s) {
         var g = group(cid); if (g) g.done.push({ icon: 'DONE_SUB', title: s.title + ' (' + p.name + ')' });
@@ -464,11 +467,11 @@
     var tasks = data.tasks || [], projects = data.projects || [];
     var doneTasks = tasks.filter(function(t){ return t.status === 'DONE'; });
     var doneTasksClient = doneTasks.filter(function(t){ return !!t.clientId; });
-    var doneTasksWeek = doneTasks.filter(function(t){ return inWeek(t.completedAt || t.updatedAt); });
+    var doneTasksWeek = doneTasks.filter(function(t){ return inWeek(t.completedAt); });
     var doneTasksWeekClient = doneTasksWeek.filter(function(t){ return !!t.clientId; });
     var doneProjects = projects.filter(function(p){ return p.status === 'DONE'; });
     var doneProjectsClient = doneProjects.filter(function(p){ return !!p.clientId; });
-    var doneProjectsWeek = doneProjects.filter(function(p){ return inWeek(p.completedAt || p.updatedAt); });
+    var doneProjectsWeek = doneProjects.filter(function(p){ return inWeek(p.completedAt); });
     var doneProjectsWeekClient = doneProjectsWeek.filter(function(p){ return !!p.clientId; });
     var inProgTasks = tasks.filter(function(t){ return ['IN_PROGRESS','HIGH_PRIORITY'].includes(t.status); });
     var inProgTasksClient = inProgTasks.filter(function(t){ return !!t.clientId; });
