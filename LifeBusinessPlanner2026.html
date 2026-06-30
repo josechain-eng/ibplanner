@@ -6630,20 +6630,21 @@ var ClientsScreen = function ClientsScreen(_ref24) {
       className:'btn btn-secondary btn-sm',style:{fontSize:10,width:'100%'},disabled:acLoad,
       onClick:function(){
         setAcLoad(true);setAcSugg(null);setAcSel([]);
-        var brand=form.businessName||form.name||'';if(!brand){setAcLoad(false);return;}
+        var brand=form.businessName||form.name||'';
+        if(!brand){setAcLoad(false);alert('Primero completá el nombre de la franquicia o contacto.');return;}
         window._gcalEnsureToken(function(tok){
-          if(!tok){setAcLoad(false);return;}
+          if(!tok){setAcLoad(false);alert('No se pudo conectar con Gmail. Andá a Configuración / Sincronización y conectá tu cuenta de Google, o volvé a iniciar sesión si el acceso expiró.');return;}
           var q=brand+' newer_than:180d';
           fetch('https://www.googleapis.com/gmail/v1/users/me/messages?maxResults=20&q='+encodeURIComponent(q),{headers:{'Authorization':'Bearer '+tok}})
-          .then(function(r){return r.ok?r.json():null;})
+          .then(function(r){if(!r.ok)throw new Error('Gmail API error '+r.status);return r.json();})
           .then(function(data){
-            if(!data||!data.messages){setAcLoad(false);setAcSugg([]);return;}
+            if(!data||!data.messages||!data.messages.length){setAcLoad(false);setAcSugg([]);alert('No se encontraron correos de "'+brand+'" en los últimos 180 días.');return;}
             return Promise.all(data.messages.slice(0,15).map(function(m){
               return fetch('https://www.googleapis.com/gmail/v1/users/me/messages/'+m.id+'?format=metadata&metadataHeaders=From&metadataHeaders=Subject',{headers:{'Authorization':'Bearer '+tok}}).then(function(r){return r.ok?r.json():null;});
             }));
           })
           .then(function(msgs){
-            if(!msgs){setAcLoad(false);setAcSugg([]);return;}
+            if(!msgs)return;
             var seen={};var senders=[];
             msgs.filter(Boolean).forEach(function(msg){
               var hs=(msg.payload&&msg.payload.headers)||[];
@@ -6655,13 +6656,13 @@ var ClientsScreen = function ClientsScreen(_ref24) {
               if(!nm||!em||seen[em])return;
               seen[em]=true;senders.push({name:nm,email:em,snippet:snippet.slice(0,200)});
             });
-            if(!senders.length){setAcLoad(false);setAcSugg([]);return;}
+            if(!senders.length){setAcLoad(false);setAcSugg([]);alert('Se encontraron correos de "'+brand+'", pero no se pudo extraer remitentes válidos (nombre + email) de ellos.');return;}
             if(!window.LBP_WORKER_URL){
               setAcLoad(false);setAcSugg(senders.map(function(s){return{name:s.name,role:'',email:s.email};}));setAcSel(senders.map(function(_,i){return i;}));return;
             }
             var ctx='Franquicia: '+brand+'\nCorreos recibidos de contactos de esta franquicia:\n'+senders.map(function(s,i){return (i+1)+'. De: '+s.name+' <'+s.email+'>\nExtracto/firma: '+s.snippet;}).join('\n\n');
             fetch(window.LBP_WORKER_URL+'/chat',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({messages:[{role:'user',content:ctx}],systemPrompt:'Analiza estos correos de la franquicia '+brand+'. Extrae el cargo de cada persona de su firma o del contenido. Responde SOLO JSON: [{"name":"...","role":"...","email":"..."}]. Si no puedes determinar el cargo, deja role vacío. Incluye solo personas de '+brand+'.'})})
-            .then(function(r){return r.json();})
+            .then(function(r){if(!r.ok)throw new Error('Chat API error '+r.status);return r.json();})
             .then(function(res){
               setAcLoad(false);
               try{
@@ -6669,10 +6670,11 @@ var ClientsScreen = function ClientsScreen(_ref24) {
                 if(si>=0&&ei>si){
                   var a=JSON.parse(t.slice(si,ei)).filter(function(x){return x.name&&x.email;});
                   setAcSugg(a);setAcSel(a.map(function(_,i){return i;}));
+                  if(!a.length)alert('La IA no pudo extraer contactos válidos de los correos encontrados.');
                 }else{setAcSugg(senders.map(function(s){return{name:s.name,role:'',email:s.email};}));setAcSel(senders.map(function(_,i){return i;}));}
-              }catch(e){setAcSugg([]);}
-            }).catch(function(){setAcLoad(false);setAcSugg([]);});
-          }).catch(function(){setAcLoad(false);});
+              }catch(e){setAcSugg([]);alert('Error al procesar la respuesta de la IA. Intentá de nuevo.');}
+            }).catch(function(err){setAcLoad(false);setAcSugg([]);alert('Error al consultar la IA: '+(err&&err.message?err.message:'desconocido'));});
+          }).catch(function(err){setAcLoad(false);alert('Error al buscar en Gmail: '+(err&&err.message?err.message:'desconocido'));});
         });
       }
     },acLoad?'\u23F3 Buscando en Gmail...':'\uD83E\uDD16 Auto-detectar contactos desde Gmail'),
