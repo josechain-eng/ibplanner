@@ -945,6 +945,12 @@
           setTimeout(function() { if (window._checkPushHealth) window._checkPushHealth(); }, 8000);
           // Periodic health check every 30 minutes while app is open
           setInterval(function() { if (window._checkPushHealth) window._checkPushHealth(); }, 30 * 60 * 1000);
+          // Periodic Background Sync: backup alarm check when FCM is blocked (Samsung etc)
+          // Chrome grants this for installed PWAs with high engagement; min interval ~15min
+          if ('periodicSync' in reg) {
+            reg.periodicSync.register('lbp-alarm-check', { minInterval: 15 * 60 * 1000 })
+              .catch(function() {}); // silently ignored if permission not granted
+          }
         })
         .catch(function(err) { console.warn('SW registration failed:', err); });
     });

@@ -59,6 +59,57 @@ self.addEventListener('push', function(e) {
   e.waitUntil(Promise.all([p, broadcast, cacheStore]));
 });
 
+// ── Periodic Background Sync: backup alarm check when FCM is blocked by Samsung ──
+// Fires periodically even when app is closed. Chrome allows it for installed PWAs
+// with high engagement. Reads config from Cache, fetches due alarms from Cloudflare KV.
+self.addEventListener('periodicsync', function(event) {
+  if (event.tag !== 'lbp-alarm-check') return;
+  event.waitUntil(
+    caches.open('lbp-config-v1').then(function(cache) {
+      return cache.match('https://lbp.local/config');
+    }).then(function(resp) {
+      return resp ? resp.json() : null;
+    }).then(function(cfg) {
+      if (!cfg || !cfg.workerUrl || !cfg.syncKey) return;
+      return fetch(cfg.workerUrl + '/list-alarms?key=' + encodeURIComponent(cfg.syncKey))
+        .then(function(r) { return r.json(); })
+        .then(function(result) {
+          var alarms = result.alarms || [];
+          var now = Date.now();
+          // Fire alarms that are due within the last 4 hours (broader window than cloud push)
+          var due = alarms.filter(function(a) {
+            return a.triggerAt <= now && (now - a.triggerAt) < 4 * 3600000;
+          });
+          if (!due.length) return;
+          return caches.open('lbp-fired-v1').then(function(firedCache) {
+            return firedCache.keys().then(function(keys) {
+              var firedIds = keys.map(function(k) {
+                var parts = k.url.split('/fired/');
+                return parts[1] ? decodeURIComponent(parts[1]) : '';
+              });
+              var toFire = due.filter(function(a) {
+                return firedIds.indexOf(a.id) === -1;
+              });
+              return Promise.all(toFire.map(function(a) {
+                return firedCache.put(
+                  new Request('https://lbp.local/fired/' + encodeURIComponent(a.id)),
+                  new Response(String(now))
+                ).then(function() {
+                  return showAlarm(
+                    a.title || 'Recordatorio',
+                    a.body || '',
+                    'lbp_ps_' + a.id,
+                    a.vibration || 'long'
+                  );
+                });
+              }));
+            });
+          });
+        });
+    }).catch(function() {})
+  );
+});
+
 // ── pushsubscriptionchange: Android/FCM invalidated the token ──────────────
 // Re-subscribe automatically and update Cloudflare KV.
 // This fires even when the app is fully closed.
