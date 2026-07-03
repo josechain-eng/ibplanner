@@ -3705,80 +3705,6 @@ var HomeScreen = function HomeScreen(_ref14) {
       marginBottom: 14
     }
   }, greeting, ", ", firstName, " \uD83D\uDC4B"),
-  /*#__PURE__*/React.createElement("div", {style:{display:'flex', gap:6, marginBottom:10}},
-    /*#__PURE__*/React.createElement("button", {
-      className: "btn btn-secondary btn-sm",
-      onClick: function(){ window._exportWeeklyReportDoc(window._buildWeeklyReport(data)); }
-    }, "\uD83D\uDCCA Informe Semanal"),
-    /*#__PURE__*/React.createElement("button", {
-      className: "btn btn-secondary btn-sm",
-      onClick: function(){ window._diagWeeklyReport(data); }
-    }, "\uD83D\uDD0D Diagn\u00F3stico"),
-    /*#__PURE__*/React.createElement("button", {
-      className: "btn btn-secondary btn-sm",
-      onClick: function(){
-        var clients = data.clients || [];
-        var updatedT = 0, updatedP = 0;
-        var newTasks = (data.tasks || []).map(function(t) {
-          if (t.clientId) return t;
-          var cid = window._detectClientId((t.title || '') + ' ' + (t.description || ''), clients);
-          if (cid) { updatedT++; return Object.assign({}, t, {clientId: cid}); }
-          return t;
-        });
-        var newProjects = (data.projects || []).map(function(p) {
-          if (p.clientId) return p;
-          var cid = window._detectClientId((p.name || '') + ' ' + (p.description || ''), clients);
-          if (cid) { updatedP++; return Object.assign({}, p, {clientId: cid}); }
-          return p;
-        });
-        setData(function(d) { return Object.assign({}, d, {tasks: newTasks, projects: newProjects}); });
-        alert('Auto-vinculaci\u00F3n completada.\n\nTareas vinculadas: ' + updatedT + '\nProyectos vinculados: ' + updatedP + '\n\nRevis\u00E1 Tasks/Projects para corregir alg\u00FAn v\u00EDnculo incorrecto si lo hay.');
-      }
-    }, "\uD83D\uDD27 Auto-vincular clientes"),
-    /*#__PURE__*/React.createElement("button", {
-      className: "btn btn-secondary btn-sm",
-      onClick: function(){
-        var lists = ['tasks','goals','journal','habits','resources','routines'];
-        var counts = {};
-        var patch = {};
-        lists.forEach(function(k) {
-          var arr = data[k] || [];
-          var n = 0;
-          var updated = arr.map(function(item) {
-            if (item.category) return item;
-            n++;
-            return Object.assign({}, item, {category: 'Work'});
-          });
-          if (n > 0) { patch[k] = updated; counts[k] = n; }
-        });
-        // Projects: backfill project-level AND subtask-level category in a single pass
-        var projN = 0, subN = 0;
-        var projects = (data.projects || []).map(function(p) {
-          var changed = false;
-          var newP = p;
-          if (!p.category) { newP = Object.assign({}, newP, {category: 'Work'}); changed = true; projN++; }
-          if (p.subtasks && p.subtasks.length) {
-            var subsChanged = false;
-            var subs = p.subtasks.map(function(s) {
-              if (s.category) return s;
-              subsChanged = true; subN++;
-              return Object.assign({}, s, {category: 'Work'});
-            });
-            if (subsChanged) { newP = Object.assign({}, newP, {subtasks: subs}); changed = true; }
-          }
-          return changed ? newP : p;
-        });
-        if (projN > 0 || subN > 0) {
-          patch.projects = projects;
-          counts.projects = projN;
-          counts.subtareas = subN;
-        }
-        setData(function(d) { return Object.assign({}, d, patch); });
-        var summary = Object.keys(counts).map(function(k) { return k + ': ' + counts[k]; }).join('\n') || 'Nada para actualizar \u2014 todo ya ten\u00EDa categor\u00EDa.';
-        alert('Categor\u00EDa "Work" aplicada a entries sin categor\u00EDa:\n\n' + summary);
-      }
-    }, "\uD83C\uDFF7\uFE0F Categor\u00EDa Work a sin categor\u00EDa")
-  ),
   /*#__PURE__*/React.createElement("div", {
     style: {
       display: 'grid',
@@ -12851,23 +12777,32 @@ var AiExpertChat = function AiExpertChat(props) {
   var fileRef = useRef(null);
   var msgsEndRef = useRef(null);
   useEffect(function(){if(msgsEndRef.current)msgsEndRef.current.scrollIntoView({behavior:'smooth'});},[msgs]);
+  var _ri=function(t){var p=t.split(/\*\*(.*?)\*\*/);if(p.length===1)return t;return React.createElement(React.Fragment,null,p.map(function(x,j){return j%2===1?React.createElement('strong',{key:j},x):x;}));};
   var renderMsg = function(text){
     if(!text) return null;
-    var lines = text.split('\n');
-    return React.createElement('div',{style:{fontSize:13,lineHeight:1.7}},
-      lines.map(function(line,i){
-        if(line.startsWith('## ')||line.startsWith('# ')){
-          var lvl=line.startsWith('## ')?2:1;
-          return React.createElement('div',{key:i,style:{fontWeight:800,fontSize:lvl===1?14:13,color:'var(--purple-light)',marginTop:i===0?0:10,marginBottom:2}},line.replace(/^#+\s*/,''));
-        }
-        if(line.startsWith('### ')) return React.createElement('div',{key:i,style:{fontWeight:700,fontSize:12,color:'#FF9800',marginTop:8,marginBottom:2}},line.replace(/^###\s*/,''));
-        if(line.startsWith('- ')||line.startsWith('• ')) return React.createElement('div',{key:i,style:{paddingLeft:12,fontSize:13}},'• '+line.replace(/^[-•]\s*/,''));
-        if(!line.trim()) return React.createElement('div',{key:i,style:{height:4}});
-        var parts=line.split(/\*\*(.*?)\*\*/);
-        if(parts.length>1) return React.createElement('div',{key:i,style:{fontSize:13}},parts.map(function(p,j){return j%2===1?React.createElement('strong',{key:j},p):p;}));
-        return React.createElement('div',{key:i},line);
-      })
-    );
+    var lines=text.split('\n'); var out=[]; var i=0;
+    while(i<lines.length){
+      var line=lines[i];
+      if(line.trim().startsWith('|')&&lines[i+1]&&lines[i+1].trim().match(/^\|[-| :]+\|$/)){
+        var tbl=[line]; i++;
+        while(i<lines.length&&lines[i].trim().startsWith('|'))tbl.push(lines[i++]);
+        var rows=tbl.filter(function(r){return !r.trim().match(/^\|[-| :]+\|$/);});
+        var pc=function(r){return r.trim().replace(/^\|/,'').replace(/\|$/,'').split('|').map(function(c){return c.trim();});};
+        var hdr=rows[0]?pc(rows[0]):[];
+        out.push(React.createElement('div',{key:'t'+i,style:{overflowX:'auto',margin:'8px 0'}},
+          React.createElement('table',{style:{borderCollapse:'collapse',width:'100%',fontSize:12}},
+            React.createElement('thead',null,React.createElement('tr',null,hdr.map(function(h,j){return React.createElement('th',{key:j,style:{background:'rgba(107,63,160,0.25)',color:'var(--purple-light)',padding:'5px 8px',border:'1px solid rgba(255,255,255,0.1)',fontWeight:700,textAlign:'left',whiteSpace:'nowrap'}},_ri(h));}))),
+            React.createElement('tbody',null,rows.slice(1).map(function(r,ri){var cs=pc(r);return React.createElement('tr',{key:ri,style:{background:ri%2===0?'rgba(255,255,255,0.03)':'transparent'}},cs.map(function(c,ci){return React.createElement('td',{key:ci,style:{padding:'4px 8px',border:'1px solid rgba(255,255,255,0.08)',verticalAlign:'top'}},_ri(c));}));})))));
+        continue;
+      }
+      if(line.startsWith('## ')||line.startsWith('# ')){var lvl=line.startsWith('## ')?2:1;out.push(React.createElement('div',{key:i,style:{fontWeight:800,fontSize:lvl===1?14:13,color:'var(--purple-light)',marginTop:i===0?0:10,marginBottom:2}},line.replace(/^#+\s*/,'')));}
+      else if(line.startsWith('### ')){out.push(React.createElement('div',{key:i,style:{fontWeight:700,fontSize:12,color:'#FF9800',marginTop:8,marginBottom:2}},line.replace(/^###\s*/,'')));}
+      else if(line.startsWith('- ')||line.startsWith('\u2022 ')){out.push(React.createElement('div',{key:i,style:{paddingLeft:12,fontSize:13}},'\u2022 ',_ri(line.replace(/^[-\u2022]\s*/,''))));}
+      else if(!line.trim()){out.push(React.createElement('div',{key:i,style:{height:4}}));}
+      else{out.push(React.createElement('div',{key:i},_ri(line)));}
+      i++;
+    }
+    return React.createElement('div',{style:{fontSize:13,lineHeight:1.7}},out);
   };
   var send = function send() {
     var text = inp.trim();
@@ -16983,6 +16918,27 @@ var App = function App() {
       }, totalActiveProjects));
     }));
   }),
+  /*#__PURE__*/React.createElement("div", {className:"nav-section", style:{marginTop:8}}, "\uD83D\uDEE0\uFE0F Herramientas"),
+  /*#__PURE__*/React.createElement("div", {className:"nav-item", onClick:function(){setDrawerOpen(false);window._exportWeeklyReportDoc(window._buildWeeklyReport(data));}},
+    React.createElement("span",{style:{fontSize:16}},"\uD83D\uDCCA"),React.createElement("span",null," Informe Semanal")),
+  /*#__PURE__*/React.createElement("div", {className:"nav-item", onClick:function(){setDrawerOpen(false);window._diagWeeklyReport(data);}},
+    React.createElement("span",{style:{fontSize:16}},"\uD83D\uDD0D"),React.createElement("span",null," Diagn\u00F3stico")),
+  /*#__PURE__*/React.createElement("div", {className:"nav-item", onClick:function(){setDrawerOpen(false);
+    var clients=data.clients||[];var updatedT=0,updatedP=0;
+    var newTasks=(data.tasks||[]).map(function(t){if(t.clientId)return t;var cid=window._detectClientId((t.title||'')+' '+(t.description||''),clients);if(cid){updatedT++;return Object.assign({},t,{clientId:cid});}return t;});
+    var newProjects=(data.projects||[]).map(function(p){if(p.clientId)return p;var cid=window._detectClientId((p.name||'')+' '+(p.description||''),clients);if(cid){updatedP++;return Object.assign({},p,{clientId:cid});}return p;});
+    setData(function(d){return Object.assign({},d,{tasks:newTasks,projects:newProjects});});
+    alert('Auto-vinculaci\u00F3n completada.\n\nTareas: '+updatedT+'\nProyectos: '+updatedP);}},
+    React.createElement("span",{style:{fontSize:16}},"\uD83D\uDD27"),React.createElement("span",null," Auto-vincular clientes")),
+  /*#__PURE__*/React.createElement("div", {className:"nav-item", onClick:function(){setDrawerOpen(false);
+    var lists=['tasks','goals','journal','habits','resources','routines'];var counts={};var patch={};
+    lists.forEach(function(k){var arr=data[k]||[];var n=0;var updated=arr.map(function(item){if(item.category)return item;n++;return Object.assign({},item,{category:'Work'});});if(n>0){patch[k]=updated;counts[k]=n;}});
+    var projN=0,subN=0;var projects=(data.projects||[]).map(function(p){var changed=false;var newP=p;if(!p.category){newP=Object.assign({},newP,{category:'Work'});changed=true;projN++;}if(p.subtasks&&p.subtasks.length){var subsChanged=false;var subs=p.subtasks.map(function(s){if(s.category)return s;subsChanged=true;subN++;return Object.assign({},s,{category:'Work'});});if(subsChanged){newP=Object.assign({},newP,{subtasks:subs});changed=true;}}return changed?newP:p;});
+    if(projN>0||subN>0){patch.projects=projects;counts.projects=projN;counts.subtareas=subN;}
+    setData(function(d){return Object.assign({},d,patch);});
+    var summary=Object.keys(counts).map(function(k){return k+': '+counts[k];}).join('\n')||'Nada para actualizar.';
+    alert('Categor\u00EDa "Work" aplicada:\n\n'+summary);}},
+    React.createElement("span",{style:{fontSize:16}},"\uD83C\uDFF7\uFE0F"),React.createElement("span",null," Categor\u00EDa Work a sin categor\u00EDa")),
   /*#__PURE__*/React.createElement("div", {className:"nav-section", style:{marginTop:8}}, "\u2699\uFE0F Settings"),
   /*#__PURE__*/React.createElement("div", {
     className: "nav-item",
