@@ -6677,6 +6677,9 @@ var FinanceScreen = function FinanceScreen(_ref25) {
   var _fnAI3=useState(null),_fnAI4=_slicedToArray(_fnAI3,2),fnAiMsg=_fnAI4[0],setFnAiMsg=_fnAI4[1];
   var _fnSum1=useState(false),_fnSum2=_slicedToArray(_fnSum1,2),fnSumLoad=_fnSum2[0],setFnSumLoad=_fnSum2[1];
   var _fnSum3=useState(null),_fnSum4=_slicedToArray(_fnSum3,2),fnSumRes=_fnSum4[0],setFnSumRes=_fnSum4[1];
+  var _fnRep1=useState(false),_fnRep2=_slicedToArray(_fnRep1,2),fnRepOpen=_fnRep2[0],setFnRepOpen=_fnRep2[1];
+  var _fnRepF1=useState(''),_fnRepF2=_slicedToArray(_fnRepF1,2),fnRepFrom=_fnRepF2[0],setFnRepFrom=_fnRepF2[1];
+  var _fnRepT1=useState(''),_fnRepT2=_slicedToArray(_fnRepT1,2),fnRepTo=_fnRepT2[0],setFnRepTo=_fnRepT2[1];
   var _useState57 = useState(null),
     _useState58 = _slicedToArray(_useState57, 2),
     editItem = _useState58[0],
@@ -6775,6 +6778,33 @@ var FinanceScreen = function FinanceScreen(_ref25) {
         fetch(window.LBP_WORKER_URL+'/chat',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({messages:[{role:'user',content:content}],systemPrompt:'Analiza estas finanzas del mes y genera un resumen ejecutivo con: 1) Estado financiero del mes, 2) Principales categorías de gasto, 3) Comparación ingreso vs gasto, 4) Alertas o gastos inusuales, 5) Recomendación financiera concreta. Sé práctico.'})}).then(function(r){return r.json();}).then(function(res){setFnSumLoad(false);setFnSumRes(res.content||('Error'));}).catch(function(){setFnSumLoad(false);setFnSumRes('Error de red');});
       }
     },fnSumLoad?'⏳ Analizando...':'📊 Resumen IA'),
+    /*#__PURE__*/React.createElement("button",{className:"btn btn-secondary btn-sm",style:{fontSize:10},
+      onClick:function(){
+        var yr=new Date().getFullYear();
+        var mo=String(selMonth).padStart(2,'0');
+        var txs=allTx.filter(function(t){return t.month===selMonth&&t.year===yr;}).sort(function(a,b){return (a.date||'').localeCompare(b.date||'');});
+        if(!txs.length){alert('No hay transacciones para este mes.');return;}
+        var hdr='<tr style="background:#6B3FA0;color:#fff;"><th style="padding:6px 10px;text-align:left;">Fecha</th><th style="padding:6px 10px;text-align:left;">Tipo</th><th style="padding:6px 10px;text-align:left;">Categor\u00EDa</th><th style="padding:6px 10px;text-align:left;">Descripci\u00F3n</th><th style="padding:6px 10px;text-align:left;">Establecimiento</th><th style="padding:6px 10px;text-align:right;">Monto</th><th style="padding:6px 10px;text-align:center;">Pagado</th><th style="padding:6px 10px;text-align:left;">Notas</th></tr>';
+        var rows=txs.map(function(t,i){var bg=i%2===0?'#f9f9f9':'#fff';var clr=t.type==='INCOME'?'#1B5E20':'#7F0000';return '<tr style="background:'+bg+';"><td style="padding:5px 10px;border:1px solid #ddd;">'+(t.date||'')+'</td><td style="padding:5px 10px;border:1px solid #ddd;color:'+clr+';font-weight:600;">'+(t.type==='INCOME'?'Ingreso':'Gasto')+'</td><td style="padding:5px 10px;border:1px solid #ddd;">'+(t.category||'')+'</td><td style="padding:5px 10px;border:1px solid #ddd;">'+(t.title||'')+'</td><td style="padding:5px 10px;border:1px solid #ddd;">'+(t.establishment||'')+'</td><td style="padding:5px 10px;border:1px solid #ddd;text-align:right;">$'+Number(t.amount||0).toFixed(2)+'</td><td style="padding:5px 10px;border:1px solid #ddd;text-align:center;">'+(t.isPaid?'S\u00ED':'No')+'</td><td style="padding:5px 10px;border:1px solid #ddd;">'+(t.notes||'')+'</td></tr>';}).join('');
+        var inc=txs.filter(function(t){return t.type==='INCOME';}).reduce(function(s,t){return s+Number(t.amount||0);},0);
+        var exp=txs.filter(function(t){return t.type==='EXPENSE';}).reduce(function(s,t){return s+Number(t.amount||0);},0);
+        var foot='<tr style="background:#6B3FA0;color:#fff;font-weight:700;"><td colspan="5" style="padding:6px 10px;">TOTAL</td><td style="padding:6px 10px;text-align:right;">Ing: $'+inc.toFixed(2)+' | Gas: $'+exp.toFixed(2)+' | Neto: $'+(inc-exp).toFixed(2)+'</td><td colspan="2"></td></tr>';
+        var xls='<html xmlns:o="urn:schemas-microsoft-com:office:office" xmlns:x="urn:schemas-microsoft-com:office:excel" xmlns="http://www.w3.org/TR/REC-html40"><head><meta charset="utf-8"></head><body><table>'+hdr+rows+foot+'</table></body></html>';
+        var blob=new Blob(['\ufeff',xls],{type:'application/vnd.ms-excel'});
+        var url=URL.createObjectURL(blob);
+        var a=document.createElement('a');a.href=url;a.download='Finanzas_'+yr+'-'+mo+'.xls';a.click();URL.revokeObjectURL(url);
+      }
+    },'\uD83D\uDCE5 Excel'),
+    /*#__PURE__*/React.createElement("button",{className:"btn btn-secondary btn-sm",style:{fontSize:10},
+      onClick:function(){
+        var d=new Date();
+        var mo=String(d.getMonth()+1).padStart(2,'0');
+        var yr=d.getFullYear();
+        setFnRepFrom(yr+'-'+mo+'-01');
+        setFnRepTo(yr+'-'+mo+'-'+String(new Date(yr,d.getMonth()+1,0).getDate()).padStart(2,'0'));
+        setFnRepOpen(true);
+      }
+    },'\uD83D\uDCCB Reporte'),
     /*#__PURE__*/React.createElement("button", {
     className: "btn btn-primary btn-sm",
     onClick: function onClick() { setEditItem(null); setForm({title:'',amount:'',type:'INCOME',category:'',invoiceNumber:'',isPaid:false,notes:'',date:today(),establishment:'',attachments:[]}); setModal(true); }
@@ -6951,7 +6981,81 @@ var FinanceScreen = function FinanceScreen(_ref25) {
       className: "btn btn-danger btn-sm btn-icon",
       onClick: function onClick(e) { e.stopPropagation(); del(t.id); }
     }, "\xD7"));
-  })), fnSumRes&&/*#__PURE__*/React.createElement(Modal,{
+  })),
+  fnRepOpen&&/*#__PURE__*/React.createElement(Modal,{
+    title:'\uD83D\uDCCB Reporte de Finanzas por Categor\u00EDa',
+    onClose:function(){setFnRepOpen(false);},
+    footer:/*#__PURE__*/React.createElement(React.Fragment,null,
+      /*#__PURE__*/React.createElement('button',{className:'btn btn-secondary',onClick:function(){
+        var txs=allTx.filter(function(t){return t.date&&t.date>=fnRepFrom&&t.date<=fnRepTo;}).sort(function(a,b){return a.date.localeCompare(b.date);});
+        if(!txs.length){alert('No hay transacciones en ese rango.');return;}
+        var byCat={};
+        txs.forEach(function(t){var cat=t.category||'Sin categor\u00EDa';if(!byCat[cat])byCat[cat]={inc:0,exp:0};if(t.type==='INCOME')byCat[cat].inc+=Number(t.amount||0);else byCat[cat].exp+=Number(t.amount||0);});
+        var hdr='<tr style="background:#6B3FA0;color:#fff;"><th style="padding:6px 10px;">Categor\u00EDa</th><th style="padding:6px 10px;text-align:right;">Ingresos</th><th style="padding:6px 10px;text-align:right;">Gastos</th><th style="padding:6px 10px;text-align:right;">Neto</th></tr>';
+        var rows=Object.entries(byCat).sort(function(a,b){return (b[1].exp+b[1].inc)-(a[1].exp+a[1].inc);}).map(function(e,i){var bg=i%2===0?'#f9f9f9':'#fff';var neto=e[1].inc-e[1].exp;return '<tr style="background:'+bg+';"><td style="padding:5px 10px;border:1px solid #ddd;">'+e[0]+'</td><td style="padding:5px 10px;border:1px solid #ddd;text-align:right;color:#1B5E20;">$'+e[1].inc.toFixed(2)+'</td><td style="padding:5px 10px;border:1px solid #ddd;text-align:right;color:#7F0000;">$'+e[1].exp.toFixed(2)+'</td><td style="padding:5px 10px;border:1px solid #ddd;text-align:right;font-weight:700;color:'+(neto>=0?'#1B5E20':'#7F0000')+';">$'+neto.toFixed(2)+'</td></tr>';}).join('');
+        var totInc=txs.filter(function(t){return t.type==='INCOME';}).reduce(function(s,t){return s+Number(t.amount||0);},0);
+        var totExp=txs.filter(function(t){return t.type==='EXPENSE';}).reduce(function(s,t){return s+Number(t.amount||0);},0);
+        var foot='<tr style="background:#6B3FA0;color:#fff;font-weight:700;"><td style="padding:6px 10px;">TOTAL</td><td style="padding:6px 10px;text-align:right;">$'+totInc.toFixed(2)+'</td><td style="padding:6px 10px;text-align:right;">$'+totExp.toFixed(2)+'</td><td style="padding:6px 10px;text-align:right;">$'+(totInc-totExp).toFixed(2)+'</td></tr>';
+        var detHdr='<tr style="background:#37474F;color:#fff;"><th style="padding:5px 8px;">Fecha</th><th style="padding:5px 8px;">Tipo</th><th style="padding:5px 8px;">Categor\u00EDa</th><th style="padding:5px 8px;">Descripci\u00F3n</th><th style="padding:5px 8px;">Establecimiento</th><th style="padding:5px 8px;text-align:right;">Monto</th></tr>';
+        var detRows=txs.map(function(t,i){var bg=i%2===0?'#f5f5f5':'#fff';return '<tr style="background:'+bg+';"><td style="padding:4px 8px;border:1px solid #eee;">'+(t.date||'')+'</td><td style="padding:4px 8px;border:1px solid #eee;">'+(t.type==='INCOME'?'Ingreso':'Gasto')+'</td><td style="padding:4px 8px;border:1px solid #eee;">'+(t.category||'')+'</td><td style="padding:4px 8px;border:1px solid #eee;">'+(t.title||'')+'</td><td style="padding:4px 8px;border:1px solid #eee;">'+(t.establishment||'')+'</td><td style="padding:4px 8px;border:1px solid #eee;text-align:right;">$'+Number(t.amount||0).toFixed(2)+'</td></tr>';}).join('');
+        var xls='<html xmlns:o="urn:schemas-microsoft-com:office:office" xmlns:x="urn:schemas-microsoft-com:office:excel" xmlns="http://www.w3.org/TR/REC-html40"><head><meta charset="utf-8"></head><body><h2>Reporte por Categor\u00EDa: '+fnRepFrom+' al '+fnRepTo+'</h2><table>'+hdr+rows+foot+'</table><br/><h3>Detalle de Transacciones</h3><table>'+detHdr+detRows+'</table></body></html>';
+        var blob=new Blob(['\ufeff',xls],{type:'application/vnd.ms-excel'});
+        var url=URL.createObjectURL(blob);var a=document.createElement('a');
+        a.href=url;a.download='Reporte_Finanzas_'+fnRepFrom+'_'+fnRepTo+'.xls';a.click();URL.revokeObjectURL(url);
+      }},'\uD83D\uDCE5 Exportar Excel'),
+      /*#__PURE__*/React.createElement('button',{className:'btn btn-secondary',onClick:function(){setFnRepOpen(false);}},'Cerrar')
+    )
+  },(function(){
+    var txs=allTx.filter(function(t){return t.date&&t.date>=fnRepFrom&&t.date<=fnRepTo;});
+    var byCat={};
+    txs.forEach(function(t){var cat=t.category||'Sin categor\u00EDa';if(!byCat[cat])byCat[cat]={inc:0,exp:0};if(t.type==='INCOME')byCat[cat].inc+=Number(t.amount||0);else byCat[cat].exp+=Number(t.amount||0);});
+    var cats=Object.entries(byCat).sort(function(a,b){return (b[1].exp+b[1].inc)-(a[1].exp+a[1].inc);});
+    var totInc=txs.filter(function(t){return t.type==='INCOME';}).reduce(function(s,t){return s+Number(t.amount||0);},0);
+    var totExp=txs.filter(function(t){return t.type==='EXPENSE';}).reduce(function(s,t){return s+Number(t.amount||0);},0);
+    return React.createElement('div',{style:{fontSize:13}},
+      React.createElement('div',{style:{display:'flex',gap:8,marginBottom:12,alignItems:'center',flexWrap:'wrap'}},
+        React.createElement('span',{style:{fontSize:12,color:'var(--text-dim)'}},'Desde:'),
+        React.createElement('input',{type:'date',value:fnRepFrom,onChange:function(e){setFnRepFrom(e.target.value);},style:{fontSize:12,padding:'4px 8px',borderRadius:6,border:'1px solid var(--border)',background:'var(--card)',color:'var(--text)'}}),
+        React.createElement('span',{style:{fontSize:12,color:'var(--text-dim)'}},'Hasta:'),
+        React.createElement('input',{type:'date',value:fnRepTo,onChange:function(e){setFnRepTo(e.target.value);},style:{fontSize:12,padding:'4px 8px',borderRadius:6,border:'1px solid var(--border)',background:'var(--card)',color:'var(--text)'}})
+      ),
+      txs.length===0?React.createElement('div',{style:{textAlign:'center',color:'var(--text-dim)',padding:'24px 0'}},'Sin transacciones en ese rango'):
+      React.createElement(React.Fragment,null,
+        React.createElement('div',{style:{marginBottom:6,fontSize:12,color:'var(--text-dim)'}},txs.length+' transacciones'),
+        React.createElement('div',{style:{display:'grid',gridTemplateColumns:'1fr 1fr',gap:8,marginBottom:14}},
+          React.createElement('div',{style:{background:'rgba(76,175,80,.15)',borderRadius:10,padding:'10px 14px'}},
+            React.createElement('div',{style:{fontSize:10,color:'#4CAF50'}},'⬆ INGRESOS'),
+            React.createElement('div',{style:{fontSize:20,fontWeight:800,color:'#4CAF50'}},'$'+totInc.toLocaleString('en-US',{minimumFractionDigits:2}))
+          ),
+          React.createElement('div',{style:{background:'rgba(244,67,54,.15)',borderRadius:10,padding:'10px 14px'}},
+            React.createElement('div',{style:{fontSize:10,color:'#F44336'}},'⬇ GASTOS'),
+            React.createElement('div',{style:{fontSize:20,fontWeight:800,color:'#F44336'}},'$'+totExp.toLocaleString('en-US',{minimumFractionDigits:2}))
+          )
+        ),
+        React.createElement('table',{style:{width:'100%',borderCollapse:'collapse',fontSize:12}},
+          React.createElement('thead',null,React.createElement('tr',null,
+            ['Categor\u00EDa','Ingresos','Gastos','Neto'].map(function(h,i){return React.createElement('th',{key:i,style:{background:'rgba(107,63,160,0.25)',color:'var(--purple-light)',padding:'6px 8px',textAlign:i===0?'left':'right',border:'1px solid rgba(255,255,255,0.1)',fontWeight:700}},h);})
+          )),
+          React.createElement('tbody',null,cats.map(function(e,i){
+            var neto=e[1].inc-e[1].exp;
+            return React.createElement('tr',{key:i,style:{background:i%2===0?'rgba(255,255,255,0.03)':'transparent'}},
+              React.createElement('td',{style:{padding:'5px 8px',border:'1px solid rgba(255,255,255,0.08)',fontWeight:600}},e[0]),
+              React.createElement('td',{style:{padding:'5px 8px',border:'1px solid rgba(255,255,255,0.08)',textAlign:'right',color:'#4CAF50'}},'$'+e[1].inc.toFixed(2)),
+              React.createElement('td',{style:{padding:'5px 8px',border:'1px solid rgba(255,255,255,0.08)',textAlign:'right',color:'#F44336'}},'$'+e[1].exp.toFixed(2)),
+              React.createElement('td',{style:{padding:'5px 8px',border:'1px solid rgba(255,255,255,0.08)',textAlign:'right',fontWeight:700,color:neto>=0?'#4CAF50':'#F44336'}},'$'+neto.toFixed(2))
+            );
+          })),
+          React.createElement('tfoot',null,React.createElement('tr',{style:{background:'rgba(107,63,160,0.25)',fontWeight:700}},
+            React.createElement('td',{style:{padding:'6px 8px',border:'1px solid rgba(255,255,255,0.1)'}},'TOTAL'),
+            React.createElement('td',{style:{padding:'6px 8px',border:'1px solid rgba(255,255,255,0.1)',textAlign:'right',color:'#4CAF50'}},'$'+totInc.toFixed(2)),
+            React.createElement('td',{style:{padding:'6px 8px',border:'1px solid rgba(255,255,255,0.1)',textAlign:'right',color:'#F44336'}},'$'+totExp.toFixed(2)),
+            React.createElement('td',{style:{padding:'6px 8px',border:'1px solid rgba(255,255,255,0.1)',textAlign:'right',color:totInc-totExp>=0?'#4CAF50':'#F44336'}},'$'+(totInc-totExp).toFixed(2))
+          ))
+        )
+      )
+    );
+  })()),
+  fnSumRes&&/*#__PURE__*/React.createElement(Modal,{
     title:'📊 Resumen Financiero — '+new Date().toLocaleString('es',{month:'long',year:'numeric'}),
     onClose:function(){setFnSumRes(null);},
     footer:/*#__PURE__*/React.createElement(React.Fragment,null,
