@@ -7098,6 +7098,12 @@ var FinanceScreen = function FinanceScreen(_ref25) {
         React.createElement('div',{style:{flex:1,fontWeight:600}},a.name),
         React.createElement('div',{style:{fontSize:11,color:'var(--text-dim)'}},cnt+' tx'),
         React.createElement('input',{defaultValue:a.name,onBlur:function(e){var v=e.target.value.trim();if(!v||v===a.name)return;setData(function(d){return Object.assign({},d,{accounts:(d.accounts||accounts).map(function(x){return x.id===a.id?Object.assign({},x,{name:v}):x;})});});},style:{width:110,fontSize:12,padding:'3px 6px',borderRadius:6,border:'1px solid var(--border)',background:'var(--card)',color:'var(--text)'}}),
+        React.createElement('button',{onClick:function(){
+          var unassigned=allTx.filter(function(t){return !t.accountId;});
+          if(!unassigned.length){alert('No hay transacciones sin cuenta.');return;}
+          if(!confirm('\u00BFAsignar '+unassigned.length+' transacciones sin cuenta a "'+a.name+'"?'))return;
+          setData(function(d){return Object.assign({},d,{transactions:(d.transactions||[]).map(function(t){return !t.accountId?Object.assign({},t,{accountId:a.id}):t;})});});
+        },style:{fontSize:10,padding:'3px 7px',borderRadius:12,border:'1px solid var(--border)',background:'var(--card)',color:'var(--purple-light)',cursor:'pointer',whiteSpace:'nowrap'}},'\u2190 Asignar todas'),
         accounts.length>1&&React.createElement('button',{onClick:function(){if(!confirm('\u00BFEliminar cuenta "'+a.name+'"? Las transacciones quedar\u00E1n sin cuenta.'))return;setData(function(d){var newAccts=(d.accounts||accounts).filter(function(x){return x.id!==a.id;});return Object.assign({},d,{accounts:newAccts,transactions:(d.transactions||[]).map(function(t){return t.accountId===a.id?Object.assign({},t,{accountId:''}):t;})});});},style:{background:'none',border:'none',color:'#F44336',cursor:'pointer',fontSize:16,padding:'0 4px'}},'\u00D7')
       );
     }),
