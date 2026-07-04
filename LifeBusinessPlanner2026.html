@@ -7062,7 +7062,7 @@ var FinanceScreen = function FinanceScreen(_ref25) {
       /*#__PURE__*/React.createElement('button',{className:'btn btn-secondary',onClick:function(){try{navigator.clipboard.writeText(fnSumRes);}catch(e){}}},'📋 Copiar'),
       /*#__PURE__*/React.createElement('button',{className:'btn btn-secondary',onClick:function(){setFnSumRes(null);}},'Cerrar')
     )
-  },/*#__PURE__*/React.createElement('div',{style:{padding:'8px 0',whiteSpace:'pre-wrap',fontSize:13,lineHeight:1.7}},fnSumRes)),
+  },/*#__PURE__*/React.createElement('div',{style:{padding:'8px 0'}},renderMsg(fnSumRes))),
   modal && /*#__PURE__*/React.createElement(Modal, {
     title: editItem ? "Edit Transaction" : "Add Transaction",
     onClose: function onClose() {
