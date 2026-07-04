@@ -6678,6 +6678,10 @@ var FinanceScreen = function FinanceScreen(_ref25) {
   var _fnSum1=useState(false),_fnSum2=_slicedToArray(_fnSum1,2),fnSumLoad=_fnSum2[0],setFnSumLoad=_fnSum2[1];
   var _fnSum3=useState(null),_fnSum4=_slicedToArray(_fnSum3,2),fnSumRes=_fnSum4[0],setFnSumRes=_fnSum4[1];
   var _fnRep1=useState(false),_fnRep2=_slicedToArray(_fnRep1,2),fnRepOpen=_fnRep2[0],setFnRepOpen=_fnRep2[1];
+  var _selAcc1=useState('ALL'),_selAcc2=_slicedToArray(_selAcc1,2),selAcct=_selAcc2[0],setSelAcct=_selAcc2[1];
+  var _acctMod1=useState(false),_acctMod2=_slicedToArray(_acctMod1,2),acctModal=_acctMod2[0],setAcctModal=_acctMod2[1];
+  var _acctAL1=useState(false),_acctAL2=_slicedToArray(_acctAL1,2),acctAutoLoad=_acctAL2[0],setAcctAutoLoad=_acctAL2[1];
+  var accounts=data.accounts&&data.accounts.length?data.accounts:[{id:'personal',name:'Personal',color:'#60A5FA'},{id:'empresarial',name:'Empresarial',color:'#9C68D6'}];
   var _fnRepF1=useState(''),_fnRepF2=_slicedToArray(_fnRepF1,2),fnRepFrom=_fnRepF2[0],setFnRepFrom=_fnRepF2[1];
   var _fnRepT1=useState(''),_fnRepT2=_slicedToArray(_fnRepT1,2),fnRepTo=_fnRepT2[0],setFnRepTo=_fnRepT2[1];
   var _useState57 = useState(null),
@@ -6688,19 +6692,12 @@ var FinanceScreen = function FinanceScreen(_ref25) {
   var monthTx = allTx.filter(function (t) {
     return t.month === selMonth && t.year === new Date().getFullYear();
   });
-  var displayed = tab === 'All' ? monthTx : monthTx.filter(function (t) {
+  var acctFiltered = selAcct==='ALL' ? monthTx : monthTx.filter(function(t){return (t.accountId||'')===(selAcct==='NONE'?'':selAcct);});
+  var displayed = tab === 'All' ? acctFiltered : acctFiltered.filter(function (t) {
     return t.type === tab;
   });
-  var income = monthTx.filter(function (t) {
-    return t.type === 'INCOME';
-  }).reduce(function (s, t) {
-    return s + Number(t.amount);
-  }, 0);
-  var expenses = monthTx.filter(function (t) {
-    return t.type === 'EXPENSE';
-  }).reduce(function (s, t) {
-    return s + Number(t.amount);
-  }, 0);
+  var income = acctFiltered.filter(function (t) { return t.type === 'INCOME'; }).reduce(function (s, t) { return s + Number(t.amount); }, 0);
+  var expenses = acctFiltered.filter(function (t) { return t.type === 'EXPENSE'; }).reduce(function (s, t) { return s + Number(t.amount); }, 0);
   var net = income - expenses;
   var save = function save() {
     if (!form.title || !form.amount) return;
@@ -6807,10 +6804,16 @@ var FinanceScreen = function FinanceScreen(_ref25) {
     },'\uD83D\uDCCB Reporte'),
     /*#__PURE__*/React.createElement("button", {
     className: "btn btn-primary btn-sm",
-    onClick: function onClick() { setEditItem(null); setForm({title:'',amount:'',type:'INCOME',category:'',invoiceNumber:'',isPaid:false,notes:'',date:today(),establishment:'',attachments:[]}); setModal(true); }
+    onClick: function onClick() { setEditItem(null); setForm({title:'',amount:'',type:'INCOME',category:'',accountId:'',invoiceNumber:'',isPaid:false,notes:'',date:today(),establishment:'',attachments:[]}); setModal(true); }
   }, "+ Add"))), /*#__PURE__*/React.createElement("div", {
     className: "page-content"
-  }, /*#__PURE__*/React.createElement("div", {
+  }, /*#__PURE__*/React.createElement("div",{style:{display:'flex',gap:6,marginBottom:8,alignItems:'center',flexWrap:'wrap'}},
+    [['ALL','Todas las cuentas','#555']].concat(accounts.map(function(a){return [a.id,a.name,a.color];})).concat([['NONE','Sin cuenta','#888']]).map(function(ac){
+      return React.createElement("button",{key:ac[0],onClick:function(){setSelAcct(ac[0]);},style:{fontSize:11,padding:'4px 10px',borderRadius:20,border:'2px solid '+(selAcct===ac[0]?ac[2]:'var(--border)'),background:selAcct===ac[0]?ac[2]+'22':'var(--card)',color:selAcct===ac[0]?ac[2]:'var(--text-dim)',fontWeight:selAcct===ac[0]?700:400,cursor:'pointer',flexShrink:0}},ac[1]);
+    }),
+    React.createElement("button",{onClick:function(){setAcctModal(true);},title:"Gestionar cuentas",style:{fontSize:11,padding:'4px 10px',borderRadius:20,border:'1px dashed var(--border)',background:'transparent',color:'var(--text-dim)',cursor:'pointer',flexShrink:0}},"⚙️")
+  ),
+  /*#__PURE__*/React.createElement("div", {
     style: {
       display: 'flex',
       gap: 4,
@@ -6844,7 +6847,7 @@ var FinanceScreen = function FinanceScreen(_ref25) {
       fontSize: 12,
       opacity: .8
     }
-  }, net >= 0 ? 'Net Profit' : 'Net Loss', " \u2014 ", months[selMonth - 1]), /*#__PURE__*/React.createElement("div", {
+  }, net >= 0 ? 'Net Profit' : 'Net Loss', " \u2014 ", months[selMonth - 1], selAcct!=='ALL'?' \u2014 '+(accounts.find(function(a){return a.id===selAcct;})||{name:'Sin cuenta'}).name:''), /*#__PURE__*/React.createElement("div", {
     style: {
       fontSize: 28,
       fontWeight: 800,
@@ -6917,7 +6920,7 @@ var FinanceScreen = function FinanceScreen(_ref25) {
   }, "\uD83D\uDCB0"), /*#__PURE__*/React.createElement("h3", null, "No transactions this month"), /*#__PURE__*/React.createElement("button", {
     className: "btn btn-primary",
     onClick: function onClick() {
-      setEditItem(null); setForm({title:'',amount:'',type:'INCOME',category:'',invoiceNumber:'',isPaid:false,notes:'',date:today(),establishment:'',attachments:[]});
+      setEditItem(null); setForm({title:'',amount:'',type:'INCOME',category:'',accountId:'',invoiceNumber:'',isPaid:false,notes:'',date:today(),establishment:'',attachments:[]});
       setModal(true);
     }
   }, "+ Add Transaction")) : displayed.map(function (t) {
@@ -6948,7 +6951,7 @@ var FinanceScreen = function FinanceScreen(_ref25) {
         fontSize: 11,
         color: 'var(--text-dim)'
       }
-    }, t.date, t.establishment ? ' \u2022 ' + t.establishment : '', t.category ? ' \u2022 ' + t.category : '')), /*#__PURE__*/React.createElement("div", {
+    }, t.date, t.establishment ? ' \u2022 ' + t.establishment : '', t.category ? ' \u2022 ' + t.category : '', t.accountId?(function(){var _a=accounts.find(function(a){return a.id===t.accountId;});return _a?' \u2022 \uD83C\uDFE6 '+_a.name:'';})():'')), /*#__PURE__*/React.createElement("div", {
       style: {
         textAlign: 'right'
       }
@@ -7055,6 +7058,59 @@ var FinanceScreen = function FinanceScreen(_ref25) {
       )
     );
   })()),
+  acctModal&&/*#__PURE__*/React.createElement(Modal,{
+    title:'\uD83C\uDFE6 Gestionar Cuentas',
+    onClose:function(){setAcctModal(false);},
+    footer:/*#__PURE__*/React.createElement(React.Fragment,null,
+      /*#__PURE__*/React.createElement('button',{className:'btn btn-secondary',disabled:acctAutoLoad,
+        onClick:function(){
+          var unassigned=allTx.filter(function(t){return !t.accountId;});
+          if(!unassigned.length){alert('Todas las transacciones ya tienen cuenta asignada.');return;}
+          if(!window.LBP_WORKER_URL){alert('Configur\u00E1 el Worker URL primero.');return;}
+          setAcctAutoLoad(true);
+          var acctNames=accounts.map(function(a){return a.name;}).join(', ');
+          var batch=unassigned.slice(0,40);
+          var prompt='Cuentas disponibles: '+acctNames+'\n\nAsigna cada transacci\u00F3n a una cuenta. Responde SOLO con JSON array en el mismo orden: [{"id":"tx_id","account":"NombreCuenta"},...]\n\nTransacciones:\n'+batch.map(function(t){return JSON.stringify({id:t.id,title:t.title,type:t.type,category:t.category||'',establishment:t.establishment||'',amount:t.amount});}).join('\n');
+          fetch(window.LBP_WORKER_URL+'/chat',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({messages:[{role:'user',content:prompt}],systemPrompt:'Sos un asistente financiero. Asigna transacciones a cuentas basado en el tipo y descripci\u00F3n. Responde SOLO con JSON v\u00E1lido, sin texto adicional.'})})
+          .then(function(r){return r.json();}).then(function(res){
+            setAcctAutoLoad(false);
+            var txt=res.content||'';
+            var s=txt.indexOf('['),e=txt.lastIndexOf(']')+1;
+            if(s<0||e<=s){alert('No se pudo procesar la respuesta de IA.');return;}
+            var assignments=JSON.parse(txt.slice(s,e));
+            var map={};assignments.forEach(function(x){if(x.id&&x.account){var acc=accounts.find(function(a){return a.name.toLowerCase()===x.account.toLowerCase();});if(acc)map[x.id]=acc.id;}});
+            var count=Object.keys(map).length;
+            setData(function(d){return Object.assign({},d,{transactions:(d.transactions||[]).map(function(t){return map[t.id]?Object.assign({},t,{accountId:map[t.id]}):t;})});});
+            alert('\u2705 '+count+' transacciones asignadas autom\u00E1ticamente.\n'+(unassigned.length>40?'(Se procesaron las primeras 40. Corr\u00E9 de nuevo para el resto)':''));
+          }).catch(function(){setAcctAutoLoad(false);alert('Error de red.');});
+        }
+      },acctAutoLoad?'\u23F3 Asignando...':'\uD83E\uDD16 Auto-asignar con IA'),
+      /*#__PURE__*/React.createElement('button',{className:'btn btn-secondary',onClick:function(){setAcctModal(false);}},'Cerrar')
+    )
+  },React.createElement('div',{style:{fontSize:13}},
+    React.createElement('div',{style:{marginBottom:12,fontSize:12,color:'var(--text-dim)'}},
+      allTx.filter(function(t){return !t.accountId;}).length+' transacciones sin cuenta asignada'
+    ),
+    accounts.map(function(a,i){
+      var cnt=allTx.filter(function(t){return t.accountId===a.id;}).length;
+      return React.createElement('div',{key:a.id,style:{display:'flex',alignItems:'center',gap:8,padding:'8px 0',borderBottom:'1px solid var(--border)'}},
+        React.createElement('div',{style:{width:12,height:12,borderRadius:'50%',background:a.color,flexShrink:0}}),
+        React.createElement('div',{style:{flex:1,fontWeight:600}},a.name),
+        React.createElement('div',{style:{fontSize:11,color:'var(--text-dim)'}},cnt+' tx'),
+        React.createElement('input',{defaultValue:a.name,onBlur:function(e){var v=e.target.value.trim();if(!v||v===a.name)return;setData(function(d){return Object.assign({},d,{accounts:(d.accounts||accounts).map(function(x){return x.id===a.id?Object.assign({},x,{name:v}):x;})});});},style:{width:110,fontSize:12,padding:'3px 6px',borderRadius:6,border:'1px solid var(--border)',background:'var(--card)',color:'var(--text)'}}),
+        accounts.length>1&&React.createElement('button',{onClick:function(){if(!confirm('\u00BFEliminar cuenta "'+a.name+'"? Las transacciones quedar\u00E1n sin cuenta.'))return;setData(function(d){var newAccts=(d.accounts||accounts).filter(function(x){return x.id!==a.id;});return Object.assign({},d,{accounts:newAccts,transactions:(d.transactions||[]).map(function(t){return t.accountId===a.id?Object.assign({},t,{accountId:''}):t;})});});},style:{background:'none',border:'none',color:'#F44336',cursor:'pointer',fontSize:16,padding:'0 4px'}},'\u00D7')
+      );
+    }),
+    React.createElement('div',{style:{marginTop:12}},
+      React.createElement('button',{className:'btn btn-secondary btn-sm',onClick:function(){
+        var name=prompt('Nombre de la nueva cuenta:');
+        if(!name||!name.trim())return;
+        var colors=['#F59E0B','#10B981','#EF4444','#3B82F6','#EC4899','#8B5CF6'];
+        var newAcc={id:'acc_'+Date.now(),name:name.trim(),color:colors[accounts.length%colors.length]};
+        setData(function(d){return Object.assign({},d,{accounts:(d.accounts||accounts).concat([newAcc])});});
+      }},'+  Agregar cuenta')
+    )
+  )),
   fnSumRes&&/*#__PURE__*/React.createElement(Modal,{
     title:'📊 Resumen Financiero — '+new Date().toLocaleString('es',{month:'long',year:'numeric'}),
     onClose:function(){setFnSumRes(null);},
@@ -7123,7 +7179,12 @@ var FinanceScreen = function FinanceScreen(_ref25) {
       }));
     },
     placeholder: "Salary, Freelance, Rent\u2026"
-  })),
+  })), /*#__PURE__*/React.createElement("div",{className:"form-group"},
+    React.createElement("label",null,"\uD83C\uDFE6 Cuenta"),
+    React.createElement("select",{value:form.accountId||'',onChange:function(e){setForm(Object.assign({},form,{accountId:e.target.value}));},style:{fontSize:13}},
+      React.createElement("option",{value:''},"\u2014 Sin cuenta \u2014"),
+      accounts.map(function(a){return React.createElement("option",{key:a.id,value:a.id},a.name);}))
+  ),
   /*#__PURE__*/React.createElement('div',{style:{display:'flex',gap:6,marginBottom:4}},
     /*#__PURE__*/React.createElement('button',{className:'btn btn-secondary btn-sm',style:{fontSize:10},disabled:fnAiLoad||!form.title,
       onClick:function(){if(!window.LBP_WORKER_URL||!form.title)return;setFnAiLoad(true);setFnAiMsg(null);
