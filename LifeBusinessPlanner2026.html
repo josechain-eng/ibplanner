@@ -6661,7 +6661,7 @@ var FinanceScreen = function FinanceScreen(_ref25) {
   var _useState55 = useState({
       title: '',
       amount: '',
-      type: 'INCOME',
+      type: 'EXPENSE',
       category: '',
       invoiceNumber: '',
       isPaid: false,
@@ -7177,15 +7177,30 @@ var FinanceScreen = function FinanceScreen(_ref25) {
     placeholder: "0.00"
   })), /*#__PURE__*/React.createElement("div", {
     className: "form-group"
-  }, /*#__PURE__*/React.createElement("label", null, "Category"), /*#__PURE__*/React.createElement("input", {
-    value: form.category,
-    onChange: function onChange(e) {
-      return setForm(_objectSpread(_objectSpread({}, form), {}, {
-        category: e.target.value
-      }));
-    },
-    placeholder: "Salary, Freelance, Rent\u2026"
-  })), /*#__PURE__*/React.createElement("div",{className:"form-group"},
+  }, /*#__PURE__*/React.createElement("label", null, "Categor\u00EDa"),
+  React.createElement(React.Fragment, null,
+    React.createElement("input", {
+      value: form.category,
+      list: "fin-cat-list",
+      onChange: function(e){ setForm(_objectSpread(_objectSpread({}, form), {}, {category: e.target.value})); },
+      onBlur: function(e){
+        var v=e.target.value.trim();
+        if(v){setData(function(d){var prev=d.finCategories||[];return prev.indexOf(v)>=0?d:Object.assign({},d,{finCategories:prev.concat([v])});});}
+      },
+      placeholder: "Comida, Transporte, Hotel\u2026",
+      style: {width:"100%"}
+    }),
+    React.createElement("datalist", {id: "fin-cat-list"},
+      (function(){
+        var _def=["Alimentaci\u00F3n","Transporte","Alojamiento","Entretenimiento",
+          "Salud","Tecnolog\u00EDa","Ropa","Servicios","Impuestos","Salarios",
+          "Marketing","Ventas","Freelance","Alquiler","Utilities","Suministros"];
+        var _saved=data.finCategories||[];
+        var _all=_def.concat(_saved.filter(function(c){return _def.indexOf(c)<0;}));
+        return _all.map(function(c,i){return React.createElement("option",{key:i,value:c});});
+      })()
+    )
+  )), /*#__PURE__*/React.createElement("div",{className:"form-group"},
     React.createElement("label",null,"\uD83C\uDFE6 Cuenta"),
     React.createElement("select",{value:form.accountId||'',onChange:function(e){setForm(Object.assign({},form,{accountId:e.target.value}));},style:{fontSize:13}},
       React.createElement("option",{value:''},"\u2014 Sin cuenta \u2014"),
@@ -16583,6 +16598,16 @@ var App = function App() {
     _useState232 = _slicedToArray(_useState231, 2),
     activeAlarm = _useState232[0],
     setActiveAlarm = _useState232[1];
+  // Offline detection
+  var _netS=useState(navigator.onLine),_netS2=_slicedToArray(_netS,2),isOnlineNet=_netS2[0],setIsOnlineNet=_netS2[1];
+  var _netPend=useState(false),_netPend2=_slicedToArray(_netPend,2),pendingSync=_netPend2[0],setPendingSync=_netPend2[1];
+  useEffect(function(){
+    var onOnline=function(){setIsOnlineNet(true);};
+    var onOffline=function(){setIsOnlineNet(false);};
+    window.addEventListener('online',onOnline);
+    window.addEventListener('offline',onOffline);
+    return function(){window.removeEventListener('online',onOnline);window.removeEventListener('offline',onOffline);};
+  },[]);
   // Cloud sync state
   var _wuS = useState(localStorage.getItem('lbp_worker_url') || ''),
     _wuS2 = _slicedToArray(_wuS, 2), workerUrl = _wuS2[0], setWorkerUrl = _wuS2[1];
@@ -17023,7 +17048,12 @@ var App = function App() {
   }).length;
   return /*#__PURE__*/React.createElement("div", {
     className: "app"
-  }, /*#__PURE__*/React.createElement("div", {
+  },
+  !isOnlineNet && React.createElement("div", {
+    style:{position:'fixed',top:0,left:0,right:0,zIndex:9999,background:'#B45309',color:'#fff',
+      textAlign:'center',fontSize:13,fontWeight:600,padding:'8px 16px',letterSpacing:0.2}
+  }, "\u26A0\uFE0F Sin conexi\u00F3n a internet \u2014 Los cambios se guardan localmente y se sincronizar\u00E1n al recuperar la conexi\u00F3n."),
+  /*#__PURE__*/React.createElement("div", {
     className: "top-bar"
   }, /*#__PURE__*/React.createElement("div", null, /*#__PURE__*/React.createElement("div", {
     className: "greeting"
