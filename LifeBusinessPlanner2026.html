@@ -6725,7 +6725,7 @@ var FinanceScreen = function FinanceScreen(_ref25) {
     setForm({
       title: '',
       amount: '',
-      type: 'INCOME',
+      type: 'EXPENSE',
       category: '',
       invoiceNumber: '',
       isPaid: false,
@@ -6804,7 +6804,7 @@ var FinanceScreen = function FinanceScreen(_ref25) {
     },'\uD83D\uDCCB Reporte'),
     /*#__PURE__*/React.createElement("button", {
     className: "btn btn-primary btn-sm",
-    onClick: function onClick() { setEditItem(null); setForm({title:'',amount:'',type:'INCOME',category:'',accountId:'',invoiceNumber:'',isPaid:false,notes:'',date:today(),establishment:'',attachments:[]}); setModal(true); }
+    onClick: function onClick() { setEditItem(null); setForm({title:'',amount:'',type:'EXPENSE',category:'',accountId:'',invoiceNumber:'',isPaid:false,notes:'',date:today(),establishment:'',attachments:[]}); setModal(true); }
   }, "+ Add"))), /*#__PURE__*/React.createElement("div", {
     className: "page-content"
   }, /*#__PURE__*/React.createElement("div",{style:{display:'flex',gap:6,marginBottom:8,alignItems:'center',flexWrap:'wrap'}},
@@ -6920,7 +6920,7 @@ var FinanceScreen = function FinanceScreen(_ref25) {
   }, "\uD83D\uDCB0"), /*#__PURE__*/React.createElement("h3", null, "No transactions this month"), /*#__PURE__*/React.createElement("button", {
     className: "btn btn-primary",
     onClick: function onClick() {
-      setEditItem(null); setForm({title:'',amount:'',type:'INCOME',category:'',accountId:'',invoiceNumber:'',isPaid:false,notes:'',date:today(),establishment:'',attachments:[]});
+      setEditItem(null); setForm({title:'',amount:'',type:'EXPENSE',category:'',accountId:'',invoiceNumber:'',isPaid:false,notes:'',date:today(),establishment:'',attachments:[]});
       setModal(true);
     }
   }, "+ Add Transaction")) : displayed.map(function (t) {
