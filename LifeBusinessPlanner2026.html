@@ -17119,6 +17119,7 @@ var App = function App() {
       }, totalActiveProjects));
     }));
   }),
+  /*#__PURE__*/React.createElement(React.Fragment, {key:"herr"},
   /*#__PURE__*/React.createElement("div", {className:"nav-section", style:{marginTop:8}}, "\uD83D\uDEE0\uFE0F Herramientas"),
   /*#__PURE__*/React.createElement("div", {className:"nav-item", onClick:function(){setDrawerOpen(false);window._exportWeeklyReportDoc(window._buildWeeklyReport(data));}},
     React.createElement("span",{style:{fontSize:16}},"\uD83D\uDCCA"),React.createElement("span",null," Informe Semanal")),
@@ -17139,7 +17140,7 @@ var App = function App() {
     setData(function(d){return Object.assign({},d,patch);});
     var summary=Object.keys(counts).map(function(k){return k+': '+counts[k];}).join('\n')||'Nada para actualizar.';
     alert('Categor\u00EDa "Work" aplicada:\n\n'+summary);}},
-    React.createElement("span",{style:{fontSize:16}},"\uD83C\uDFF7\uFE0F"),React.createElement("span",null," Categor\u00EDa Work a sin categor\u00EDa")),
+    React.createElement("span",{style:{fontSize:16}},"\uD83C\uDFF7\uFE0F"),React.createElement("span",null," Categor\u00EDa Work a sin categor\u00EDa"))),
   /*#__PURE__*/React.createElement("div", {className:"nav-section", style:{marginTop:8}}, "\u2699\uFE0F Settings"),
   /*#__PURE__*/React.createElement("div", {
     className: "nav-item",
@@ -17157,7 +17158,7 @@ var App = function App() {
     " Notifications",
     notifPerm !== 'granted' && /*#__PURE__*/React.createElement("span", {className:"badge", style:{marginLeft:'auto'}}, "!")
   )
-  ), /*#__PURE__*/React.createElement("main", {
+  ]), /*#__PURE__*/React.createElement("main", {
     className: "content"
   }, renderPage())), /*#__PURE__*/React.createElement("nav", {
     className: "bottom-nav"
