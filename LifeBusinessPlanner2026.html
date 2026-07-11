@@ -1128,7 +1128,7 @@
              position: sticky; top: 0; z-index: 100; }
   .top-bar h2 { font-size: 15px; color: var(--text-dim); font-weight: 400; }
   .top-bar .greeting { font-size: 17px; font-weight: 700; color: var(--text); }
-  .main-area { display: flex; flex: 1; overflow: clip; }
+  .main-area { display: flex; flex: 1; overflow: hidden; }
   .sidebar { width: 220px; background: var(--surface); border-right: 1px solid var(--border);
              overflow-y: auto; flex-shrink: 0; padding: 16px 0; }
   .content { flex: 1; overflow-y: auto; padding: 0; }
@@ -1482,8 +1482,8 @@
     color:var(--text);border-radius:8px;padding:6px 11px;cursor:pointer;font-size:20px;line-height:1;}
   @media(max-width:768px){.hamburger-btn{display:flex;align-items:center;justify-content:center;}}
   .nav-drawer-overlay{position:fixed;inset:0;background:rgba(0,0,0,.72);z-index:500;backdrop-filter:blur(3px);}
-  .nav-drawer{position:fixed;left:0;top:0;bottom:0;width:285px;background:var(--surface);
-    overflow-y:auto;overflow-x:hidden;border-right:1px solid var(--border);animation:slideIn .22s ease;z-index:501;}
+  .nav-drawer{position:absolute;left:0;top:0;bottom:0;width:285px;background:var(--surface);
+    overflow-y:auto;border-right:1px solid var(--border);animation:slideIn .22s ease;}
   @keyframes slideIn{from{transform:translateX(-100%)}to{transform:translateX(0)}}
   .drawer-header{display:flex;align-items:center;justify-content:space-between;
     padding:16px 16px 12px;border-bottom:1px solid var(--border);background:var(--surface2);
@@ -16919,6 +16919,9 @@ var App = function App() {
   }, {
     label: '💚 Health & Wellness',
     items: [['journal', '📓', 'Journal'], ['habits', '🔄', 'Habit Tracker'], ['workout', '🏋️', 'Workout Planner'], ['recipes', '🍽', 'Recipes & Groceries'], ['medication', '💊', 'Medication Tracker'], ['baby', '👶', 'Baby']]
+  }, {
+    label: '\uD83D\uDEE0\uFE0F Herramientas',
+    items: [['__informe', '\uD83D\uDCCA', 'Informe Semanal'], ['__diag', '\uD83D\uDD0D', 'Diagn\u00F3stico'], ['__autovinc', '\uD83D\uDD27', 'Auto-vincular clientes'], ['__catwork', '\uD83C\uDFF7\uFE0F', 'Categor\u00EDa Work a sin categor\u00EDa']]
   }];
   var bottomTabs = [['home','home','Home'],['tasks','task','Tasks'],['meetings','calendar_month','Meetings'],['projects','business','Projects'],['journal','book','Journal'],['imports','archive','Ship']];
   var renderPage = function renderPage() {
@@ -17119,7 +17122,6 @@ var App = function App() {
       }, totalActiveProjects));
     }));
   }),
-  /*#__PURE__*/React.createElement(React.Fragment, {key:"herr"},
   /*#__PURE__*/React.createElement("div", {className:"nav-section", style:{marginTop:8}}, "\uD83D\uDEE0\uFE0F Herramientas"),
   /*#__PURE__*/React.createElement("div", {className:"nav-item", onClick:function(){setDrawerOpen(false);window._exportWeeklyReportDoc(window._buildWeeklyReport(data));}},
     React.createElement("span",{style:{fontSize:16}},"\uD83D\uDCCA"),React.createElement("span",null," Informe Semanal")),
@@ -17140,7 +17142,7 @@ var App = function App() {
     setData(function(d){return Object.assign({},d,patch);});
     var summary=Object.keys(counts).map(function(k){return k+': '+counts[k];}).join('\n')||'Nada para actualizar.';
     alert('Categor\u00EDa "Work" aplicada:\n\n'+summary);}},
-    React.createElement("span",{style:{fontSize:16}},"\uD83C\uDFF7\uFE0F"),React.createElement("span",null," Categor\u00EDa Work a sin categor\u00EDa"))),
+    React.createElement("span",{style:{fontSize:16}},"\uD83C\uDFF7\uFE0F"),React.createElement("span",null," Categor\u00EDa Work a sin categor\u00EDa")),
   /*#__PURE__*/React.createElement("div", {className:"nav-section", style:{marginTop:8}}, "\u2699\uFE0F Settings"),
   /*#__PURE__*/React.createElement("div", {
     className: "nav-item",
@@ -17158,7 +17160,7 @@ var App = function App() {
     " Notifications",
     notifPerm !== 'granted' && /*#__PURE__*/React.createElement("span", {className:"badge", style:{marginLeft:'auto'}}, "!")
   )
-  ]), /*#__PURE__*/React.createElement("main", {
+  ), /*#__PURE__*/React.createElement("main", {
     className: "content"
   }, renderPage())), /*#__PURE__*/React.createElement("nav", {
     className: "bottom-nav"
@@ -17211,6 +17213,10 @@ var App = function App() {
         key: route,
         className: "nav-item ".concat(page === route ? 'active' : ''),
         onClick: function onClick() {
+          if(route==='__informe'){setDrawerOpen(false);window._exportWeeklyReportDoc(window._buildWeeklyReport(data));return;}
+          if(route==='__diag'){setDrawerOpen(false);window._diagWeeklyReport(data);return;}
+          if(route==='__autovinc'){setDrawerOpen(false);var _clients=data.clients||[];var _uT=0,_uP=0;var _nT=(data.tasks||[]).map(function(t){if(t.clientId)return t;var c=window._detectClientId((t.title||'')+' '+(t.description||''),_clients);if(c){_uT++;return Object.assign({},t,{clientId:c});}return t;});var _nP=(data.projects||[]).map(function(p){if(p.clientId)return p;var c=window._detectClientId((p.name||'')+' '+(p.description||''),_clients);if(c){_uP++;return Object.assign({},p,{clientId:c});}return p;});setData(function(d){return Object.assign({},d,{tasks:_nT,projects:_nP});});alert('Auto-vinculaci\u00F3n completada.\n\nTareas: '+_uT+'\nProyectos: '+_uP);return;}
+          if(route==='__catwork'){setDrawerOpen(false);var _ls=['tasks','goals','journal','habits','resources','routines'];var _cnt={};var _pt={};_ls.forEach(function(k){var arr=data[k]||[];var n=0;var up=arr.map(function(i){if(i.category)return i;n++;return Object.assign({},i,{category:'Work'});});if(n>0){_pt[k]=up;_cnt[k]=n;}});var _pN=0,_sN=0;var _pj=(data.projects||[]).map(function(p){var ch=false;var np=p;if(!p.category){np=Object.assign({},np,{category:'Work'});ch=true;_pN++;}if(p.subtasks&&p.subtasks.length){var sc=false;var ss=p.subtasks.map(function(s){if(s.category)return s;sc=true;_sN++;return Object.assign({},s,{category:'Work'});});if(sc){np=Object.assign({},np,{subtasks:ss});ch=true;}}return ch?np:p;});if(_pN>0||_sN>0){_pt.projects=_pj;_cnt.projects=_pN;_cnt.subtareas=_sN;}setData(function(d){return Object.assign({},d,_pt);});alert('Categor\u00EDa "Work" aplicada:\n\n'+(Object.keys(_cnt).map(function(k){return k+': '+_cnt[k];}).join('\n')||'Nada para actualizar.'));return;}
           return navigate(route);
         }
       }, /*#__PURE__*/React.createElement("span", {
