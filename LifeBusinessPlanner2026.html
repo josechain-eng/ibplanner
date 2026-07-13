@@ -15591,18 +15591,32 @@ var SyncSettingsButton = function SyncSettingsButton(_ref_ssb) {
           /*#__PURE__*/React.createElement('button', { onClick: function(){ setOpen(false); }, style:{background:'none',border:'none',color:'var(--text-muted)',fontSize:20,cursor:'pointer'} }, '✕')
         ),
 
-        /*#__PURE__*/React.createElement('div', { style:{marginBottom:16} },
-          /*#__PURE__*/React.createElement('label', { style:{fontSize:12, color:'var(--text-muted)', display:'block', marginBottom:4} }, 'YOUR SYNC KEY (share with other devices)'),
-          /*#__PURE__*/React.createElement('div', { style:{display:'flex',gap:8,alignItems:'center'} },
+        /*#__PURE__*/React.createElement('div', { style:{marginBottom:16,padding:'10px 12px',background:'rgba(251,191,36,0.12)',border:'1px solid rgba(251,191,36,0.4)',borderRadius:10} },
+          /*#__PURE__*/React.createElement('div', { style:{fontSize:12,fontWeight:700,color:'#fbbf24',marginBottom:6} }, '\uD83D\uDD11 TU SYNC KEY \u2014 gu\u00E1rdalo en un lugar seguro'),
+          /*#__PURE__*/React.createElement('div', { style:{display:'flex',gap:8,alignItems:'center',marginBottom:6} },
             /*#__PURE__*/React.createElement('input', {
               readOnly:true, value:syncKey,
-              style:{flex:1, background:'rgba(255,255,255,0.06)', border:'1px solid rgba(255,255,255,0.15)', borderRadius:8, padding:'7px 10px', color:'var(--text-primary)', fontSize:11, fontFamily:'monospace'}
+              style:{flex:1, background:'rgba(0,0,0,0.3)', border:'1px solid rgba(251,191,36,0.5)', borderRadius:8, padding:'8px 10px', color:'#fbbf24', fontSize:13, fontFamily:'monospace', fontWeight:700, letterSpacing:1}
             }),
             /*#__PURE__*/React.createElement('button', {
               onClick: copyKey,
-              style:{background:'var(--purple)',border:'none',borderRadius:8,padding:'7px 12px',color:'#fff',cursor:'pointer',fontSize:12,whiteSpace:'nowrap'}
-            }, copyMsg || 'Copy')
+              style:{background:'#d97706',border:'none',borderRadius:8,padding:'8px 14px',color:'#fff',cursor:'pointer',fontSize:12,whiteSpace:'nowrap',fontWeight:600}
+            }, copyMsg || '\uD83D\uDCCB Copiar')
+          ),
+          /*#__PURE__*/React.createElement('div', { style:{fontSize:11,color:'#fbbf24',opacity:0.85,lineHeight:1.5} },
+            '\u26A0\uFE0F Si cambias de dispositivo, SIM o se borra el navegador, necesitas este key para recuperar tus datos. Gu\u00E1rdalo en tus notas o en otro lugar seguro.'
           )
+        ),
+
+        /*#__PURE__*/React.createElement('div', { style:{marginBottom:16,display:'flex',gap:8,alignItems:'center',padding:'10px 12px',background:'rgba(74,222,128,0.08)',border:'1px solid rgba(74,222,128,0.25)',borderRadius:10} },
+          /*#__PURE__*/React.createElement('div', { style:{flex:1} },
+            /*#__PURE__*/React.createElement('div', { style:{fontSize:12,fontWeight:600,color:'#4ade80',marginBottom:2} }, '\uD83D\uDCBE Backup Manual'),
+            /*#__PURE__*/React.createElement('div', { style:{fontSize:11,color:'var(--text-muted)'} }, 'Descarga un archivo JSON con todos tus datos. Auto-backup cada 2 d\u00EDas.')
+          ),
+          /*#__PURE__*/React.createElement('button', {
+            onClick: function(){ window._downloadBackup && window._downloadBackup(); },
+            style:{background:'#16a34a',border:'none',borderRadius:8,padding:'8px 14px',color:'#fff',cursor:'pointer',fontSize:12,whiteSpace:'nowrap',fontWeight:600}
+          }, '\u2B07\uFE0F Descargar')
         ),
 
         /*#__PURE__*/React.createElement('div', { style:{marginBottom:16} },
@@ -16562,6 +16576,38 @@ var App = function App() {
     setData = _useStore2[1];
   window._setDataGlobal = setData;
   window._getDataGlobal = function() { return data; };
+  // Auto-backup every 2 days
+  useEffect(function(){
+    if(!data || !Object.keys(data).length) return;
+    var INTERVAL_MS = 2*24*60*60*1000;
+    var last = parseInt(localStorage.getItem('lbp_last_backup')||'0',10);
+    if(Date.now()-last < INTERVAL_MS) return;
+    try{
+      var json = JSON.stringify(data,null,2);
+      var blob = new Blob([json],{type:'application/json'});
+      var url = URL.createObjectURL(blob);
+      var a = document.createElement('a');
+      var d = new Date(); var ds = d.getFullYear()+'-'+(d.getMonth()+1).toString().padStart(2,'0')+'-'+d.getDate().toString().padStart(2,'0');
+      a.href=url; a.download='LBPlanner_backup_'+ds+'.json'; a.style.display='none';
+      document.body.appendChild(a); a.click(); document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+      localStorage.setItem('lbp_last_backup', String(Date.now()));
+    }catch(e){}
+  },[!!data && Object.keys(data).length>0]);
+  window._downloadBackup = function(){
+    try{
+      var d2=window._getDataGlobal(); if(!d2) return;
+      var json=JSON.stringify(d2,null,2);
+      var blob=new Blob([json],{type:'application/json'});
+      var url=URL.createObjectURL(blob);
+      var a=document.createElement('a');
+      var dt=new Date(); var ds2=dt.getFullYear()+'-'+(dt.getMonth()+1).toString().padStart(2,'0')+'-'+dt.getDate().toString().padStart(2,'0');
+      a.href=url; a.download='LBPlanner_backup_'+ds2+'.json'; a.style.display='none';
+      document.body.appendChild(a); a.click(); document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+      localStorage.setItem('lbp_last_backup',String(Date.now()));
+    }catch(e){}
+  };
   window._addToastGlobal = function(t) { addToast(t); };
   var _useState225 = useState('home'),
     _useState226 = _slicedToArray(_useState225, 2),
