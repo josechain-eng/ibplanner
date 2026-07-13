@@ -16606,6 +16606,8 @@ var App = function App() {
       document.body.appendChild(a); a.click(); document.body.removeChild(a);
       URL.revokeObjectURL(url);
       localStorage.setItem('lbp_last_backup', String(Date.now()));
+      // Also trigger full ZIP backup (with attachments) after a short delay
+      setTimeout(function(){ window._downloadFullBackup && window._downloadFullBackup(); }, 2000);
       // Also upload to Cloudflare KV
       var _wurl=localStorage.getItem('lbp_worker_url');
       var _skey=localStorage.getItem('lbp_sync_key');
