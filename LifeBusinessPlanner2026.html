@@ -16579,7 +16579,7 @@ var App = function App() {
   // Auto-backup every 2 days
   useEffect(function(){
     if(!data || !Object.keys(data).length) return;
-    var INTERVAL_MS = 2*24*60*60*1000;
+    var INTERVAL_MS = 24*60*60*1000;
     var last = parseInt(localStorage.getItem('lbp_last_backup')||'0',10);
     if(Date.now()-last < INTERVAL_MS) return;
     try{
@@ -16592,6 +16592,12 @@ var App = function App() {
       document.body.appendChild(a); a.click(); document.body.removeChild(a);
       URL.revokeObjectURL(url);
       localStorage.setItem('lbp_last_backup', String(Date.now()));
+      // Also upload to Cloudflare KV
+      var _wurl=localStorage.getItem('lbp_worker_url');
+      var _skey=localStorage.getItem('lbp_sync_key');
+      if(_wurl&&_skey){
+        fetch(_wurl+'/backup?key='+encodeURIComponent(_skey)+'&date='+ds,{method:'POST',headers:{'Content-Type':'application/json'},body:json}).catch(function(){});
+      }
     }catch(e){}
   },[!!data && Object.keys(data).length>0]);
   window._downloadBackup = function(){
@@ -16606,6 +16612,11 @@ var App = function App() {
       document.body.appendChild(a); a.click(); document.body.removeChild(a);
       URL.revokeObjectURL(url);
       localStorage.setItem('lbp_last_backup',String(Date.now()));
+      var _wurl2=localStorage.getItem('lbp_worker_url');
+      var _skey2=localStorage.getItem('lbp_sync_key');
+      if(_wurl2&&_skey2){
+        fetch(_wurl2+'/backup?key='+encodeURIComponent(_skey2)+'&date='+ds2,{method:'POST',headers:{'Content-Type':'application/json'},body:json}).catch(function(){});
+      }
     }catch(e){}
   };
   window._addToastGlobal = function(t) { addToast(t); };
