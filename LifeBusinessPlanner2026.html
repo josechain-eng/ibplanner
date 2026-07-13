@@ -15619,6 +15619,20 @@ var SyncSettingsButton = function SyncSettingsButton(_ref_ssb) {
           }, '\u2B07\uFE0F Descargar')
         ),
 
+        /*#__PURE__*/React.createElement('div', { style:{marginBottom:16,padding:'10px 12px',background:'rgba(99,102,241,0.08)',border:'1px solid rgba(99,102,241,0.25)',borderRadius:10} },
+          /*#__PURE__*/React.createElement('div', { style:{display:'flex',gap:8,alignItems:'center',marginBottom:6} },
+            /*#__PURE__*/React.createElement('div', { style:{flex:1} },
+              /*#__PURE__*/React.createElement('div', { style:{fontSize:12,fontWeight:600,color:'#818cf8',marginBottom:2} }, '🗃️ Backup Completo (con archivos adjuntos)'),
+              /*#__PURE__*/React.createElement('div', { style:{fontSize:11,color:'var(--text-muted)'} }, 'ZIP con datos + todos los archivos adjuntos. Sube a Google Drive después.')
+            ),
+            /*#__PURE__*/React.createElement('button', {
+              onClick: function(){ window._downloadFullBackup && window._downloadFullBackup(); },
+              style:{background:'#4f46e5',border:'none',borderRadius:8,padding:'8px 14px',color:'#fff',cursor:'pointer',fontSize:12,whiteSpace:'nowrap',fontWeight:600}
+            }, '📦 Descargar ZIP')
+          ),
+          /*#__PURE__*/React.createElement('div', { id:'_fullBackupStatus', style:{fontSize:11,color:'#a5b4fc',minHeight:14} })
+        ),
+
         /*#__PURE__*/React.createElement('div', { style:{marginBottom:16} },
           /*#__PURE__*/React.createElement('label', { style:{fontSize:12, color:'var(--text-muted)', display:'block', marginBottom:4} }, 'USE SYNC KEY FROM ANOTHER DEVICE'),
           /*#__PURE__*/React.createElement('div', { style:{display:'flex',gap:8} },
@@ -16620,6 +16634,110 @@ var App = function App() {
     }catch(e){}
   };
   window._addToastGlobal = function(t) { addToast(t); };
+  // ---- ZIP Backup helpers ----
+  window._zipConcat = function(arrays) {
+    var total = arrays.reduce(function(s,a){return s+a.length;},0);
+    var out = new Uint8Array(total); var off = 0;
+    arrays.forEach(function(a){ out.set(a,off); off+=a.length; }); return out;
+  };
+  window._crc32 = function(data) {
+    var table = window._crc32._t;
+    if (!table) {
+      table = window._crc32._t = new Uint32Array(256);
+      for (var i=0;i<256;i++){var c=i;for(var j=0;j<8;j++)c=c&1?(0xEDB88320^(c>>>1)):c>>>1;table[i]=c;}
+    }
+    var crc=0xFFFFFFFF;
+    for(var i=0;i<data.length;i++) crc=(crc>>>8)^table[(crc^data[i])&0xFF];
+    return (crc^0xFFFFFFFF)>>>0;
+  };
+  window._buildZip = function(entries) {
+    var u16 = function(v){var b=new Uint8Array(2);new DataView(b.buffer).setUint16(0,v,true);return b;};
+    var u32 = function(v){var b=new Uint8Array(4);new DataView(b.buffer).setUint32(0,v,true);return b;};
+    var enc = new TextEncoder();
+    var parts=[]; var cdirs=[]; var offset=0;
+    entries.forEach(function(entry){
+      var nb=enc.encode(entry.name);
+      var dat=entry.data instanceof Uint8Array?entry.data:enc.encode(String(entry.data));
+      var crc=window._crc32(dat);
+      var sz=dat.length;
+      var lh=window._zipConcat([
+        new Uint8Array([0x50,0x4B,0x03,0x04]),
+        u16(20),u16(0),u16(0),u16(0),u16(0),
+        u32(crc),u32(sz),u32(sz),
+        u16(nb.length),u16(0),
+        nb,dat
+      ]);
+      var cd=window._zipConcat([
+        new Uint8Array([0x50,0x4B,0x01,0x02]),
+        u16(20),u16(20),u16(0),u16(0),u16(0),u16(0),
+        u32(crc),u32(sz),u32(sz),
+        u16(nb.length),u16(0),u16(0),u16(0),u16(0),u32(0),u32(offset),
+        nb
+      ]);
+      parts.push(lh); cdirs.push(cd); offset+=lh.length;
+    });
+    var cdOff=offset;
+    var cdSz=cdirs.reduce(function(s,e){return s+e.length;},0);
+    var eocd=window._zipConcat([
+      new Uint8Array([0x50,0x4B,0x05,0x06]),
+      u16(0),u16(0),u16(entries.length),u16(entries.length),
+      u32(cdSz),u32(cdOff),u16(0)
+    ]);
+    var all=parts.concat(cdirs).concat([eocd]);
+    var tot=all.reduce(function(s,p){return s+p.length;},0);
+    var res=new Uint8Array(tot); var pos=0;
+    all.forEach(function(p){res.set(p,pos);pos+=p.length;});
+    return new Blob([res],{type:'application/zip'});
+  };
+  window._downloadFullBackup = function() {
+    var d = window._getDataGlobal(); if(!d) return;
+    var statusEl = document.getElementById('_fullBackupStatus');
+    if(statusEl) statusEl.textContent = 'Recopilando archivos...';
+    var attIds = []; var attMeta = {};
+    var TYPES = ['tasks','projects','meetings','journal','goals','routines','habits','householdTasks','workouts','medications'];
+    TYPES.forEach(function(k){
+      (d[k]||[]).forEach(function(entity){
+        (entity.attachments||[]).forEach(function(att){
+          if(att&&att.id&&att.type!=='link'&&att.name){
+            attIds.push(att.id); attMeta[att.id]={name:att.name};
+          }
+        });
+      });
+    });
+    if(statusEl) statusEl.textContent = 'Leyendo ' + attIds.length + ' archivo(s)...';
+    var promises = attIds.map(function(id){
+      return (window._lbpIDB ? window._lbpIDB.get(id) : Promise.resolve(null)).then(function(dataUrl){
+        return {id:id,dataUrl:dataUrl};
+      }).catch(function(){return {id:id,dataUrl:null};});
+    });
+    Promise.all(promises).then(function(files){
+      var entries = [];
+      entries.push({name:'data.json', data: new TextEncoder().encode(JSON.stringify(d,null,2))});
+      var found=0, missing=0;
+      files.forEach(function(f){
+        if(!f.dataUrl){missing++;return;}
+        var b64=f.dataUrl.split(',')[1]; if(!b64){missing++;return;}
+        try{
+          var bin=Uint8Array.from(atob(b64),function(c){return c.charCodeAt(0);});
+          var safeName=(attMeta[f.id]&&attMeta[f.id].name||f.id).replace(/[/\\:*?"<>|]/g,'_');
+          entries.push({name:'files/'+f.id+'_'+safeName, data:bin});
+          found++;
+        }catch(e){missing++;}
+      });
+      var zipBlob = window._buildZip(entries);
+      var url = URL.createObjectURL(zipBlob);
+      var a = document.createElement('a');
+      var dt=new Date();
+      var ds=dt.getFullYear()+'-'+(dt.getMonth()+1).toString().padStart(2,'0')+'-'+dt.getDate().toString().padStart(2,'0');
+      a.href=url; a.download='LBPlanner_full_backup_'+ds+'.zip'; a.style.display='none';
+      document.body.appendChild(a); a.click(); document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+      if(statusEl) statusEl.textContent = '\u2705 Backup completo: data.json + '+found+' archivo(s)'+(missing?' ('+missing+' no encontrado)':'');
+      setTimeout(function(){if(statusEl)statusEl.textContent='';},6000);
+    }).catch(function(e){
+      if(statusEl) statusEl.textContent = '\u274C Error: '+e.message;
+    });
+  };
   var _useState225 = useState('home'),
     _useState226 = _slicedToArray(_useState225, 2),
     page = _useState226[0],
