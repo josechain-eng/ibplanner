@@ -587,23 +587,27 @@ async function sendSmartNotif(env, syncKeys, type, todayStr, tomorrowStr) {
         const projects = (data.projects || []).filter(p => !['DONE','CANCELLED'].includes(p.status));
         title = '\uD83C\uDF05 Briefing del d\u00eda';
 
+        const threeDaysAgo = new Date(); threeDaysAgo.setDate(threeDaysAgo.getDate() - 3);
+        const recentTasks = tasks.filter(t => t.createdAt && new Date(t.createdAt) >= threeDaysAgo)
+          .sort((a,b) => (b.createdAt||'').localeCompare(a.createdAt||'')).slice(0,3);
+        const overdueSort = overdue.sort((a,b) => (a.dueDate||'').localeCompare(b.dueDate||''));
         const ctx = {
           fecha: todayStr,
           tareasHoy: todayTasks.map(t => ({ titulo: t.title, prioridad: t.priority })),
-          reunionesHoy: meetings.map(m => ({ titulo: m.title, hora: m.startTime || '', cliente: m.clientName || '' })),
-          tareasVencidas: overdue.slice(0, 5).map(t => ({ titulo: t.title, vencio: t.dueDate })),
-          proyectosActivos: projects.slice(0, 8).map(p => ({ nombre: p.name, estado: p.status })),
-          habitosPendientes: habits.length,
-          totalTareasPendientes: tasks.length
+          reunionesHoy: meetings.map(m => ({ titulo: m.title, hora: m.startTime || '' })),
+          tareasVencidas: overdueSort.slice(0, 5).map(t => ({ titulo: t.title, vencio: t.dueDate })),
+          tareasRecientes: recentTasks.map(t => ({ titulo: t.title, creado: (t.createdAt||'').slice(0,10) })),
+          proyectosActivos: projects.slice(0, 5).map(p => ({ nombre: p.name, estado: p.status })),
+          habitosPendientes: habits.length
         };
 
         const aiText = await callClaude(env, [
-          { role: 'user', content: 'Datos de hoy (' + todayStr + ') para el gerente del Ventura Mall:\n' + JSON.stringify(ctx, null, 2) + '\n\nEscribe un briefing matutino personalizado en espa\u00f1ol. Directo, motivador y pr\u00e1ctico. M\u00e1ximo 3 oraciones. Empieza con lo m\u00e1s urgente. NO inventes datos que no est\u00e9n arriba. IMPORTANTE: NO uses markdown, NO uses #, **, --, asteriscos ni guiones. Solo texto plano.' }
-        ], 'Eres el asistente del Ventura Mall (La Paz, Bolivia). Das briefings matutinos concisos en texto plano sin markdown. USA SOLO datos reales provistos, NO inventes.', 300);
+          { role: 'user', content: 'Datos de hoy (' + todayStr + ') para el gerente del Ventura Mall:\n' + JSON.stringify(ctx, null, 2) + '\n\nEscribe un briefing matutino ESTRUCTURADO en espa\u00f1ol. USA SOLO datos reales del JSON, NO inventes nada. Formato EXACTO (texto plano, sin markdown, sin asteriscos, sin guiones extra):\n\nREUNIONES HOY: [lista por hora y nombre, o \'ninguna\']\nTAREAS VENCIDAS (3 mas antiguas): [nombre + fecha vencida de cada una]\nHOY EN AGENDA: [tareas con fecha de hoy, o \'ninguna\']\nRECIEN AGREGADAS: [tareas de los ultimos 3 dias que requieren atencion, o \'ninguna\']\n\nMantener conciso. Cada seccion en una linea. Nombres exactos de las tareas/reuniones.' }
+        ], 'Eres el asistente ejecutivo del Ventura Mall (La Paz, Bolivia). Das briefings matutinos estructurados en texto plano sin markdown. USA SOLO datos reales provistos, NO inventes nada.', 450);
 
         const stripMd = (s) => s.replace(/#{1,6}\s*/g,'').replace(/\*{1,3}([^*]+)\*{1,3}/g,'$1').replace(/^-{2,}\s*$/gm,'').replace(/^>\s*/gm,'').replace(/\n+/g,' ').trim();
         if (aiText && aiText.trim().length > 10) {
-          body = stripMd(aiText).slice(0, 200);
+          body = stripMd(aiText).slice(0, 400);
           const fullBriefing = JSON.stringify({
             generated: new Date().toISOString(),
             summary: stripMd(aiText),

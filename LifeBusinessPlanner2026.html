@@ -4323,7 +4323,17 @@ fhVisible&&(data.clients||[]).filter(function(c){var hasFr=(data.clients||[]).so
   })(),
   /*#__PURE__*/React.createElement("div", {
     className: "section-title"
-  }, "\uD83D\uDCC5 This Week's Meetings"), /*#__PURE__*/React.createElement("div", {
+  }, /*#__PURE__*/React.createElement("span", {
+    style:{cursor:'pointer'},
+    onTouchStart:function(e){
+      var _t=setTimeout(function(){window._lbpNewMeeting=true;navigate('meetings');},600);
+      e.currentTarget._lpt=_t;
+    },
+    onTouchEnd:function(e){ clearTimeout(e.currentTarget._lpt); },
+    onTouchMove:function(e){ clearTimeout(e.currentTarget._lpt); },
+    onContextMenu:function(e){ e.preventDefault(); window._lbpNewMeeting=true; navigate('meetings'); },
+    title:"Mantener presionado para agregar reuni\u00f3n"
+  }, "\uD83D\uDCC5 This Week's Meetings")), /*#__PURE__*/React.createElement("div", {
     className: "card mb-16",
     style: {padding: 8}
   }, (function() {
@@ -7351,6 +7361,7 @@ var MeetingsScreen = function MeetingsScreen(_ref26) {
     }
     var mf = window._lbpMeetingFilter;
     if (mf) { window._lbpMeetingFilter = null; setMHighlight(mf); }
+    if (window._lbpNewMeeting) { window._lbpNewMeeting = null; setEditItem(null); setForm({title:'',date:today(),startTime:'09:00',endTime:'10:00',isOnline:false,location:'',agenda:'',notes:'',contact:'',alarm:meetingAlarmDefault(today(),'09:00')}); setModal(true); }
   }, []);
   var meetings = _toConsumableArray(data.meetings || []).sort(function (a, b) {
     return a.date.localeCompare(b.date);
