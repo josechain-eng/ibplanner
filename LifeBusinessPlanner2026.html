@@ -3827,13 +3827,44 @@ var HomeScreen = function HomeScreen(_ref14) {
           /*#__PURE__*/React.createElement("span",null,"\u23F3"),
           /*#__PURE__*/React.createElement("span",null,"Analizando tus datos en tiempo real\u2026")
         ):
-        (brfSummary)?
-          brfSummary.split(/(?<=[.!?])\s+/).filter(function(s){return s.trim().length>4;}).map(function(sentence,i){
-            return /*#__PURE__*/React.createElement("div",{key:i,style:{display:'flex',gap:8,fontSize:13,lineHeight:1.6,padding:'2px 0'}},
-              /*#__PURE__*/React.createElement("span",{style:{color:'#9C68D6',flexShrink:0,marginTop:2}},"\u2023"),
-              /*#__PURE__*/React.createElement("span",{style:{opacity:.92}},sentence.trim())
+        (function(){
+          if(!brfSummary) return React.createElement("div",{style:{fontSize:12,opacity:.5,fontStyle:'italic'}},"Abre la tarjeta para generar el an\u00E1lisis.");
+          var _sc={'REUNIONES':{c:'#9C68D6',ic:'\uD83D\uDCC5'},'VENCIDAS':{c:'#F44336',ic:'\u26A0\uFE0F'},'AGENDA':{c:'#60A5FA',ic:'\uD83D\uDCCB'},'AGREGADAS':{c:'#4ADE80',ic:'\uD83C\uDD95'}};
+          var _fc=function(k){var r={c:'#9C68D6',ic:'\u25B8'};Object.keys(_sc).forEach(function(n){if(k.toUpperCase().indexOf(n)>=0)r=_sc[n];});return r;};
+          var lines=brfSummary.split(/\n/).map(function(l){return l.trim();}).filter(Boolean);
+          var sections=[];
+          var hre=/^([A-Z\u00C1\u00C9\u00CD\u00D3\u00DA\u00D1][A-Z\u00C1\u00C9\u00CD\u00D3\u00DA\u00D1\s()0-9]+?):\s*(.*)/;
+          lines.forEach(function(line){
+            var m=line.match(hre);
+            if(m){var cfg=_fc(m[1]);sections.push({key:m[1].trim(),content:m[2].trim(),c:cfg.c,ic:cfg.ic});}
+            else if(sections.length){sections[sections.length-1].content+=' '+line;}
+            else{sections.push({key:null,content:line,c:'#9C68D6',ic:'\u2023'});}
+          });
+          if(!sections.some(function(s){return s.key;})){
+            return brfSummary.split(/(?<=[.!?])\s+/).filter(function(s){return s.trim().length>4;}).map(function(sentence,i){
+              return React.createElement("div",{key:i,style:{display:'flex',gap:8,fontSize:13,lineHeight:1.6,padding:'2px 0'}},
+                React.createElement("span",{style:{color:'#9C68D6',flexShrink:0,marginTop:2}},"\u2023"),
+                React.createElement("span",{style:{opacity:.92}},sentence.trim()));
+            });
+          }
+          return sections.map(function(s,i){
+            var items=s.content?s.content.split(/\s*\xB7\s*/).filter(function(x){return x.trim().length>0;}):[];
+            return React.createElement("div",{key:i,style:{marginBottom:6,padding:'7px 10px',background:'rgba(255,255,255,.04)',borderLeft:'2px solid '+s.c,borderRadius:'0 6px 6px 0'}},
+              s.key?React.createElement("div",{style:{display:'flex',alignItems:'center',gap:5,marginBottom:items.length>0?4:0}},
+                React.createElement("span",{style:{fontSize:11}},s.ic),
+                React.createElement("span",{style:{fontSize:9,fontWeight:800,letterSpacing:.8,color:s.c,textTransform:'uppercase'}},s.key)
+              ):null,
+              items.length===0?React.createElement("span",{style:{fontSize:12,opacity:.45,fontStyle:'italic'}},"ninguna"):
+              items.length===1?React.createElement("div",{style:{fontSize:12,lineHeight:1.5,opacity:.88,paddingLeft:2}},items[0]):
+              React.createElement("div",null,items.map(function(item,j){
+                return React.createElement("div",{key:j,style:{display:'flex',gap:6,fontSize:12,lineHeight:1.5,padding:'1px 0'}},
+                  React.createElement("span",{style:{color:s.c,flexShrink:0,fontSize:10,marginTop:2}},"\u25B8"),
+                  React.createElement("span",{style:{opacity:.88}},item.trim())
+                );
+              }))
             );
-          }):/*#__PURE__*/React.createElement("div",{style:{fontSize:12,opacity:.5,fontStyle:'italic'}},"Abre la tarjeta para generar el an\u00E1lisis.")
+          });
+        })()
       ),
       brfRecs.length>0&&/*#__PURE__*/React.createElement("div",{style:{marginBottom:14}},
         /*#__PURE__*/React.createElement("div",{style:{display:'flex',alignItems:'center',gap:6,marginBottom:8}},
