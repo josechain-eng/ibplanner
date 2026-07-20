@@ -22,7 +22,7 @@
 <script>
 (function() {
   // ── Version ──────────────────────────────────────────────────────────────
-  window.LBP_VERSION = '4.94';
+  window.LBP_VERSION = '4.75';
 
   // ── PWA Install prompt ───────────────────────────────────────────────────
   window._installPrompt = null;
@@ -4385,7 +4385,16 @@ fhVisible&&(data.clients||[]).filter(function(c){var hasFr=(data.clients||[]).so
           style:{flex:"1 0 0",minWidth:40,textAlign:"center",borderRadius:8,padding:"6px 2px",
                  background: isToday ? "var(--purple)" : "var(--surface)",
                  border: "1px solid " + (isToday ? "var(--purple-light)" : "var(--border)"),
-                 display:"flex",flexDirection:"column",alignItems:"center"}
+                 display:"flex",flexDirection:"column",alignItems:"center",userSelect:"none"},
+          onTouchStart:function(e){
+            e.stopPropagation();
+            clearTimeout(window._lbpLpt);
+            var _ds=ds;
+            window._lbpLpt=setTimeout(function(){window._lbpNewMeeting=_ds;navigate('meetings');},600);
+          },
+          onTouchEnd:function(e){e.stopPropagation();clearTimeout(window._lbpLpt);},
+          onTouchMove:function(){clearTimeout(window._lbpLpt);},
+          onContextMenu:function(e){e.preventDefault();window._lbpNewMeeting=ds;navigate('meetings');}
         },
           React.createElement("div", {style:{fontSize:10,fontWeight:700,color:isToday?"#fff":"var(--text-dim)",marginBottom:2}}, lbl),
           React.createElement("div", {style:{fontSize:11,fontWeight:600,color:isToday?"#fff":"var(--text)",marginBottom:4}}, d.getDate()),
@@ -7393,7 +7402,7 @@ var MeetingsScreen = function MeetingsScreen(_ref26) {
     }
     var mf = window._lbpMeetingFilter;
     if (mf) { window._lbpMeetingFilter = null; setMHighlight(mf); }
-    if (window._lbpNewMeeting) { window._lbpNewMeeting = null; setEditItem(null); setForm({title:'',date:today(),startTime:'09:00',endTime:'10:00',isOnline:false,location:'',agenda:'',notes:'',contact:'',alarm:meetingAlarmDefault(today(),'09:00')}); setModal(true); }
+    if (window._lbpNewMeeting) { var _nmDate = (typeof window._lbpNewMeeting === 'string' && window._lbpNewMeeting.match(/^\d{4}-\d{2}-\d{2}$/)) ? window._lbpNewMeeting : today(); window._lbpNewMeeting = null; setEditItem(null); setForm({title:'',date:_nmDate,startTime:'09:00',endTime:'10:00',isOnline:false,location:'',agenda:'',notes:'',contact:'',alarm:meetingAlarmDefault(_nmDate,'09:00')}); setModal(true); }
   }, []);
   var meetings = _toConsumableArray(data.meetings || []).sort(function (a, b) {
     return a.date.localeCompare(b.date);
