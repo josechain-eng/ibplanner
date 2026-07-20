@@ -22,7 +22,7 @@
 <script>
 (function() {
   // ── Version ──────────────────────────────────────────────────────────────
-  window.LBP_VERSION = '4.75';
+  window.LBP_VERSION = '4.76';
 
   // ── PWA Install prompt ───────────────────────────────────────────────────
   window._installPrompt = null;
@@ -47,6 +47,64 @@
     if (!window.LBP_WORKER_URL) return Promise.resolve(null);
     return fetch(window.LBP_WORKER_URL + path, opts).catch(function() { return null; });
   }
+
+  // ── Daily info: weather-code map + retail/holiday calendar (Santa Cruz, Bolivia) ──
+  // WMO weather codes → [emoji, descripción]
+  window._LBP_WCODE = {
+    0:['☀️','Despejado'],1:['🌤️','Casi despejado'],2:['⛅','Parcial nublado'],3:['☁️','Nublado'],
+    45:['🌫️','Niebla'],48:['🌫️','Niebla'],
+    51:['🌦️','Llovizna'],53:['🌦️','Llovizna'],55:['🌦️','Llovizna'],56:['🌧️','Llovizna'],57:['🌧️','Llovizna'],
+    61:['🌧️','Lluvia'],63:['🌧️','Lluvia'],65:['🌧️','Lluvia fuerte'],66:['🌧️','Lluvia'],67:['🌧️','Lluvia'],
+    71:['🌨️','Nieve'],73:['🌨️','Nieve'],75:['🌨️','Nieve'],
+    80:['🌦️','Chubascos'],81:['🌦️','Chubascos'],82:['⛈️','Chubascos fuertes'],
+    95:['⛈️','Tormenta'],96:['⛈️','Tormenta granizo'],99:['⛈️','Tormenta granizo']
+  };
+  // Retail & holiday calendar. cat: feriado | escolar | retail | marketing.
+  // aprox=true → fecha estimada (se ajusta cada año). Recurrente anual (m/d).
+  window._LBP_EVENTS = [
+    {m:1,d:1,label:'Año Nuevo',cat:'feriado'},
+    {m:1,d:30,label:'Aniversario Ventura Mall',cat:'retail'},
+    {m:2,d:1,label:'Inicio de clases escolar',cat:'escolar',aprox:true},
+    {m:2,d:14,label:'San Valentín — campaña enamorados',cat:'marketing'},
+    {m:2,d:16,label:'Carnaval',cat:'feriado',aprox:true},
+    {m:2,d:17,label:'Carnaval',cat:'feriado',aprox:true},
+    {m:2,d:20,label:'Descuentos fin de temporada (verano)',cat:'retail',aprox:true},
+    {m:3,d:19,label:'Día del Padre',cat:'marketing'},
+    {m:4,d:3,label:'Viernes Santo',cat:'feriado',aprox:true},
+    {m:4,d:12,label:'Día del Niño — campaña',cat:'marketing'},
+    {m:5,d:1,label:'Día del Trabajo',cat:'feriado'},
+    {m:5,d:27,label:'Día de la Madre — campaña fuerte',cat:'marketing'},
+    {m:6,d:4,label:'Corpus Christi',cat:'feriado',aprox:true},
+    {m:6,d:21,label:'Año Nuevo Andino (Willkakuti)',cat:'feriado'},
+    {m:7,d:3,label:'Inicio vacación de invierno',cat:'escolar',aprox:true},
+    {m:7,d:16,label:'Fin vacación de invierno',cat:'escolar',aprox:true},
+    {m:8,d:6,label:'Día de la Independencia (Bolivia)',cat:'feriado'},
+    {m:8,d:15,label:'Descuentos fin de temporada (invierno)',cat:'retail',aprox:true},
+    {m:9,d:21,label:'Día de la Primavera / Estudiante / Amistad',cat:'marketing'},
+    {m:9,d:22,label:'Expocruz — Feria Exposición Int.',cat:'retail',aprox:true},
+    {m:9,d:24,label:'Día de Santa Cruz',cat:'feriado'},
+    {m:11,d:2,label:'Día de los Difuntos',cat:'feriado'},
+    {m:11,d:27,label:'Black Friday — campaña',cat:'marketing',aprox:true},
+    {m:11,d:28,label:'Graduaciones colegios (inicio)',cat:'retail',aprox:true},
+    {m:12,d:1,label:'Ventas navideñas arrancan',cat:'retail'},
+    {m:12,d:25,label:'Navidad',cat:'feriado'}
+  ];
+  // Devuelve eventos en los próximos `months` meses (por defecto 3), ordenados por fecha.
+  window._lbpUpcomingEvents = function(fromDate, months) {
+    months = months || 3;
+    var start = new Date(fromDate.getFullYear(), fromDate.getMonth(), fromDate.getDate());
+    var end = new Date(start.getFullYear(), start.getMonth() + months, start.getDate());
+    var out = [];
+    (window._LBP_EVENTS || []).forEach(function(ev) {
+      // probar este año y el siguiente (para el cruce de año)
+      [start.getFullYear(), start.getFullYear() + 1].forEach(function(yr) {
+        var dt = new Date(yr, ev.m - 1, ev.d);
+        if (dt >= start && dt < end) out.push({ dt: dt, label: ev.label, cat: ev.cat, aprox: ev.aprox });
+      });
+    });
+    out.sort(function(a, b) { return a.dt - b.dt; });
+    return out;
+  };
 
   // ── Google Calendar Sync ──
   window.LBP_GCAL_CLIENT_ID = '993727258805-si855uvstk539r0qevfronjr5u4p1mgh.apps.googleusercontent.com';
@@ -3592,6 +3650,19 @@ var HomeScreen = function HomeScreen(_ref14) {
   var _brfE=useState(false),_brfF=_slicedToArray(_brfE,2),brfLoad=_brfF[0],setBrfLoad=_brfF[1];
   var _brfG=useState(null),_brfH=_slicedToArray(_brfG,2),brfSummary=_brfH[0],setBrfSummary=_brfH[1];
   var _brfI=useState(false),_brfJ=_slicedToArray(_brfI,2),brfSumLoad=_brfJ[0],setBrfSumLoad=_brfJ[1];
+  var _diA=useState(null),_diB=_slicedToArray(_diA,2),diData=_diB[0],setDiData=_diB[1];
+  useEffect(function(){
+    var cached=null; try{cached=JSON.parse(localStorage.getItem('lbp_dailyinfo')||'null');}catch(e){}
+    if(cached&&cached.data)setDiData(cached.data);
+    if(!window.LBP_WORKER_URL)return;
+    var age=cached?Date.now()-(cached.fetchedAt||0):Infinity;
+    if(age<3.5*3600*1000)return; // cache fresco (<3.5h) — el worker refresca 3×/día
+    fetch(window.LBP_WORKER_URL+'/dailyinfo')
+      .then(function(r){return r&&r.ok?r.json():null;})
+      .then(function(j){
+        if(j&&!j.error){setDiData(j);try{localStorage.setItem('lbp_dailyinfo',JSON.stringify({data:j,fetchedAt:Date.now()}));}catch(e){}}
+      }).catch(function(){});
+  },[]);
   useEffect(function(){
     if(!window.LBP_WORKER_URL)return;
     var sk=localStorage.getItem('lbp_sync_key');
@@ -3808,6 +3879,64 @@ var HomeScreen = function HomeScreen(_ref14) {
       opacity: .8
     }
   }, "Monthly Expenses"))))),
+  (function(){
+    var MES=['ene','feb','mar','abr','may','jun','jul','ago','sep','oct','nov','dic'];
+    var DIA=['dom','lun','mar','mié','jue','vie','sáb'];
+    var CATC={feriado:{c:'#F44336',ic:'🇧🇴'},escolar:{c:'#2DD4BF',ic:'🏫'},retail:{c:'#C9A84C',ic:'🛍️'},marketing:{c:'#9C68D6',ic:'📣'}};
+    var wc=window._LBP_WCODE||{};
+    var todayS=new Date().toISOString().slice(0,10);
+    var tmrS=new Date(Date.now()+86400000).toISOString().slice(0,10);
+    var dlabel=function(ds){ if(ds===todayS)return'Hoy'; if(ds===tmrS)return'Mañana'; var p=ds.split('-'); return DIA[new Date(+p[0],+p[1]-1,+p[2]).getDay()]; };
+    var di=diData||{};
+    var bcb=di.bcb, crypto=di.crypto, weather=di.weather;
+    var evs=(window._lbpUpcomingEvents?window._lbpUpcomingEvents(new Date(),3):[]).slice(0,6);
+    var updTxt='';
+    if(di.updatedAt){var ud=new Date(di.updatedAt);updTxt='act. '+('0'+ud.getHours()).slice(-2)+':'+('0'+ud.getMinutes()).slice(-2);}
+    var pill=function(lbl,color,val){return React.createElement('div',{key:lbl,style:{display:'flex',flexDirection:'column',background:'rgba(255,255,255,.06)',borderRadius:8,padding:'3px 9px',borderLeft:'2px solid '+color}},
+      React.createElement('span',{style:{fontSize:8,fontWeight:800,letterSpacing:'.5px',color:color,textTransform:'uppercase'}},lbl),
+      React.createElement('span',{style:{fontSize:14,fontWeight:800}},'Bs '+Number(val).toFixed(2))
+    );};
+    // brecha cripto vs oficial
+    var brechaEl=null;
+    if(bcb&&bcb.venta&&crypto&&crypto.venta){
+      var gap=crypto.venta-bcb.venta, pct=gap/bcb.venta*100;
+      var gc=Math.abs(pct)<0.05?'#9CA3AF':(pct>0?'#F87171':'#4ADE80');
+      brechaEl=React.createElement('span',{style:{fontSize:10,fontWeight:800,color:gc,marginLeft:2}},(pct>0?'+':'')+pct.toFixed(1)+'%');
+    }
+    var sectRates=(bcb||crypto)?React.createElement('div',{style:{display:'flex',alignItems:'center',gap:6,flexWrap:'wrap'}},
+      React.createElement('span',{style:{fontSize:13}},'💵'),
+      bcb&&bcb.venta?pill('Oficial','#C9A84C',bcb.venta):null,
+      crypto&&crypto.venta?pill('Cripto','#60A5FA',crypto.venta):null,
+      brechaEl,
+      updTxt?React.createElement('span',{style:{fontSize:9,opacity:.45,marginLeft:'auto'}},updTxt):null
+    ):null;
+    var sectWeather=(weather&&weather.length)?React.createElement('div',{style:{borderTop:sectRates?'1px solid var(--border)':'none',paddingTop:sectRates?9:0}},
+      React.createElement('div',{style:{fontSize:9,fontWeight:800,letterSpacing:'.6px',opacity:.6,textTransform:'uppercase',marginBottom:5}},'🌤️ Santa Cruz · próx. 3 días'),
+      React.createElement('div',{style:{display:'flex',gap:6}},
+        weather.slice(0,3).map(function(wd){var meta=wc[wd.code]||['·',''];
+          return React.createElement('div',{key:wd.date,title:meta[1],style:{flex:1,textAlign:'center',background:'rgba(255,255,255,.05)',borderRadius:8,padding:'5px 2px'}},
+            React.createElement('div',{style:{fontSize:9,fontWeight:700,opacity:.7,textTransform:'capitalize'}},dlabel(wd.date)),
+            React.createElement('div',{style:{fontSize:18,lineHeight:1.1,margin:'1px 0'}},meta[0]),
+            React.createElement('div',{style:{fontSize:11,fontWeight:700}},wd.max+'° ',React.createElement('span',{style:{opacity:.5,fontWeight:500}},wd.min+'°')),
+            (wd.rain>=40)?React.createElement('div',{style:{fontSize:8,color:'#60A5FA'}},'💧'+wd.rain+'%'):null
+          );
+        })
+      )
+    ):null;
+    var sectEvents=evs.length?React.createElement('div',{style:{borderTop:(sectRates||sectWeather)?'1px solid var(--border)':'none',paddingTop:(sectRates||sectWeather)?9:0}},
+      React.createElement('div',{style:{fontSize:9,fontWeight:800,letterSpacing:'.6px',opacity:.6,textTransform:'uppercase',marginBottom:4}},'📅 Próximos eventos · 3 meses'),
+      evs.map(function(e,i){var cc=CATC[e.cat]||CATC.retail;var dd=e.dt.getDate()+' '+MES[e.dt.getMonth()];
+        return React.createElement('div',{key:i,style:{display:'flex',alignItems:'center',gap:7,padding:'2px 0'}},
+          React.createElement('span',{style:{fontSize:11,width:42,flexShrink:0,color:cc.c,fontWeight:800}},dd),
+          React.createElement('span',{style:{fontSize:11,flexShrink:0}},cc.ic),
+          React.createElement('span',{style:{fontSize:11,opacity:.9,lineHeight:1.3}},e.label,e.aprox?React.createElement('span',{style:{opacity:.45}},' ~'):null)
+        );
+      })
+    ):null;
+    return React.createElement('div',{style:{margin:'12px 24px 0',background:'var(--surface)',border:'1px solid var(--border)',borderRadius:14,padding:'11px 13px',display:'flex',flexDirection:'column',gap:9}},
+      sectRates, sectWeather, sectEvents
+    );
+  })(),
   /*#__PURE__*/React.createElement("div",{style:{margin:'12px 24px 0',background:'rgba(156,104,214,.12)',border:'1px solid rgba(156,104,214,.35)',borderRadius:14,overflow:'hidden'}},
     /*#__PURE__*/React.createElement("div",{onClick:function(){setBrfOpen(function(v){return!v;});},style:{display:'flex',alignItems:'center',justifyContent:'space-between',padding:'10px 14px',cursor:'pointer'}},
       /*#__PURE__*/React.createElement("div",{style:{display:'flex',alignItems:'center',gap:8}},

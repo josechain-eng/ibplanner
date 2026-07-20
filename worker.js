@@ -55,6 +55,18 @@ async function handleRequest(request, env) {
       return json({ key: VAPID_PUBLIC_KEY });
     }
 
+    // GET /dailyinfo  →  exchange rates (BCB oficial + cripto) + Santa Cruz weather
+    // Cached in KV, refreshed by cron 3×/day (7am/12pm/6pm Bolivia). Lazy-refresh if stale.
+    if (p === '/dailyinfo' && request.method === 'GET') {
+      let info = JSON.parse(await env.LBP_KV.get('dailyinfo_v1') || 'null');
+      const force = url.searchParams.get('force') === '1';
+      const stale = !info || force || (Date.now() - (info.updatedAt || 0) > 5 * 3600 * 1000);
+      if (stale) {
+        try { info = await refreshDailyInfo(env); } catch (e) { /* keep old cache */ }
+      }
+      return json(info || { error: 'no data yet' });
+    }
+
     // POST /sync  →  save full data blob for a sync key
     if (p === '/sync' && request.method === 'POST') {
       const { syncKey, data } = await request.json();
@@ -777,8 +789,82 @@ async function sendSmartNotif(env, syncKeys, type, todayStr, tomorrowStr) {
   }
 }
 
+// ═══════════════════════════════════════════════════════════════
+// Daily info: exchange rates (BCB oficial + cripto P2P) + Santa Cruz weather
+// ═══════════════════════════════════════════════════════════════
+function _median(nums) {
+  const a = nums.filter(n => isFinite(n)).sort((x, y) => x - y);
+  if (!a.length) return null;
+  const m = Math.floor(a.length / 2);
+  return a.length % 2 ? a[m] : (a[m - 1] + a[m]) / 2;
+}
+
+async function _fetchBinanceP2P(tradeType) {
+  const r = await fetch('https://p2p.binance.com/bapi/c2c/v2/friendly/c2c/adv/search', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', 'User-Agent': 'Mozilla/5.0' },
+    body: JSON.stringify({ asset: 'USDT', fiat: 'BOB', tradeType, page: 1, rows: 8, payTypes: [], publisherType: null }),
+  });
+  const j = await r.json();
+  const prices = (j.data || []).map(a => parseFloat(a.adv && a.adv.price)).filter(isFinite);
+  return _median(prices.slice(0, 6));
+}
+
+async function refreshDailyInfo(env) {
+  const prev = JSON.parse(await env.LBP_KV.get('dailyinfo_v1') || 'null') || {};
+  const info = {
+    bcb: prev.bcb || null,
+    crypto: prev.crypto || null,
+    weather: prev.weather || null,
+    updatedAt: Date.now(),
+  };
+
+  // 1. BCB tipo de cambio oficial (scrape homepage)
+  try {
+    const html = await (await fetch('https://www.bcb.gob.bo/', { headers: { 'User-Agent': 'Mozilla/5.0' } })).text();
+    const m = html.match(/<span class="bcb-tco-num">\s*([\d.,]+)\s*<\/span>/);
+    if (m) {
+      const val = parseFloat(m[1].replace(/\./g, '').replace(',', '.'));
+      if (isFinite(val)) info.bcb = { venta: val };
+    }
+  } catch (e) { /* keep previous */ }
+
+  // 2. Cripto / dólar paralelo (Binance P2P USDT/BOB)
+  try {
+    const [sell, buy] = await Promise.all([_fetchBinanceP2P('SELL'), _fetchBinanceP2P('BUY')]);
+    if (sell || buy) info.crypto = { venta: sell, compra: buy };
+  } catch (e) { /* keep previous */ }
+
+  // 3. Clima Santa Cruz de la Sierra — próximos 3 días (open-meteo, sin API key)
+  try {
+    const w = await (await fetch('https://api.open-meteo.com/v1/forecast?latitude=-17.7833&longitude=-63.1821&daily=temperature_2m_max,temperature_2m_min,weathercode,precipitation_probability_max&timezone=America/La_Paz&forecast_days=4')).json();
+    const d = w.daily;
+    if (d && d.time) {
+      info.weather = d.time.slice(0, 4).map((t, i) => ({
+        date: t,
+        max: Math.round(d.temperature_2m_max[i]),
+        min: Math.round(d.temperature_2m_min[i]),
+        code: d.weathercode[i],
+        rain: d.precipitation_probability_max[i],
+      }));
+    }
+  } catch (e) { /* keep previous */ }
+
+  await env.LBP_KV.put('dailyinfo_v1', JSON.stringify(info));
+  return info;
+}
+
 async function scheduledHandler(event, env) {
     const now = Date.now();
+
+    // Daily info refresh 3×/day: 7am, 12pm, 6pm Bolivia = 11:00, 16:00, 22:00 UTC.
+    // Runs before the syncKeys early-return so it works regardless of registry.
+    {
+      const h = new Date(now).getUTCHours(), mm = new Date(now).getUTCMinutes();
+      if ((h === 11 || h === 16 || h === 22) && mm < 2) {
+        try { await refreshDailyInfo(env); } catch (e) { /* ignore */ }
+      }
+    }
 
     // NEVER call KV.list() here — free tier allows only 1,000 list ops/day
     // but the cron fires 1,440 times/day. Using list() in the cron exhausts
