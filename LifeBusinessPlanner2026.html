@@ -22,7 +22,7 @@
 <script>
 (function() {
   // ── Version ──────────────────────────────────────────────────────────────
-  window.LBP_VERSION = '4.77';
+  window.LBP_VERSION = '4.78';
 
   // ── PWA Install prompt ───────────────────────────────────────────────────
   window._installPrompt = null;
@@ -3652,7 +3652,7 @@ var HomeScreen = function HomeScreen(_ref14) {
   var _brfI=useState(false),_brfJ=_slicedToArray(_brfI,2),brfSumLoad=_brfJ[0],setBrfSumLoad=_brfJ[1];
   var _diA=useState(null),_diB=_slicedToArray(_diA,2),diData=_diB[0],setDiData=_diB[1];
   useEffect(function(){
-    var cached=null; try{cached=JSON.parse(localStorage.getItem('lbp_dailyinfo')||'null');}catch(e){}
+    var cached=null; try{cached=JSON.parse(localStorage.getItem('lbp_dailyinfo2')||'null');}catch(e){}
     if(cached&&cached.data)setDiData(cached.data);
     if(!window.LBP_WORKER_URL)return;
     var age=cached?Date.now()-(cached.fetchedAt||0):Infinity;
@@ -3660,7 +3660,7 @@ var HomeScreen = function HomeScreen(_ref14) {
     fetch(window.LBP_WORKER_URL+'/dailyinfo')
       .then(function(r){return r&&r.ok?r.json():null;})
       .then(function(j){
-        if(j&&!j.error){setDiData(j);try{localStorage.setItem('lbp_dailyinfo',JSON.stringify({data:j,fetchedAt:Date.now()}));}catch(e){}}
+        if(j&&!j.error){setDiData(j);try{localStorage.setItem('lbp_dailyinfo2',JSON.stringify({data:j,fetchedAt:Date.now()}));}catch(e){}}
       }).catch(function(){});
   },[]);
   useEffect(function(){
@@ -3910,13 +3910,14 @@ var HomeScreen = function HomeScreen(_ref14) {
       brechaEl,
       updTxt?React.createElement('span',{style:{fontSize:9,opacity:.45,marginLeft:'auto'}},updTxt):null
     ):null;
+    var wNow=di.weatherNow;
     var sectWeather=(weather&&weather.length)?React.createElement('div',{style:{borderTop:sectRates?'1px solid var(--border)':'none',paddingTop:sectRates?9:0}},
-      React.createElement('div',{style:{fontSize:9,fontWeight:800,letterSpacing:'.6px',opacity:.6,textTransform:'uppercase',marginBottom:5}},'🌤️ Santa Cruz · próx. 3 días'),
+      React.createElement('div',{style:{fontSize:9,fontWeight:800,letterSpacing:'.6px',opacity:.6,textTransform:'uppercase',marginBottom:5}},'🌤️ Santa Cruz · próx. 3 días',(wNow&&wNow.temp!=null)?React.createElement('span',{style:{opacity:.85,fontWeight:700}},'  ·  ahora '+wNow.temp+'°'):null),
       React.createElement('div',{style:{display:'flex',gap:6}},
-        weather.slice(0,3).map(function(wd){var meta=wc[wd.code]||['·',''];
-          return React.createElement('div',{key:wd.date,title:meta[1],style:{flex:1,textAlign:'center',background:'rgba(255,255,255,.05)',borderRadius:8,padding:'5px 2px'}},
-            React.createElement('div',{style:{fontSize:9,fontWeight:700,opacity:.7,textTransform:'capitalize'}},dlabel(wd.date)),
-            React.createElement('div',{style:{fontSize:18,lineHeight:1.1,margin:'1px 0'}},meta[0]),
+        weather.slice(0,3).map(function(wd,wi){
+          return React.createElement('div',{key:wi,style:{flex:1,textAlign:'center',background:'rgba(255,255,255,.05)',borderRadius:8,padding:'5px 2px'}},
+            React.createElement('div',{style:{fontSize:9,fontWeight:700,opacity:.7,textTransform:'capitalize'}},wd.label||''),
+            React.createElement('div',{style:{fontSize:18,lineHeight:1.1,margin:'1px 0'}},wd.emoji||'·'),
             React.createElement('div',{style:{fontSize:11,fontWeight:700}},wd.max+'° ',React.createElement('span',{style:{opacity:.5,fontWeight:500}},wd.min+'°')),
             (wd.rain>=40)?React.createElement('div',{style:{fontSize:8,color:'#60A5FA'}},'💧'+wd.rain+'%'):null
           );

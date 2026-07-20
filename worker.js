@@ -58,7 +58,7 @@ async function handleRequest(request, env) {
     // GET /dailyinfo  →  exchange rates (BCB oficial + cripto) + Santa Cruz weather
     // Cached in KV, refreshed by cron 3×/day (7am/12pm/6pm Bolivia). Lazy-refresh if stale.
     if (p === '/dailyinfo' && request.method === 'GET') {
-      let info = JSON.parse(await env.LBP_KV.get('dailyinfo_v1') || 'null');
+      let info = JSON.parse(await env.LBP_KV.get('dailyinfo_v2') || 'null');
       const force = url.searchParams.get('force') === '1';
       const stale = !info || force || (Date.now() - (info.updatedAt || 0) > 5 * 3600 * 1000);
       if (stale) {
@@ -810,12 +810,63 @@ async function _fetchBinanceP2P(tradeType) {
   return _median(prices.slice(0, 6));
 }
 
+// WMO weathercode → emoji (fallback open-meteo)
+function _wmoEmoji(c) {
+  if (c === 0) return '☀️';
+  if (c === 1 || c === 2) return '⛅';
+  if (c === 3) return '☁️';
+  if (c >= 45 && c <= 48) return '🌫️';
+  if (c >= 51 && c <= 67) return '🌧️';
+  if (c >= 71 && c <= 77) return '🌨️';
+  if (c >= 80 && c <= 82) return '🌦️';
+  if (c >= 95) return '⛈️';
+  return '🌤️';
+}
+
+// El Deber (eldeber.com.bo) — pronóstico 3 días server-rendered. Fuente local que
+// ve el usuario. Devuelve [{label,max,min,emoji}]. null si falla / bloquea.
+async function _fetchElDeberWeather() {
+  const html = await (await fetch('https://eldeber.com.bo/clima', {
+    headers: {
+      'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0 Safari/537.36',
+      'Accept': 'text/html',
+    },
+  })).text();
+  const idx = html.lastIndexOf('clima_extendido_items');
+  if (idx < 0) return null;
+  const seg = html.slice(idx, idx + 9000);
+  const days = [...seg.matchAll(/clima_extendido_item_day">([^<]*)<\/p>/g)].map(m => m[1].trim());
+  const temps = [...seg.matchAll(/clima_extendido_item_temp">([^<]*)<\/p>/g)].map(m => m[1]);
+  const svgs = seg.split('clima_extendido_item_svg').slice(1);
+  const out = [];
+  const n = Math.min(days.length, temps.length, 3);
+  for (let i = 0; i < n; i++) {
+    const tm = temps[i].match(/(-?\d+)\D+(-?\d+)/); // "min° | max°"
+    if (!tm) continue;
+    const min = parseInt(tm[1], 10), max = parseInt(tm[2], 10);
+    const body = (svgs[i] || '').split('clima_extendido_item_day')[0];
+    const sun = body.includes('42.5c6.9') || body.includes('12.5-5.6'); // disco solar
+    const cloud = /c-?\d+\.\d+,-?\d+\.\d+/.test(body) && !sun;           // nube/lluvia
+    const emoji = sun ? (cloud ? '⛅' : '☀️') : (cloud ? '🌧️' : '🌤️');
+    out.push({ label: i === 0 ? 'Hoy' : (i === 1 ? 'Mañana' : days[i]), max: max, min: min, emoji: emoji });
+  }
+  return out.length ? out : null;
+}
+
+// Clima actual El Deber (para mostrar "ahora X°")
+async function _fetchElDeberCurrent() {
+  const j = await (await fetch('https://static2.eldeber.com.bo/service/clima', { headers: { 'User-Agent': 'Mozilla/5.0' } })).json();
+  const it = j && j.items && j.items[0];
+  return it ? { temp: it.temp, hum: it.hum } : null;
+}
+
 async function refreshDailyInfo(env) {
-  const prev = JSON.parse(await env.LBP_KV.get('dailyinfo_v1') || 'null') || {};
+  const prev = JSON.parse(await env.LBP_KV.get('dailyinfo_v2') || 'null') || {};
   const info = {
     bcb: prev.bcb || null,
     crypto: prev.crypto || null,
     weather: prev.weather || null,
+    weatherNow: prev.weatherNow || null,
     updatedAt: Date.now(),
   };
 
@@ -843,22 +894,30 @@ async function refreshDailyInfo(env) {
   }
   info._errors = errs;
 
-  // 3. Clima Santa Cruz de la Sierra — próximos 3 días (open-meteo, sin API key)
-  try {
-    const w = await (await fetch('https://api.open-meteo.com/v1/forecast?latitude=-17.7833&longitude=-63.1821&daily=temperature_2m_max,temperature_2m_min,weathercode,precipitation_probability_max&timezone=America/La_Paz&forecast_days=4')).json();
-    const d = w.daily;
-    if (d && d.time) {
-      info.weather = d.time.slice(0, 4).map((t, i) => ({
-        date: t,
-        max: Math.round(d.temperature_2m_max[i]),
-        min: Math.round(d.temperature_2m_min[i]),
-        code: d.weathercode[i],
-        rain: d.precipitation_probability_max[i],
-      }));
-    }
-  } catch (e) { /* keep previous */ }
+  // 3. Clima Santa Cruz — PRIMARIO: El Deber (fuente local, coincide con su web).
+  //    FALLBACK: open-meteo si El Deber falla / bloquea Cloudflare.
+  let edWeather = null;
+  try { edWeather = await _fetchElDeberWeather(); } catch (e) { errs.push('eldeber:' + (e && e.message)); }
+  try { const now = await _fetchElDeberCurrent(); if (now) info.weatherNow = now; } catch (e) { /* opcional */ }
+  if (edWeather && edWeather.length) {
+    info.weather = edWeather;
+  } else {
+    try {
+      const w = await (await fetch('https://api.open-meteo.com/v1/forecast?latitude=-17.7833&longitude=-63.1821&daily=temperature_2m_max,temperature_2m_min,weathercode,precipitation_probability_max&timezone=America/La_Paz&forecast_days=3')).json();
+      const d = w.daily;
+      if (d && d.time) {
+        info.weather = d.time.slice(0, 3).map((t, i) => ({
+          label: i === 0 ? 'Hoy' : (i === 1 ? 'Mañana' : ['dom','lun','mar','mié','jue','vie','sáb'][new Date(t + 'T00:00').getDay()]),
+          max: Math.round(d.temperature_2m_max[i]),
+          min: Math.round(d.temperature_2m_min[i]),
+          emoji: _wmoEmoji(d.weathercode[i]),
+          rain: d.precipitation_probability_max[i],
+        }));
+      }
+    } catch (e) { errs.push('openmeteo:' + (e && e.message)); }
+  }
 
-  await env.LBP_KV.put('dailyinfo_v1', JSON.stringify(info));
+  await env.LBP_KV.put('dailyinfo_v2', JSON.stringify(info));
   return info;
 }
 
