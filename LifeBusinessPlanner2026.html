@@ -4355,13 +4355,14 @@ fhVisible&&(data.clients||[]).filter(function(c){var hasFr=(data.clients||[]).so
   /*#__PURE__*/React.createElement("div", {
     className: "section-title"
   }, /*#__PURE__*/React.createElement("span", {
-    style:{cursor:'pointer'},
+    style:{cursor:'pointer',display:'inline-block',padding:'2px 0'},
     onTouchStart:function(e){
-      var _t=setTimeout(function(){window._lbpNewMeeting=true;navigate('meetings');},600);
-      e.currentTarget._lpt=_t;
+      e.stopPropagation();
+      clearTimeout(window._lbpLpt);
+      window._lbpLpt=setTimeout(function(){window._lbpNewMeeting=true;navigate('meetings');},600);
     },
-    onTouchEnd:function(e){ clearTimeout(e.currentTarget._lpt); },
-    onTouchMove:function(e){ clearTimeout(e.currentTarget._lpt); },
+    onTouchEnd:function(e){ e.stopPropagation(); clearTimeout(window._lbpLpt); },
+    onTouchMove:function(e){ clearTimeout(window._lbpLpt); },
     onContextMenu:function(e){ e.preventDefault(); window._lbpNewMeeting=true; navigate('meetings'); },
     title:"Mantener presionado para agregar reuni\u00f3n"
   }, "\uD83D\uDCC5 This Week's Meetings")), /*#__PURE__*/React.createElement("div", {
