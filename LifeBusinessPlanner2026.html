@@ -22,7 +22,7 @@
 <script>
 (function() {
   // ── Version ──────────────────────────────────────────────────────────────
-  window.LBP_VERSION = '4.76';
+  window.LBP_VERSION = '4.77';
 
   // ── PWA Install prompt ───────────────────────────────────────────────────
   window._installPrompt = null;
@@ -1303,7 +1303,7 @@
 
   /* Gradient hero */
   .hero-card { background: linear-gradient(135deg, var(--purple-dim), var(--purple));
-               border-radius: var(--radius); padding: 20px; margin-bottom: 16px; }
+               border-radius: var(--radius); padding: 14px 16px; margin-bottom: 16px; }
 
   /* List items */
   .list-item { display: flex; align-items: flex-start; gap: 12px; padding: 11px 0;
@@ -1330,7 +1330,7 @@
   @media (min-width: 600px) { .quick-actions { grid-template-columns: repeat(4, 1fr); } }
   @media (min-width: 900px) { .quick-actions { grid-template-columns: repeat(5, 1fr); } }
   .qa-btn { background: var(--card); border: 1px solid var(--border); color: var(--text);
-            padding: 8px 6px; border-radius: 12px; cursor: pointer; font-size: 11px;
+            padding: 6px 5px; border-radius: 10px; cursor: pointer; font-size: 11px;
             display: flex; align-items: center; justify-content: center; gap: 4px; transition: all .2s;
             white-space: nowrap; overflow: hidden; text-overflow: ellipsis; width: 100%; text-align: center; flex-direction: column; line-height: 1.3; }
   .qa-btn:hover { background: rgba(107,63,160,.3); border-color: var(--purple); }
@@ -3754,15 +3754,15 @@ var HomeScreen = function HomeScreen(_ref14) {
 
   return /*#__PURE__*/React.createElement("div", null, /*#__PURE__*/React.createElement("div", {
     style: {
-      padding: '20px 24px 0'
+      padding: '14px 24px 0'
     }
   }, /*#__PURE__*/React.createElement("div", {
     className: "hero-card"
   }, /*#__PURE__*/React.createElement("div", {
     style: {
-      fontSize: 13,
+      fontSize: 12,
       opacity: .8,
-      marginBottom: 4
+      marginBottom: 3
     }
   }, new Date().toLocaleDateString('en-US', {
     weekday: 'long',
@@ -3771,9 +3771,9 @@ var HomeScreen = function HomeScreen(_ref14) {
     year: 'numeric'
   })), /*#__PURE__*/React.createElement("div", {
     style: {
-      fontSize: 22,
+      fontSize: 19,
       fontWeight: 800,
-      marginBottom: 14
+      marginBottom: 10
     }
   }, greeting, ", ", firstName, " \uD83D\uDC4B"),
   /*#__PURE__*/React.createElement("div", {
@@ -3813,13 +3813,13 @@ var HomeScreen = function HomeScreen(_ref14) {
       style: {
         background: 'rgba(255,255,255,.1)',
         borderRadius: 10,
-        padding: '8px 8px',
+        padding: '6px 7px',
         cursor: 'pointer',
         transition: 'opacity .15s'
       }
     }, /*#__PURE__*/React.createElement("div", {
       style: {
-        fontSize: 20,
+        fontSize: 17,
         fontWeight: 800,
         color: s.color
       }
@@ -3827,8 +3827,8 @@ var HomeScreen = function HomeScreen(_ref14) {
       style: {
         fontSize: 10,
         opacity: .8,
-        lineHeight: 1.3,
-        marginTop: 2
+        lineHeight: 1.25,
+        marginTop: 1
       }
     }, s.label));
   })), /*#__PURE__*/React.createElement("div", {
@@ -3843,19 +3843,19 @@ var HomeScreen = function HomeScreen(_ref14) {
     style: {
       background: 'rgba(76,175,80,.2)',
       borderRadius: 10,
-      padding: '8px 12px',
+      padding: '6px 10px',
       cursor: 'pointer',
       transition: 'background .15s'
     }
   }, /*#__PURE__*/React.createElement("div", {
     style: {
-      fontSize: 16,
+      fontSize: 14,
       fontWeight: 800,
       color: '#4CAF50'
     }
   }, "+$", income.toLocaleString()), /*#__PURE__*/React.createElement("div", {
     style: {
-      fontSize: 11,
+      fontSize: 10,
       opacity: .8
     }
   }, "Monthly Income")), /*#__PURE__*/React.createElement("div", {
@@ -3863,19 +3863,19 @@ var HomeScreen = function HomeScreen(_ref14) {
     style: {
       background: 'rgba(244,67,54,.2)',
       borderRadius: 10,
-      padding: '8px 12px',
+      padding: '6px 10px',
       cursor: 'pointer',
       transition: 'background .15s'
     }
   }, /*#__PURE__*/React.createElement("div", {
     style: {
-      fontSize: 16,
+      fontSize: 14,
       fontWeight: 800,
       color: '#F44336'
     }
   }, "-$", expenses.toLocaleString()), /*#__PURE__*/React.createElement("div", {
     style: {
-      fontSize: 11,
+      fontSize: 10,
       opacity: .8
     }
   }, "Monthly Expenses"))))),

@@ -819,21 +819,29 @@ async function refreshDailyInfo(env) {
     updatedAt: Date.now(),
   };
 
-  // 1. BCB tipo de cambio oficial (scrape homepage)
+  // 1+2. Tipo de cambio: oficial (BCB) + cripto/paralelo. Fuente principal: DolarAPI Bolivia.
+  // (fetch directo a bcb.gob.bo / p2p.binance.com FALLA desde Cloudflare: bloquean IPs de datacenter.
+  //  DolarAPI es una API pública que sí responde a Workers.)
+  const errs = [];
   try {
-    const html = await (await fetch('https://www.bcb.gob.bo/', { headers: { 'User-Agent': 'Mozilla/5.0' } })).text();
-    const m = html.match(/<span class="bcb-tco-num">\s*([\d.,]+)\s*<\/span>/);
-    if (m) {
-      const val = parseFloat(m[1].replace(/\./g, '').replace(',', '.'));
-      if (isFinite(val)) info.bcb = { venta: val };
+    const arr = await (await fetch('https://bo.dolarapi.com/v1/dolares', { headers: { 'User-Agent': 'Mozilla/5.0' } })).json();
+    if (Array.isArray(arr)) {
+      const of = arr.find(x => x.casa === 'oficial');
+      const bn = arr.find(x => ['binance', 'cripto', 'blue', 'paralelo'].includes(x.casa));
+      if (of && isFinite(of.venta)) info.bcb = { venta: of.venta, compra: of.compra };
+      if (bn && isFinite(bn.venta)) info.crypto = { venta: bn.venta, compra: bn.compra };
     }
-  } catch (e) { /* keep previous */ }
+  } catch (e) { errs.push('dolarapi:' + (e && e.message)); }
 
-  // 2. Cripto / dólar paralelo (Binance P2P USDT/BOB)
-  try {
-    const [sell, buy] = await Promise.all([_fetchBinanceP2P('SELL'), _fetchBinanceP2P('BUY')]);
-    if (sell || buy) info.crypto = { venta: sell, compra: buy };
-  } catch (e) { /* keep previous */ }
+  // Fallback cripto: CriptoYa (Binance P2P USDT/BOB) si DolarAPI no dio cripto
+  if (!info.crypto) {
+    try {
+      const cy = await (await fetch('https://criptoya.com/api/usdt/bob/1')).json();
+      const bp = cy && cy.binancep2p;
+      if (bp && isFinite(bp.ask)) info.crypto = { venta: bp.ask, compra: bp.bid };
+    } catch (e) { errs.push('criptoya:' + (e && e.message)); }
+  }
+  info._errors = errs;
 
   // 3. Clima Santa Cruz de la Sierra — próximos 3 días (open-meteo, sin API key)
   try {
