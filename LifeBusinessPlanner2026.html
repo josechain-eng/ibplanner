@@ -22,7 +22,7 @@
 <script>
 (function() {
   // ── Version ──────────────────────────────────────────────────────────────
-  window.LBP_VERSION = '4.79';
+  window.LBP_VERSION = '4.80';
 
   // ── PWA Install prompt ───────────────────────────────────────────────────
   window._installPrompt = null;
@@ -17189,6 +17189,9 @@ var App = function App() {
     // This catches the case where the app was closed when alarm fired (cross-device sync scenario)
     var nowMs2 = Date.now();
     var oneHour = 60 * 60 * 1000;
+    // Alarmas ya entregadas por la nube (formato epoch id_<ms>) — para NO re-mostrarlas como "(Missed)"
+    var _cloudFiredM = new Set();
+    try { JSON.parse(localStorage.getItem('lbp_cloud_fired') || '[]').forEach(function(x){ _cloudFiredM.add(x.id); }); } catch(_) {}
     _types.forEach(function(k) {
       (data[k] || []).forEach(function(entity) {
         var al = entity.alarm;
@@ -17198,7 +17201,8 @@ var App = function App() {
         if (age <= 0 || age > oneHour) return; // not missed, or too old
         var _baseKey = (entity.id || '') + '_' + al.datetime;
         var missedKey = _baseKey + '_missed';
-        if (firedRef.current.has(missedKey) || firedRef.current.has(_baseKey) || (window._lbpFiredSet && window._lbpFiredSet.has(_baseKey))) return;
+        var _epochKey = (entity.id || '') + '_' + new Date(al.datetime).getTime();
+        if (firedRef.current.has(missedKey) || firedRef.current.has(_baseKey) || (window._lbpFiredSet && (window._lbpFiredSet.has(_baseKey) || window._lbpFiredSet.has(_epochKey))) || _cloudFiredM.has(_epochKey)) return;
         firedRef.current.add(missedKey);
         try{var _lsb=JSON.parse(localStorage.getItem('lbp_shown_alarms')||'[]');_lsb.push({k:missedKey,t:Date.now()});if(_lsb.length>200)_lsb=_lsb.slice(-100);localStorage.setItem('lbp_shown_alarms',JSON.stringify(_lsb));}catch(_){}
         var entityName = entity.title || entity.name || entity.destination || '';
@@ -17221,7 +17225,8 @@ var App = function App() {
       if (age <= 0 || age > oneHour) return;
       var _baseKey = (entity.id || '') + '_' + al.datetime;
       var missedKey = _baseKey + '_missed';
-      if (firedRef.current.has(missedKey) || firedRef.current.has(_baseKey) || (window._lbpFiredSet && window._lbpFiredSet.has(_baseKey))) return;
+      var _epochKey = (entity.id || '') + '_' + new Date(al.datetime).getTime();
+      if (firedRef.current.has(missedKey) || firedRef.current.has(_baseKey) || (window._lbpFiredSet && (window._lbpFiredSet.has(_baseKey) || window._lbpFiredSet.has(_epochKey))) || _cloudFiredM.has(_epochKey)) return;
       firedRef.current.add(missedKey);
       try{var _lsc=JSON.parse(localStorage.getItem('lbp_shown_alarms')||'[]');_lsc.push({k:missedKey,t:Date.now()});if(_lsc.length>200)_lsc=_lsc.slice(-100);localStorage.setItem('lbp_shown_alarms',JSON.stringify(_lsc));}catch(_){}
       var entityName = entity.title || '';
