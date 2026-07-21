@@ -823,41 +823,60 @@ function _wmoEmoji(c) {
   return '🌤️';
 }
 
-// El Deber (eldeber.com.bo) — pronóstico 3 días server-rendered. Fuente local que
-// ve el usuario. Devuelve [{label,max,min,emoji}]. null si falla / bloquea.
-async function _fetchElDeberWeather() {
-  const html = await (await fetch('https://eldeber.com.bo/clima', {
+// Condición (texto alt de Meteored) → emoji. El orden importa (lluvia antes que "parcial").
+function _meteoEmoji(alt) {
+  const a = (alt || '').toLowerCase();
+  if (a.indexOf('torment') >= 0) return '⛈️';
+  if (a.indexOf('chubasc') >= 0) return '🌦️';
+  if (a.indexOf('lluvia') >= 0 || a.indexOf('llovizna') >= 0) return '🌧️';
+  if (a.indexOf('nieve') >= 0) return '🌨️';
+  if (a.indexOf('niebla') >= 0 || a.indexOf('neblina') >= 0 || a.indexOf('bruma') >= 0) return '🌫️';
+  if (a.indexOf('parcial') >= 0 || a.indexOf('claros') >= 0 || a.indexOf('poco nub') >= 0) return '⛅';
+  if (a.indexOf('cubierto') >= 0 || a.indexOf('nuboso') >= 0 || a.indexOf('nublado') >= 0 || a.indexOf('nubes') >= 0) return '☁️';
+  if (a.indexOf('despejado') >= 0 || a.indexOf('sol') >= 0) return '☀️';
+  return '🌤️';
+}
+
+// Meteored (meteored.com.bo) — pronóstico 7 días, tomamos 3 (Hoy, Mañana, +1).
+// Datos correctos para Santa Cruz. Devuelve {days:[{label,max,min,emoji}], nowTemp} o null.
+async function _fetchMeteoredWeather() {
+  const html = await (await fetch('https://www.meteored.com.bo/tiempo-en_Santa+Cruz+de+la+Sierra-America+Sur-Bolivia-Santa+Cruz--1-17636.html', {
     headers: {
       'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0 Safari/537.36',
       'Accept': 'text/html',
     },
   })).text();
-  const idx = html.lastIndexOf('clima_extendido_items');
-  if (idx < 0) return null;
-  const seg = html.slice(idx, idx + 9000);
-  const days = [...seg.matchAll(/clima_extendido_item_day">([^<]*)<\/p>/g)].map(m => m[1].trim());
-  const temps = [...seg.matchAll(/clima_extendido_item_temp">([^<]*)<\/p>/g)].map(m => m[1]);
-  const svgs = seg.split('clima_extendido_item_svg').slice(1);
-  const out = [];
-  const n = Math.min(days.length, temps.length, 3);
-  for (let i = 0; i < n; i++) {
-    const tm = temps[i].match(/(-?\d+)\D+(-?\d+)/); // "min° | max°"
-    if (!tm) continue;
-    const min = parseInt(tm[1], 10), max = parseInt(tm[2], 10);
-    const body = (svgs[i] || '').split('clima_extendido_item_day')[0];
-    const sun = body.includes('42.5c6.9') || body.includes('12.5-5.6'); // disco solar
-    const cloud = /c-?\d+\.\d+,-?\d+\.\d+/.test(body) && !sun;           // nube/lluvia
-    const emoji = sun ? (cloud ? '⛅' : '☀️') : (cloud ? '🌧️' : '🌤️');
-    out.push({ label: i === 0 ? 'Hoy' : (i === 1 ? 'Mañana' : days[i]), max: max, min: min, emoji: emoji });
-  }
-  return out.length ? out : null;
-}
 
-// Clima actual El Deber (para mostrar "ahora X°")
-async function _fetchElDeberCurrent() {
-  const j = await (await fetch('https://static2.eldeber.com.bo/service/clima', { headers: { 'User-Agent': 'Mozilla/5.0' } })).json();
-  const it = j && j.items && j.items[0];
-  return it ? { temp: it.temp, hum: it.hum } : null;
+  // temperatura actual observada
+  let nowTemp = null;
+  const cm = html.match(/dato-temperatura[^>]*data-weather="([\d.\-]+)/);
+  if (cm) nowTemp = Math.round(parseFloat(cm[1]));
+
+  // tarjetas de días (grid-item dia d1..d7)
+  const marks = [...html.matchAll(/class="grid-item dia d\d/g)].map(m => m.index);
+  if (!marks.length) return null;
+  const seg = html.slice(marks[0], marks[marks.length - 1] + 3000);
+  const tiles = seg.split(/class="grid-item dia d\d[^"]*"/).slice(1);
+  const decode = s => s.replace(/&ntilde;/g, 'ñ').replace(/&aacute;/g, 'á').replace(/&eacute;/g, 'é')
+    .replace(/&iacute;/g, 'í').replace(/&oacute;/g, 'ó').replace(/&uacute;/g, 'ú');
+  const days = [];
+  for (let i = 0; i < Math.min(tiles.length, 3); i++) {
+    const t = tiles[i];
+    const labM = t.match(/text-0">\s*([^<]+?)\s*<\/span>/);
+    const altM = t.match(/symbols\/color\/\d+\.svg"[^>]*alt="([^"]*)"/);
+    const mxM = t.match(/class="max[^"]*"[^>]*data-weather="([\d.\-]+)/);
+    const mnM = t.match(/class="min[^"]*"[^>]*data-weather="([\d.\-]+)/);
+    const pM = t.match(/probabilidad[^>]*>\s*(\d+)%/);
+    if (!mxM || !mnM) continue;
+    days.push({
+      label: labM ? decode(labM[1].trim()) : (i === 0 ? 'Hoy' : (i === 1 ? 'Mañana' : '')),
+      max: Math.round(parseFloat(mxM[1])),
+      min: Math.round(parseFloat(mnM[1])),
+      emoji: _meteoEmoji(altM ? altM[1] : ''),
+      rain: pM ? parseInt(pM[1], 10) : null,
+    });
+  }
+  return days.length ? { days: days, nowTemp: nowTemp } : null;
 }
 
 async function refreshDailyInfo(env) {
@@ -894,13 +913,12 @@ async function refreshDailyInfo(env) {
   }
   info._errors = errs;
 
-  // 3. Clima Santa Cruz — PRIMARIO: El Deber (fuente local, coincide con su web).
-  //    FALLBACK: open-meteo si El Deber falla / bloquea Cloudflare.
-  let edWeather = null;
-  try { edWeather = await _fetchElDeberWeather(); } catch (e) { errs.push('eldeber:' + (e && e.message)); }
-  try { const now = await _fetchElDeberCurrent(); if (now) info.weatherNow = now; } catch (e) { /* opcional */ }
-  if (edWeather && edWeather.length) {
-    info.weather = edWeather;
+  // 3. Clima Santa Cruz — PRIMARIO: Meteored (datos correctos). FALLBACK: open-meteo.
+  let mtWeather = null;
+  try { mtWeather = await _fetchMeteoredWeather(); } catch (e) { errs.push('meteored:' + (e && e.message)); }
+  if (mtWeather && mtWeather.days.length) {
+    info.weather = mtWeather.days;
+    info.weatherNow = (mtWeather.nowTemp != null) ? { temp: mtWeather.nowTemp } : (info.weatherNow || null);
   } else {
     try {
       const w = await (await fetch('https://api.open-meteo.com/v1/forecast?latitude=-17.7833&longitude=-63.1821&daily=temperature_2m_max,temperature_2m_min,weathercode,precipitation_probability_max&timezone=America/La_Paz&forecast_days=3')).json();
