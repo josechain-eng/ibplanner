@@ -22,7 +22,7 @@
 <script>
 (function() {
   // ── Version ──────────────────────────────────────────────────────────────
-  window.LBP_VERSION = '4.82';
+  window.LBP_VERSION = '4.83';
 
   // ── PWA Install prompt ───────────────────────────────────────────────────
   window._installPrompt = null;
@@ -7484,17 +7484,17 @@ var meetingAlarmDefault = function meetingAlarmDefault(date, startTime) {
   if (date && startTime) {
     try {
       var dt = new Date(date + 'T' + startTime);
-      dt.setMinutes(dt.getMinutes() - 30);
+      dt.setMinutes(dt.getMinutes() - 60); // base = 1 hora antes
       var y = dt.getFullYear(), mo = String(dt.getMonth()+1).padStart(2,'0');
       var dd = String(dt.getDate()).padStart(2,'0');
       var hh = String(dt.getHours()).padStart(2,'0');
       var mi = String(dt.getMinutes()).padStart(2,'0');
       alarm.enabled = true;
       alarm.datetime = y+'-'+mo+'-'+dd+'T'+hh+':'+mi;
-      // Reuniones: UN solo recordatorio (30 min antes), sin repeticiones escalonadas (evita spam)
-      alarm.repeatCount = 0;
-      alarm.repeatInterval = 5;
-      alarm.repeatIntervals = null;
+      // Reuniones: 2 avisos → 1 hora antes (base) y 30 min antes (repetición +30). Sin más repeticiones.
+      alarm.repeatCount = 1;
+      alarm.repeatInterval = 30;
+      alarm.repeatIntervals = [30];
     } catch(e) {}
   }
   return alarm;
