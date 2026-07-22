@@ -22,7 +22,7 @@
 <script>
 (function() {
   // ── Version ──────────────────────────────────────────────────────────────
-  window.LBP_VERSION = '4.80';
+  window.LBP_VERSION = '4.81';
 
   // ── PWA Install prompt ───────────────────────────────────────────────────
   window._installPrompt = null;
@@ -104,6 +104,34 @@
     });
     out.sort(function(a, b) { return a.dt - b.dt; });
     return out;
+  };
+
+  // ── Formato rápido para textareas de notas (viñetas / lista / indentar) ──
+  // Opera por líneas sobre la selección y actualiza el state de React vía el setter nativo.
+  window._lbpNoteFmt = function(id, cmd) {
+    var ta = document.getElementById(id); if (!ta) return;
+    var v = ta.value, s = ta.selectionStart, e = ta.selectionEnd;
+    var ls = v.lastIndexOf('\n', s - 1) + 1;
+    var le = v.indexOf('\n', e); if (le < 0) le = v.length;
+    var lines = v.substring(ls, le).split('\n');
+    var strip = function(l){ return l.replace(/^(\s*)(?:•\s+|\d+[.)]\s+)/, '$1'); };
+    if (cmd === 'bullet') {
+      var allB = lines.every(function(l){ return l.trim() === '' || /^\s*•\s+/.test(l); });
+      lines = lines.map(function(l){ if (l.trim() === '') return l; var ind = l.match(/^\s*/)[0]; return allB ? strip(l) : ind + '• ' + strip(l).replace(/^\s*/, ''); });
+    } else if (cmd === 'number') {
+      var n = 0; lines = lines.map(function(l){ if (l.trim() === '') return l; n++; var ind = l.match(/^\s*/)[0]; return ind + n + '. ' + strip(l).replace(/^\s*/, ''); });
+    } else if (cmd === 'indent') {
+      lines = lines.map(function(l){ return l.trim() === '' ? l : '  ' + l; });
+    } else if (cmd === 'outdent') {
+      lines = lines.map(function(l){ return l.replace(/^ {1,2}/, ''); });
+    }
+    var nb = lines.join('\n');
+    var nv = v.substring(0, ls) + nb + v.substring(le);
+    var setter = Object.getOwnPropertyDescriptor(window.HTMLTextAreaElement.prototype, 'value').set;
+    setter.call(ta, nv);
+    ta.dispatchEvent(new Event('input', { bubbles: true }));
+    ta.focus();
+    ta.setSelectionRange(ls, ls + nb.length);
   };
 
   // ── Google Calendar Sync ──
@@ -7824,8 +7852,19 @@ var MeetingsScreen = function MeetingsScreen(_ref26) {
     }
   })), /*#__PURE__*/React.createElement("div", {
     className: "form-group"
-  }, /*#__PURE__*/React.createElement("label", null, "Notes"), /*#__PURE__*/React.createElement("textarea", {
+  }, /*#__PURE__*/React.createElement("label", null, "Notes"),
+  /*#__PURE__*/React.createElement("div", {style:{display:'flex',gap:4,marginBottom:5,flexWrap:'wrap'}},
+    [['bullet','\u2022 Vi\u00F1eta'],['number','1. Lista'],['indent','\u21E5 Indentar'],['outdent','\u21E4 Quitar']].map(function(_b){
+      return /*#__PURE__*/React.createElement("button",{key:_b[0],type:'button',title:_b[1],
+        onMouseDown:function(ev){ev.preventDefault();},
+        onClick:function(){window._lbpNoteFmt&&window._lbpNoteFmt('_lbpMeetingNotes',_b[0]);},
+        style:{fontSize:12,padding:'4px 10px',borderRadius:6,border:'1px solid var(--border)',background:'var(--card)',color:'var(--text)',cursor:'pointer'}},_b[1]);
+    })
+  ),
+  /*#__PURE__*/React.createElement("textarea", {
+    id: "_lbpMeetingNotes",
     value: form.notes,
+    style: {minHeight:150, resize:'vertical'},
     onChange: function onChange(e) {
       return setForm(_objectSpread(_objectSpread({}, form), {}, {
         notes: e.target.value
