@@ -22,7 +22,7 @@
 <script>
 (function() {
   // ── Version ──────────────────────────────────────────────────────────────
-  window.LBP_VERSION = '4.81';
+  window.LBP_VERSION = '4.82';
 
   // ── PWA Install prompt ───────────────────────────────────────────────────
   window._installPrompt = null;
@@ -7491,6 +7491,10 @@ var meetingAlarmDefault = function meetingAlarmDefault(date, startTime) {
       var mi = String(dt.getMinutes()).padStart(2,'0');
       alarm.enabled = true;
       alarm.datetime = y+'-'+mo+'-'+dd+'T'+hh+':'+mi;
+      // Reuniones: UN solo recordatorio (30 min antes), sin repeticiones escalonadas (evita spam)
+      alarm.repeatCount = 0;
+      alarm.repeatInterval = 5;
+      alarm.repeatIntervals = null;
     } catch(e) {}
   }
   return alarm;
@@ -17232,6 +17236,7 @@ var App = function App() {
     var _cloudFiredM = new Set();
     try { JSON.parse(localStorage.getItem('lbp_cloud_fired') || '[]').forEach(function(x){ _cloudFiredM.add(x.id); }); } catch(_) {}
     _types.forEach(function(k) {
+      if (k === 'meetings') return; // reuniones ya avisan con su recordatorio — no mostrar "(Missed)" (evita spam/confusión)
       (data[k] || []).forEach(function(entity) {
         var al = entity.alarm;
         if (!al || !al.enabled || !al.datetime) return;
