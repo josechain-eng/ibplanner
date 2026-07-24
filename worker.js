@@ -617,9 +617,16 @@ async function sendSmartNotif(env, syncKeys, type, todayStr, tomorrowStr) {
           { role: 'user', content: 'Datos de hoy (' + todayStr + ') para el gerente del Ventura Mall:\n' + JSON.stringify(ctx, null, 2) + '\n\nEscribe un briefing matutino ESTRUCTURADO en espa\u00f1ol. USA SOLO datos reales del JSON, NO inventes nada. Formato EXACTO (texto plano, sin markdown, sin asteriscos, sin guiones extra):\n\nREUNIONES HOY: [lista por hora y nombre, o \'ninguna\']\nTAREAS VENCIDAS (3 mas antiguas): [nombre + fecha vencida de cada una]\nHOY EN AGENDA: [tareas con fecha de hoy, o \'ninguna\']\nRECIEN AGREGADAS: [tareas de los ultimos 3 dias que requieren atencion, o \'ninguna\']\n\nMantener conciso. Cada seccion en una linea. Nombres exactos de las tareas/reuniones.' }
         ], 'Eres el asistente ejecutivo del Ventura Mall (La Paz, Bolivia). Das briefings matutinos estructurados en texto plano sin markdown. USA SOLO datos reales provistos, NO inventes nada.', 450);
 
-        const stripMd = (s) => s.replace(/#{1,6}\s*/g,'').replace(/\*{1,3}([^*]+)\*{1,3}/g,'$1').replace(/^-{2,}\s*$/gm,'').replace(/^>\s*/gm,'').replace(/\n+/g,' ').trim();
+        // Conserva los saltos de línea (colapsa múltiples a uno) para que las secciones queden separadas
+        const stripMd = (s) => s.replace(/#{1,6}\s*/g,'').replace(/\*{1,3}([^*]+)\*{1,3}/g,'$1').replace(/^-{2,}\s*$/gm,'').replace(/^>\s*/gm,'').replace(/[ \t]{2,}/g,' ').replace(/\n{2,}/g,'\n').trim();
         if (aiText && aiText.trim().length > 10) {
-          body = stripMd(aiText).slice(0, 400);
+          // Notificación (push): emojis por sección para que escanee mejor
+          const pushBody = stripMd(aiText)
+            .replace(/^REUNIONES/mi, '📅 REUNIONES')
+            .replace(/^TAREAS VENCIDAS/mi, '⚠️ TAREAS VENCIDAS')
+            .replace(/^HOY EN AGENDA/mi, '📋 HOY EN AGENDA')
+            .replace(/^RECI[EÉ]N AGREGADAS/mi, '🆕 RECIÉN AGREGADAS');
+          body = pushBody.slice(0, 550);
           const fullBriefing = JSON.stringify({
             generated: new Date().toISOString(),
             summary: stripMd(aiText),
