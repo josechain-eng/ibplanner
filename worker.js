@@ -626,7 +626,13 @@ async function sendSmartNotif(env, syncKeys, type, todayStr, tomorrowStr) {
             .replace(/^TAREAS VENCIDAS/mi, '⚠️ TAREAS VENCIDAS')
             .replace(/^HOY EN AGENDA/mi, '📋 HOY EN AGENDA')
             .replace(/^RECI[EÉ]N AGREGADAS/mi, '🆕 RECIÉN AGREGADAS');
-          body = pushBody.slice(0, 550);
+          // Primera línea: tipo de cambio oficial (BCB) desde dailyinfo_v2
+          let tcLine = '';
+          try {
+            const di = JSON.parse(await env.LBP_KV.get('dailyinfo_v2') || 'null');
+            if (di && di.bcb && di.bcb.venta != null) tcLine = '💵 TC oficial: Bs ' + Number(di.bcb.venta).toFixed(2) + '\n';
+          } catch (e) { /* sin TC si falla */ }
+          body = (tcLine + pushBody).slice(0, 600);
           const fullBriefing = JSON.stringify({
             generated: new Date().toISOString(),
             summary: stripMd(aiText),
