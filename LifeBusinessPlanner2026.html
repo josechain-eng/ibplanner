@@ -22,7 +22,7 @@
 <script>
 (function() {
   // ── Version ──────────────────────────────────────────────────────────────
-  window.LBP_VERSION = '4.83';
+  window.LBP_VERSION = '4.84';
 
   // ── PWA Install prompt ───────────────────────────────────────────────────
   window._installPrompt = null;
@@ -3679,6 +3679,15 @@ var HomeScreen = function HomeScreen(_ref14) {
   var _brfG=useState(null),_brfH=_slicedToArray(_brfG,2),brfSummary=_brfH[0],setBrfSummary=_brfH[1];
   var _brfI=useState(false),_brfJ=_slicedToArray(_brfI,2),brfSumLoad=_brfJ[0],setBrfSumLoad=_brfJ[1];
   var _diA=useState(null),_diB=_slicedToArray(_diA,2),diData=_diB[0],setDiData=_diB[1];
+  var _diBz=useState(false),_diBz2=_slicedToArray(_diBz,2),diBusy=_diBz2[0],setDiBusy=_diBz2[1];
+  var _refreshDaily=function(){
+    if(!window.LBP_WORKER_URL||diBusy)return;
+    setDiBusy(true);
+    fetch(window.LBP_WORKER_URL+'/dailyinfo?force=1')
+      .then(function(r){return r&&r.ok?r.json():null;})
+      .then(function(j){ if(j&&!j.error){setDiData(j);try{localStorage.setItem('lbp_dailyinfo2',JSON.stringify({data:j,fetchedAt:Date.now()}));}catch(e){}} })
+      .catch(function(){}).then(function(){setDiBusy(false);});
+  };
   useEffect(function(){
     var cached=null; try{cached=JSON.parse(localStorage.getItem('lbp_dailyinfo2')||'null');}catch(e){}
     if(cached&&cached.data)setDiData(cached.data);
@@ -3936,7 +3945,10 @@ var HomeScreen = function HomeScreen(_ref14) {
       bcb&&bcb.venta?pill('Oficial','#C9A84C',bcb.venta):null,
       crypto&&crypto.venta?pill('Cripto','#60A5FA',crypto.venta):null,
       brechaEl,
-      updTxt?React.createElement('span',{style:{fontSize:9,opacity:.45,marginLeft:'auto'}},updTxt):null
+      React.createElement('span',{style:{marginLeft:'auto',display:'flex',alignItems:'center',gap:6}},
+        updTxt?React.createElement('span',{style:{fontSize:9,opacity:.45}},updTxt):null,
+        React.createElement('span',{onClick:_refreshDaily,title:'Actualizar tipo de cambio y clima',style:{fontSize:14,cursor:'pointer',opacity:diBusy?.5:.85,userSelect:'none'}}, diBusy?'⏳':'🔄')
+      )
     ):null;
     var wNow=di.weatherNow;
     var sectWeather=(weather&&weather.length)?React.createElement('div',{style:{borderTop:sectRates?'1px solid var(--border)':'none',paddingTop:sectRates?9:0}},
