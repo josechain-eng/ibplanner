@@ -22,7 +22,7 @@
 <script>
 (function() {
   // ── Version ──────────────────────────────────────────────────────────────
-  window.LBP_VERSION = '4.84';
+  window.LBP_VERSION = '4.87';
 
   // ── PWA Install prompt ───────────────────────────────────────────────────
   window._installPrompt = null;
@@ -4848,6 +4848,19 @@ var GoalsScreen = function GoalsScreen(_ref19) {
       });
     });
   };
+  var toggleMilestone = function toggleMilestone(goalId, mId) {
+    return setData(function (d) {
+      return _objectSpread(_objectSpread({}, d), {}, {
+        goals: d.goals.map(function (g) {
+          if (g.id !== goalId) return g;
+          var ms = (g.milestones || []).map(function (m) { return m.id === mId ? _objectSpread(_objectSpread({}, m), {}, { done: !m.done }) : m; });
+          var done = ms.filter(function (m) { return m.done; }).length;
+          var prog = ms.length ? Math.round(done / ms.length * 100) : (g.progress || 0);
+          return _objectSpread(_objectSpread({}, g), {}, { milestones: ms, progress: prog, status: prog >= 100 ? 'COMPLETED' : 'IN_PROGRESS' });
+        })
+      });
+    });
+  };
   var del = function del(id) {
     return setData(function (d) {
       return _objectSpread(_objectSpread({}, d), {}, {
@@ -4989,7 +5002,19 @@ var GoalsScreen = function GoalsScreen(_ref19) {
         width: '100%',
         marginTop: 8
       }
-    }), g.targetDate && /*#__PURE__*/React.createElement("div", {
+    }), (g.milestones && g.milestones.length) ? /*#__PURE__*/React.createElement("div", {
+      style: { marginTop: 10, marginBottom: 2 }
+    }, /*#__PURE__*/React.createElement("div", {
+      style: { fontSize: 11, fontWeight: 700, color: 'var(--text-dim)', textTransform: 'uppercase', letterSpacing: 0.5, marginBottom: 4 }
+    }, "📋 Hitos (" + g.milestones.filter(function (m) { return m.done; }).length + "/" + g.milestones.length + ")"), g.milestones.map(function (m) {
+      return /*#__PURE__*/React.createElement("div", {
+        key: m.id,
+        onClick: function (e) { e.stopPropagation(); toggleMilestone(g.id, m.id); },
+        style: { display: 'flex', gap: 8, alignItems: 'flex-start', padding: '5px 0', cursor: 'pointer' }
+      }, /*#__PURE__*/React.createElement("span", { style: { fontSize: 14 } }, m.done ? "✅" : "⬜"), /*#__PURE__*/React.createElement("span", {
+        style: { fontSize: 12, flex: 1, textDecoration: m.done ? 'line-through' : 'none', color: m.done ? 'var(--text-dim)' : 'var(--text)' }
+      }, m.text));
+    })) : null, g.targetDate && /*#__PURE__*/React.createElement("div", {
       style: {
         fontSize: 11,
         color: 'var(--text-dim)',
@@ -9156,15 +9181,74 @@ var HabitsScreen = function HabitsScreen(_ref38) {
   var colors = ['#6B3FA0', '#4CAF50', '#FF9800', '#E91E63', '#2196F3', '#FF5722', '#00BCD4'];
   var _habCo1=useState(false),_habCo2=_slicedToArray(_habCo1,2),habCoLoad=_habCo2[0],setHabCoLoad=_habCo2[1];
   var _habCo3=useState(null),_habCo4=_slicedToArray(_habCo3,2),habCoRes=_habCo4[0],setHabCoRes=_habCo4[1];
+  // ── Goal Clarity Coach (Tony Robbins) ──
+  var _gc1=useState(false),_gc1a=_slicedToArray(_gc1,2),gcChooser=_gc1a[0],setGcChooser=_gc1a[1];
+  var _gc2=useState(false),_gc2a=_slicedToArray(_gc2,2),gcOpen=_gc2a[0],setGcOpen=_gc2a[1];
+  var _gc3=useState([]),_gc3a=_slicedToArray(_gc3,2),gcMsgs=_gc3a[0],setGcMsgs=_gc3a[1];
+  var _gc4=useState(''),_gc4a=_slicedToArray(_gc4,2),gcInput=_gc4a[0],setGcInput=_gc4a[1];
+  var _gc5=useState(false),_gc5a=_slicedToArray(_gc5,2),gcLoad=_gc5a[0],setGcLoad=_gc5a[1];
+  var _gc6=useState(null),_gc6a=_slicedToArray(_gc6,2),gcDraft=_gc6a[0],setGcDraft=_gc6a[1];
+  var _gc7=useState('chat'),_gc7a=_slicedToArray(_gc7,2),gcStage=_gc7a[0],setGcStage=_gc7a[1];
+  var _gc8=useState(null),_gc8a=_slicedToArray(_gc8,2),gcPlan=_gc8a[0],setGcPlan=_gc8a[1];
+  var _gc9=useState(false),_gc9a=_slicedToArray(_gc9,2),gcPlanLoad=_gc9a[0],setGcPlanLoad=_gc9a[1];
+  var _gc10=useState(true),_gc10a=_slicedToArray(_gc10,2),gcRoutineOn=_gc10a[0],setGcRoutineOn=_gc10a[1];
+  var _gc11=useState('07:00'),_gc11a=_slicedToArray(_gc11,2),gcRoutineTime=_gc11a[0],setGcRoutineTime=_gc11a[1];
+  var GC_INTRO='🎯 Vamos a darle claridad total a tu meta, como enseña Tony Robbins.\n\nPrimera pregunta, y respóndeme sin filtro: ¿Qué es lo que REALMENTE quieres lograr? No lo que crees que deberías querer, sino lo que de verdad quieres.';
+  var GC_SP='Eres un coach de claridad de metas basado en el metodo de Tony Robbins (RPM/OPA). Tu trabajo: guiar al usuario, UNA sola pregunta por mensaje, hasta que su meta quede absolutamente clara, especifica y emocionalmente imperante (un MUST, no un should).\n\nReglas:\n- Solo UNA pregunta por mensaje. Corto, calido y directo, hablando de tu.\n- NO aceptes respuestas vagas. Si dice algo generico (ganar mas dinero, estar en forma), exige detalle: cuanto exactamente, para cuando, como se ve, como lo medira.\n- Sigue esta secuencia con naturalidad: 1) el resultado que quiere; 2) especificidad y como se mide el exito; 3) fecha limite; 4) POR QUE lo quiere, los motores emocionales, por que es un MUST (el paso mas importante: profundiza aqui con 2 o 3 preguntas); 5) el costo de NO lograrlo y el premio de lograrlo (palanca dolor y placer); 6) la primera accion concreta.\n- Ya hiciste la primera pregunta (que es lo que realmente quiere). Continua desde su respuesta.\n- Cuando y SOLO cuando tengas claridad real en todos los puntos, escribe un cierre breve y motivador y al final, en una linea aparte y sin texto despues, un bloque EXACTAMENTE asi:\n[[GOAL]]{\"title\":\"resultado claro y especifico\",\"description\":\"que incluye y como se medira el exito\",\"vision\":\"el porque profundo, por que es un MUST\",\"targetDate\":\"YYYY-MM-DD\",\"period\":\"YEARLY\",\"category\":\"area\",\"firstAction\":\"primera accion concreta\",\"whyPain\":\"que cuesta no lograrlo y que premia lograrlo\"}[[/GOAL]]\n- No muestres el bloque [[GOAL]] hasta tener claridad. Si el usuario pide terminar antes, destila con lo que haya. targetDate siempre YYYY-MM-DD (estima si no hay fecha exacta). period uno de: DAILY, WEEKLY, MONTHLY, QUARTERLY, YEARLY, LIFETIME.';
+  var gcSend=function(txt){
+    var t=(txt!=null?txt:gcInput).trim(); if(!t||gcLoad)return;
+    if(!window.LBP_WORKER_URL){ setGcMsgs(function(m){return m.concat([{role:'assistant',content:'⚠️ Configura la URL del Worker en Ajustes para usar el coach.'}]);}); return; }
+    var base=gcMsgs.concat([{role:'user',content:t}]);
+    setGcMsgs(base); setGcInput(''); setGcLoad(true);
+    fetch(window.LBP_WORKER_URL+'/chat',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({messages:base,systemPrompt:GC_SP})})
+      .then(function(r){return r.json();}).then(function(res){
+        setGcLoad(false);
+        var c=res.content||('⚠️ Error: '+(res.error||'sin respuesta'));
+        var draft=null, display=c;
+        var mi=c.indexOf('[[GOAL]]'), me=c.indexOf('[[/GOAL]]');
+        if(mi>=0&&me>mi){ try{draft=JSON.parse(c.slice(mi+8,me).trim());}catch(e){draft=null;} display=(c.slice(0,mi).trim())||'✅ Lista tu meta destilada, revisala abajo.'; }
+        setGcMsgs(function(m){return m.concat([{role:'assistant',content:display}]);});
+        if(draft) setGcDraft(draft);
+      }).catch(function(){ setGcLoad(false); setGcMsgs(function(m){return m.concat([{role:'assistant',content:'⚠️ Error de red. Intenta de nuevo.'}]);}); });
+  };
+  var gcResetCoach=function(){ setGcOpen(false); setGcDraft(null); setGcMsgs([]); setGcInput(''); setGcStage('chat'); setGcPlan(null); setGcPlanLoad(false); setGcRoutineOn(true); setGcRoutineTime('07:00'); };
+  var gcGenPlan=function(){
+    if(!gcDraft)return; setGcStage('plan');
+    if(gcPlan)return;
+    if(!window.LBP_WORKER_URL){ setGcPlan([]); return; }
+    setGcPlanLoad(true);
+    var ctx='Meta: '+(gcDraft.title||'')+'\nDetalle: '+(gcDraft.description||'')+'\nPorque: '+(gcDraft.vision||'')+'\nFecha: '+(gcDraft.targetDate||'');
+    fetch(window.LBP_WORKER_URL+'/chat',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({messages:[{role:'user',content:ctx}],systemPrompt:'Eres coach de accion (metodo Tony Robbins: Massive Action Plan). Descompon la meta en 4 a 6 HITOS concretos y accionables, en orden logico, cada uno una accion clara que se pueda convertir en tarea. Responde SOLO con un JSON array de strings, sin texto extra. Ejemplo: ["Investigar X","Contactar a Y"]. Usa el idioma de la meta.'})})
+      .then(function(r){return r.json();}).then(function(res){
+        setGcPlanLoad(false);
+        var arr=[]; try{var t=res.content||'';var s=t.indexOf('[');var e=t.lastIndexOf(']')+1;if(s>=0&&e>s)arr=JSON.parse(t.slice(s,e));}catch(err){arr=[];}
+        setGcPlan(arr.map(function(x){return {id:uid(),text:String(x),sel:true};}));
+      }).catch(function(){ setGcPlanLoad(false); setGcPlan([]); });
+  };
+  var gcTogglePlan=function(id){ setGcPlan(function(p){return (p||[]).map(function(x){return x.id===id?_objectSpread(_objectSpread({},x),{},{sel:!x.sel}):x;});}); };
+  var gcFinish=function(){
+    if(!gcDraft)return; var g=gcDraft; var goalId=uid(); var plan=gcPlan||[];
+    var milestones=plan.map(function(p){return {id:p.id,text:p.text,done:false};});
+    var newTasks=plan.filter(function(p){return p.sel;}).map(function(p){return _objectSpread(_objectSpread({},_defaultTaskForm()),{},{id:uid(),title:p.text,goalId:goalId,category:'Personal',dueDate:g.targetDate||tomorrowStr(),tags:['Meta'],createdAt:now()});});
+    var newHabit=gcRoutineOn?{id:uid(),name:'🎯 '+(g.title||'Meta'),description:'Tu porque: '+(g.vision||''),emoji:'🎯',color:'#4CAF50',category:'Personal',goalId:goalId,tags:['Meta'],streak:0,longestStreak:0,totalCompletions:0,createdAt:now(),alarm:_objectSpread(_objectSpread({},defaultAlarm()),{},{enabled:true,datetime:tomorrowStr()+'T'+gcRoutineTime,recurrence:'daily',label:'Enfoque diario: '+(g.title||'meta')})}:null;
+    setData(function(d){
+      var goals=[].concat(_toConsumableArray(d.goals||[]),[{id:goalId,title:g.title||'Meta',description:g.description||'',vision:g.vision||'',period:(g.period||'YEARLY').toUpperCase(),category:'Personal',targetDate:g.targetDate||'',progress:0,tags:[],firstAction:g.firstAction||'',whyPain:g.whyPain||'',milestones:milestones,status:'IN_PROGRESS',alarm:defaultAlarm(),createdAt:now(),coachChat:gcMsgs}]);
+      var tasks=(d.tasks||[]).concat(newTasks);
+      var habits=newHabit?(d.habits||[]).concat([newHabit]):(d.habits||[]);
+      return _objectSpread(_objectSpread({},d),{},{goals:goals,tasks:tasks,habits:habits});
+    });
+    var msg='🎯 Meta guardada.'; if(newTasks.length)msg+='\n📋 '+newTasks.length+' tareas creadas.'; if(newHabit)msg+='\n🔁 Rutina diaria a las '+gcRoutineTime+'.';
+    gcResetCoach(); try{alert(msg);}catch(e){}
+  };
+  var _gcBubble=function(role,text,key){ var isU=role==='user'; return /*#__PURE__*/React.createElement('div',{key:key,style:{alignSelf:isU?'flex-end':'flex-start',maxWidth:'85%',background:isU?'#6B3FA0':'rgba(255,255,255,0.06)',color:isU?'#fff':'var(--text)',padding:'8px 12px',borderRadius:12,fontSize:13,lineHeight:1.5,whiteSpace:'pre-wrap'}},text); };
+  var _gcField=function(label,val,key){ return val? /*#__PURE__*/React.createElement('div',{key:key,style:{marginBottom:8}}, /*#__PURE__*/React.createElement('div',{style:{fontSize:10,textTransform:'uppercase',color:'var(--text-dim)',letterSpacing:0.5}},label), /*#__PURE__*/React.createElement('div',{style:{fontSize:13,marginTop:2}},val)) : null; };
+  var _gcDraftCard=function(g){ return /*#__PURE__*/React.createElement('div',{style:{border:'2px solid #4CAF50',borderRadius:12,padding:14,background:'rgba(76,175,80,0.08)',marginTop:6}}, /*#__PURE__*/React.createElement('div',{style:{fontWeight:700,fontSize:15,marginBottom:10,color:'#4CAF50'}},'🎯 '+(g.title||'Tu meta')), _gcField('Especificidad / como se mide',g.description,'f1'), _gcField('Por que es un MUST',g.vision,'f2'), _gcField('Palanca (dolor / premio)',g.whyPain,'f3'), _gcField('Primera accion',g.firstAction,'f4'), _gcField('Fecha limite',g.targetDate,'f5'), _gcField('Periodo / Categoria',[(g.period||''),(g.category||'')].filter(Boolean).join(' / '),'f6')); };
   return /*#__PURE__*/React.createElement("div", null, /*#__PURE__*/React.createElement("div", {
     className: "page-header"
   }, /*#__PURE__*/React.createElement("h1", null, "\uD83D\uDD04 Habit Tracker"), /*#__PURE__*/React.createElement("button", {
     className: "btn btn-primary btn-sm",
-    onClick: function onClick() {
-      setEditItem(null); setForm({name:'',description:'',emoji:'✅',color:'#6B3FA0',category:'',alarm:defaultAlarm()});
-      setModal(true);
-    }
-  }, "+ Add Habit")), /*#__PURE__*/React.createElement("div", {
+    onClick: function onClick() { setGcChooser(true); }
+  }, "+ Add")), /*#__PURE__*/React.createElement("div", {
     className: "page-content"
   }, /*#__PURE__*/React.createElement("div", {
     style: {
@@ -9301,7 +9385,7 @@ var HabitsScreen = function HabitsScreen(_ref38) {
       /*#__PURE__*/React.createElement('button',{className:'btn btn-secondary',onClick:function(){setHabCoRes(null);}},'Cerrar')
     )
   },/*#__PURE__*/React.createElement('div',{style:{padding:'8px 0',whiteSpace:'pre-wrap',fontSize:13,lineHeight:1.7}},habCoRes)),
-  /*#__PURE__*/React.createElement(Modal, {
+  modal && /*#__PURE__*/React.createElement(Modal, {
     title: "New Habit",
     onClose: function onClose() {
       setModal(false); setEditItem(null);
@@ -9388,7 +9472,56 @@ var HabitsScreen = function HabitsScreen(_ref38) {
       }));
     },
     label: form.name || 'Habit'
-  }), editItem && editItem.id && /*#__PURE__*/React.createElement(JournalLinksSection, {data:data,setData:setData,itemType:'habit',itemId:editItem.id})));
+  }), editItem && editItem.id && /*#__PURE__*/React.createElement(JournalLinksSection, {data:data,setData:setData,itemType:'habit',itemId:editItem.id})),
+  gcChooser && /*#__PURE__*/React.createElement(Modal,{title:'¿Qué quieres crear?',onClose:function(){setGcChooser(false);}},
+    /*#__PURE__*/React.createElement('div',{style:{display:'flex',gap:12,padding:'10px 0'}},
+      /*#__PURE__*/React.createElement('button',{className:'btn btn-secondary',style:{flex:1,display:'flex',flexDirection:'column',alignItems:'center',padding:'20px 12px',height:'auto',fontSize:26},onClick:function(){setGcChooser(false);setEditItem(null);setForm({name:'',description:'',emoji:'✅',color:'#6B3FA0',category:'',alarm:defaultAlarm()});setModal(true);}},'🔄',
+        /*#__PURE__*/React.createElement('div',{style:{marginTop:8,fontWeight:600,fontSize:15}},'Hábito'),
+        /*#__PURE__*/React.createElement('div',{style:{fontSize:11,color:'var(--text-dim)',marginTop:4,fontWeight:400}},'Rutina diaria recurrente')),
+      /*#__PURE__*/React.createElement('button',{className:'btn btn-primary',style:{flex:1,display:'flex',flexDirection:'column',alignItems:'center',padding:'20px 12px',height:'auto',fontSize:26},onClick:function(){setGcChooser(false);setGcDraft(null);setGcMsgs([]);setGcInput('');setGcStage('chat');setGcPlan(null);setGcPlanLoad(false);setGcRoutineOn(true);setGcRoutineTime('07:00');setGcOpen(true);}},'🎯',
+        /*#__PURE__*/React.createElement('div',{style:{marginTop:8,fontWeight:600,fontSize:15}},'Meta'),
+        /*#__PURE__*/React.createElement('div',{style:{fontSize:11,color:'rgba(255,255,255,0.85)',marginTop:4,fontWeight:400}},'Con coach de claridad')))),
+  gcOpen && /*#__PURE__*/React.createElement(Modal,{title:'🎯 Coach de Claridad',onClose:gcResetCoach,
+    footer: (gcStage==='chat'
+      ? (gcDraft
+          ? /*#__PURE__*/React.createElement(React.Fragment,null,
+              /*#__PURE__*/React.createElement('button',{className:'btn btn-secondary',onClick:function(){setGcDraft(null);}},'Seguir afinando'),
+              /*#__PURE__*/React.createElement('button',{className:'btn btn-primary',onClick:gcGenPlan},'📋 Generar plan →'))
+          : /*#__PURE__*/React.createElement('button',{className:'btn btn-secondary',onClick:function(){gcSend('Ya tengo suficiente claridad. Destila mi meta AHORA en el bloque [[GOAL]].');},disabled:gcLoad},'✨ Destilar meta'))
+      : gcStage==='plan'
+        ? /*#__PURE__*/React.createElement(React.Fragment,null,
+            /*#__PURE__*/React.createElement('button',{className:'btn btn-secondary',onClick:function(){setGcStage('chat');}},'← Volver'),
+            /*#__PURE__*/React.createElement('button',{className:'btn btn-primary',onClick:function(){setGcStage('routine');},disabled:gcPlanLoad},'Continuar →'))
+        : /*#__PURE__*/React.createElement(React.Fragment,null,
+            /*#__PURE__*/React.createElement('button',{className:'btn btn-secondary',onClick:function(){setGcStage('plan');}},'← Volver'),
+            /*#__PURE__*/React.createElement('button',{className:'btn btn-primary',onClick:gcFinish},'✅ Guardar meta completa')))
+  },
+    gcStage==='chat' && /*#__PURE__*/React.createElement('div',{style:{display:'flex',flexDirection:'column',gap:10,minHeight:220}},
+      _gcBubble('assistant',GC_INTRO,'intro'),
+      gcMsgs.map(function(m,i){return _gcBubble(m.role,m.content,'m'+i);}),
+      gcLoad && _gcBubble('assistant','…','load'),
+      gcDraft && _gcDraftCard(gcDraft),
+      !gcDraft && /*#__PURE__*/React.createElement('div',{style:{display:'flex',gap:6,marginTop:4}},
+        /*#__PURE__*/React.createElement('input',{value:gcInput,placeholder:'Tu respuesta…',onChange:function(e){setGcInput(e.target.value);},onKeyDown:function(e){if(e.key==='Enter'){gcSend();}},style:{flex:1}}),
+        /*#__PURE__*/React.createElement('button',{className:'btn btn-primary btn-sm',onClick:function(){gcSend();},disabled:gcLoad},'Enviar'))),
+    gcStage==='plan' && /*#__PURE__*/React.createElement('div',{style:{minHeight:220}},
+      /*#__PURE__*/React.createElement('div',{style:{fontWeight:700,fontSize:14,marginBottom:4}},'📋 Plan de acción'),
+      /*#__PURE__*/React.createElement('div',{style:{fontSize:12,color:'var(--text-dim)',marginBottom:10}},'Elige qué hitos convertir en tareas de tu planner.'),
+      gcPlanLoad && /*#__PURE__*/React.createElement('div',{style:{padding:20,textAlign:'center',color:'var(--text-dim)'}},'Generando plan…'),
+      (gcPlan||[]).map(function(p){return /*#__PURE__*/React.createElement('div',{key:p.id,onClick:function(){gcTogglePlan(p.id);},style:{display:'flex',gap:8,alignItems:'flex-start',padding:'8px 10px',marginBottom:6,borderRadius:8,cursor:'pointer',background:p.sel?'rgba(76,175,80,0.1)':'rgba(255,255,255,0.04)',border:'1px solid '+(p.sel?'#4CAF50':'var(--border)')}},
+        /*#__PURE__*/React.createElement('span',{style:{fontSize:15}},p.sel?'☑️':'⬜'),
+        /*#__PURE__*/React.createElement('span',{style:{fontSize:13,flex:1}},p.text));}),
+      !gcPlanLoad && (!gcPlan||!gcPlan.length) && /*#__PURE__*/React.createElement('div',{style:{padding:16,textAlign:'center',color:'var(--text-dim)',fontSize:12}},'No se generó plan. Puedes continuar igual.')),
+    gcStage==='routine' && /*#__PURE__*/React.createElement('div',{style:{minHeight:220}},
+      /*#__PURE__*/React.createElement('div',{style:{fontWeight:700,fontSize:14,marginBottom:4}},'🔁 Disciplina diaria'),
+      /*#__PURE__*/React.createElement('div',{style:{fontSize:12,color:'var(--text-dim)',marginBottom:14}},'Crea un recordatorio diario que aparece en tu Habit Tracker y te manda push para apartar el tiempo y actuar.'),
+      /*#__PURE__*/React.createElement('label',{style:{display:'flex',alignItems:'center',gap:10,marginBottom:14,cursor:'pointer'}},
+        /*#__PURE__*/React.createElement('input',{type:'checkbox',checked:gcRoutineOn,onChange:function(e){setGcRoutineOn(e.target.checked);}}),
+        /*#__PURE__*/React.createElement('span',{style:{fontSize:13}},'Crear rutina diaria de enfoque para esta meta')),
+      gcRoutineOn && /*#__PURE__*/React.createElement('div',{style:{marginBottom:14}},
+        /*#__PURE__*/React.createElement('label',{style:{fontSize:12,color:'var(--text-dim)'}},'Hora del recordatorio'),
+        /*#__PURE__*/React.createElement('input',{type:'time',value:gcRoutineTime,onChange:function(e){setGcRoutineTime(e.target.value);},style:{display:'block',marginTop:4}})),
+      /*#__PURE__*/React.createElement('div',{style:{fontSize:12,color:'var(--text-dim)',background:'rgba(107,63,160,0.1)',borderRadius:8,padding:10}},'💡 Priming: cada día el recordatorio te mostrará tu "por qué" para reconectar con lo que quieres antes de actuar.'))));
 };
 
 // ─── BUCKET LIST ───────────────────────────────────────
