@@ -1,6 +1,6 @@
 # Life & Business Planner 2026
 
-**Status:** Active, **v4.86**
+**Status:** Active, **v4.87**
 **File:** `LifeBusinessPlanner2026.html` (~795KB)
 **Hosted:** josechain-eng.github.io/lbplanner/LifeBusinessPlanner2026.html
 **Worker:** https://life-planner.josechain.workers.dev
@@ -27,7 +27,9 @@
 - **Fase 2 + 3 hechas (v4.86):** coach ahora es stepper `gcStage` = 'chat'→'plan'→'routine'. States extra `gc7..gc11` (gcStage/gcPlan/gcPlanLoad/gcRoutineOn/gcRoutineTime). Funciones `gcResetCoach`, `gcGenPlan` (IA → JSON array de hitos → `gcPlan`[{id,text,sel}]), `gcTogglePlan`, `gcFinish`.
 - `gcFinish` guarda TODO en un `setData`: (1) goal con `milestones`; (2) hitos seleccionados → `data.tasks` (status INBOX, `goalId`, tags:['Meta']); (3) si `gcRoutineOn` → hábito '🎯 '+title en `data.habits` con `alarm` recurrence:'daily' datetime tomorrowStr()+'T'+hora, description=priming del porqué. Usa globals `_defaultTaskForm()`, `tomorrowStr()`, `defaultAlarm()`.
 - Fase Rutina reusa habits+alarmas existentes (push diario ya funciona vía scheduleAlarms al cambiar data). Todo verificado con node --check (0 errores). **Falta probar en vivo** (deploy GitHub Pages + hard refresh; el preview local es estático).
-- Posible mejora futura: mostrar `milestones` y su progreso dentro de GoalsScreen; ligar el toggle del hábito al avance de la meta.
+- **v4.87:** hitos con progreso DENTRO de GoalsScreen. Función `toggleMilestone(goalId,mId)` (junto a `updateProgress`) marca hito y recalcula `progress = round(done/total*100)` + status. UI en la tarjeta de meta entre la barra Progress y "Target": "📋 Hitos (done/total)" con checkbox por hito (⬜/✅, tachado si done). El slider/barra existente reflejan el progreso auto-calculado.
+- **v4.87:** TODO lo que crea el coach (goal, tasks, hábito) va forzado a `category:'Personal'` (Pepe lo pidió explícito).
+- ⚠️ **Push a GitHub:** el repo `github.com/josechain-eng/ibplanner` (ojo: "ibplanner") RECHAZA push si se comitean los .zip de `LBPlanner Backup/` (>100MB). Ya está en `.gitignore` (`LBPlanner Backup/`, `*.zip`, `.DS_Store`). Comitear solo los archivos relevantes, no `git add -A` a ciegas.
 
 ## Daily Info card (v4.76)
 - Worker endpoint `GET /dailyinfo` → `{bcb:{venta}, crypto:{venta,compra}, weather:[{date,max,min,code,rain}], updatedAt}`, cached in KV `dailyinfo_v1`, lazy-refresh si >5h.
@@ -64,6 +66,14 @@
 | 🤖 Auto-contactos | Client form (Contacts section) | Gmail → Claude extracts contacts with roles |
 | 📁 AI Brief+360° | Project detail modal | vpAiLoad/vpAiRes state in HomeScreen |
 | 🔔 Smart Alerts | Home dashboard | stale alarms, meeting followup, project health, client health |
+
+## Modelo IA del worker (v4.87+)
+- `/chat` y `analyze-doc` usan **`claude-opus-5`** (antes `claude-sonnet-4-6`). Cambiado en `callClaude()` (línea ~567) y en el fetch inline de `/analyze-doc` (línea ~345).
+- **`thinking: {type:'disabled'}`** en ambos: Opus 5 activa thinking por defecto y se comería el `max_tokens` (respuestas vacías/truncadas). Disabled es válido a effort default (high). Sin beta header.
+- `max_tokens`: callClaude default 2048, `/chat` 4096, analyze-doc 2048.
+- Parseo robusto: se busca el bloque `type==='text'` en `content[]` (no `content[0].text`), por si aparece un bloque no-text.
+- Quitado header obsoleto `anthropic-beta: pdfs-2024-09-25` (PDF ya es GA; podía dar 400).
+- ⚠️ **Requiere DEPLOY manual del worker en Cloudflare** para que aplique. Costo Opus 5: $5/$25 por 1M (vs $3/$15 Sonnet 4.6).
 
 ## worker.js smart notifications schedule (Bolivia UTC-4)
 - Briefing: 12:00 UTC (8am Bolivia)

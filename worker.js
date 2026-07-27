@@ -259,7 +259,7 @@ async function handleRequest(request, env) {
       if (!apiKey) return json({ error: 'ANTHROPIC_API_KEY not set.' }, 500);
       const { messages, systemPrompt, area } = await request.json();
       if (!messages || !Array.isArray(messages)) return json({ error: 'messages array required' }, 400);
-      const content = await callClaude(env, messages, systemPrompt || ('You are a strategic business consultant for Ventura Mall. Help brainstorm ' + (area || 'business') + ' ideas.'), 2048);
+      const content = await callClaude(env, messages, systemPrompt || ('You are a strategic business consultant for Ventura Mall. Help brainstorm ' + (area || 'business') + ' ideas.'), 4096);
       return json({ content });
     }
 
@@ -339,12 +339,12 @@ Máximo 6 items por lista. Sé conciso y específico.`;
         headers: {
           'Content-Type': 'application/json',
           'x-api-key': apiKey,
-          'anthropic-version': '2023-06-01',
-          'anthropic-beta': 'pdfs-2024-09-25'
+          'anthropic-version': '2023-06-01'
         },
         body: JSON.stringify({
-          model: 'claude-sonnet-4-6',
-          max_tokens: 1024,
+          model: 'claude-opus-5',
+          max_tokens: 2048,
+          thinking: { type: 'disabled' },
           system: systemPrompt,
           messages: [{ role: 'user', content: contentBlocks }]
         })
@@ -355,7 +355,8 @@ Máximo 6 items por lista. Sé conciso y específico.`;
         return json({ error: 'Claude API error: ' + err }, apiRes.status);
       }
       const apiData = await apiRes.json();
-      const rawText = apiData.content && apiData.content[0] ? apiData.content[0].text : '{}';
+      const _tb = Array.isArray(apiData.content) ? apiData.content.find(function(b){ return b && b.type === 'text'; }) : null;
+      const rawText = _tb ? _tb.text : '{}';
 
       // Parse Claude's JSON response
       try {
@@ -563,11 +564,12 @@ async function callClaude(env, messages, system, maxTokens) {
     const res = await fetch('https://api.anthropic.com/v1/messages', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', 'x-api-key': apiKey, 'anthropic-version': '2023-06-01' },
-      body: JSON.stringify({ model: 'claude-sonnet-4-6', max_tokens: maxTokens || 1024, system, messages })
+      body: JSON.stringify({ model: 'claude-opus-5', max_tokens: maxTokens || 2048, thinking: { type: 'disabled' }, system, messages })
     });
     if (!res.ok) return '';
     const data = await res.json();
-    return (data.content && data.content[0]) ? data.content[0].text : '';
+    const textBlock = Array.isArray(data.content) ? data.content.find(function(b){ return b && b.type === 'text'; }) : null;
+    return textBlock ? textBlock.text : '';
   } catch(e) {
     return '';
   }
