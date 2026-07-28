@@ -62,9 +62,15 @@ async function handleRequest(request, env) {
       const force = url.searchParams.get('force') === '1';
       const stale = !info || force || (Date.now() - (info.updatedAt || 0) > 5 * 3600 * 1000);
       if (stale) {
-        try { info = await refreshDailyInfo(env); } catch (e) { /* keep old cache */ }
+        try { info = await refreshDailyInfo(env, force ? 'force' : 'lazy'); } catch (e) { /* keep old cache */ }
       }
       return json(info || { error: 'no data yet' });
+    }
+
+    // GET /dailyinfo-log  →  diagnóstico: últimos refrescos (hora, disparador, valor, fecha de la fuente, errores)
+    if (p === '/dailyinfo-log' && request.method === 'GET') {
+      const log = JSON.parse(await env.LBP_KV.get('dailyinfo_log') || '[]');
+      return json({ count: log.length, log: log.slice().reverse() });
     }
 
     // POST /sync  →  save full data blob for a sync key
@@ -894,7 +900,7 @@ async function _fetchMeteoredWeather() {
   return days.length ? { days: days, nowTemp: nowTemp } : null;
 }
 
-async function refreshDailyInfo(env) {
+async function refreshDailyInfo(env, trigger) {
   const prev = JSON.parse(await env.LBP_KV.get('dailyinfo_v2') || 'null') || {};
   const info = {
     bcb: prev.bcb || null,
@@ -908,11 +914,13 @@ async function refreshDailyInfo(env) {
   // (fetch directo a bcb.gob.bo / p2p.binance.com FALLA desde Cloudflare: bloquean IPs de datacenter.
   //  DolarAPI es una API pública que sí responde a Workers.)
   const errs = [];
+  let dolarFecha = null; // fechaActualizacion que reporta DolarAPI para el oficial
   try {
     const arr = await (await fetch('https://bo.dolarapi.com/v1/dolares', { headers: { 'User-Agent': 'Mozilla/5.0' } })).json();
     if (Array.isArray(arr)) {
       const of = arr.find(x => x.casa === 'oficial');
       const bn = arr.find(x => ['binance', 'cripto', 'blue', 'paralelo'].includes(x.casa));
+      if (of) dolarFecha = of.fechaActualizacion || null;
       if (of && isFinite(of.venta)) info.bcb = { venta: of.venta, compra: of.compra };
       if (bn && isFinite(bn.venta)) info.crypto = { venta: bn.venta, compra: bn.compra };
     }
@@ -951,6 +959,24 @@ async function refreshDailyInfo(env) {
   }
 
   await env.LBP_KV.put('dailyinfo_v2', JSON.stringify(info));
+
+  // Diagnóstico: una entrada por refresco (rolling, últimas 40). Permite ver CUÁNDO
+  // corrió cada refresco, qué valor devolvió DolarAPI, su propio fechaActualizacion,
+  // y cualquier error — para saber si el refresco de las 7am corrió y qué trajo.
+  try {
+    const log = JSON.parse(await env.LBP_KV.get('dailyinfo_log') || '[]');
+    log.push({
+      t: new Date().toISOString(),
+      trigger: trigger || 'unknown',
+      bcbVenta: info.bcb ? info.bcb.venta : null,
+      dolarFecha: dolarFecha,
+      cryptoVenta: info.crypto ? info.crypto.venta : null,
+      errors: errs,
+    });
+    while (log.length > 40) log.shift();
+    await env.LBP_KV.put('dailyinfo_log', JSON.stringify(log));
+  } catch (e) { /* el logging nunca debe romper el refresco */ }
+
   return info;
 }
 
@@ -965,7 +991,7 @@ async function scheduledHandler(event, env) {
       const h = new Date(now).getUTCHours(), mm = new Date(now).getUTCMinutes();
       const isRefreshTime = (h === 0 && mm >= 10 && mm < 12) || (h === 12 && mm < 2) || (h === 20 && mm < 2);
       if (isRefreshTime) {
-        try { await refreshDailyInfo(env); } catch (e) { /* ignore */ }
+        try { await refreshDailyInfo(env, 'cron:' + String(h).padStart(2,'0') + ':' + String(mm).padStart(2,'0') + 'UTC'); } catch (e) { /* ignore */ }
       }
     }
 
