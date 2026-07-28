@@ -56,7 +56,7 @@ async function handleRequest(request, env) {
     }
 
     // GET /dailyinfo  →  exchange rates (BCB oficial + cripto) + Santa Cruz weather
-    // Cached in KV, refreshed by cron 3×/day (7am/12pm/6pm Bolivia). Lazy-refresh if stale.
+    // Cached in KV, refreshed by cron 3×/day (8:10pm/8am/4pm Bolivia). Lazy-refresh if stale.
     if (p === '/dailyinfo' && request.method === 'GET') {
       let info = JSON.parse(await env.LBP_KV.get('dailyinfo_v2') || 'null');
       const force = url.searchParams.get('force') === '1';
@@ -957,11 +957,14 @@ async function refreshDailyInfo(env) {
 async function scheduledHandler(event, env) {
     const now = Date.now();
 
-    // Daily info refresh 3×/day: 7am, 12pm, 6pm Bolivia = 11:00, 16:00, 22:00 UTC.
+    // Daily info refresh 3×/day: 8:10pm, 8am, 4pm Bolivia = 00:10, 12:00, 20:00 UTC.
+    // 8:10pm is right AFTER the BCB publishes the official rate (8pm Bolivia),
+    // so the cache carries the fresh value into the 8am briefing (12:00 UTC).
     // Runs before the syncKeys early-return so it works regardless of registry.
     {
       const h = new Date(now).getUTCHours(), mm = new Date(now).getUTCMinutes();
-      if ((h === 11 || h === 16 || h === 22) && mm < 2) {
+      const isRefreshTime = (h === 0 && mm >= 10 && mm < 12) || (h === 12 && mm < 2) || (h === 20 && mm < 2);
+      if (isRefreshTime) {
         try { await refreshDailyInfo(env); } catch (e) { /* ignore */ }
       }
     }
