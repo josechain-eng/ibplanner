@@ -22,7 +22,7 @@
 <script>
 (function() {
   // ── Version ──────────────────────────────────────────────────────────────
-  window.LBP_VERSION = '4.89';
+  window.LBP_VERSION = '4.90';
 
   // ── PWA Install prompt ───────────────────────────────────────────────────
   window._installPrompt = null;
@@ -15961,7 +15961,7 @@ var SyncSettingsButton = function SyncSettingsButton(_ref_ssb) {
       onClick: function(e){ if(e.target === e.currentTarget) setOpen(false); }
     },
       /*#__PURE__*/React.createElement('div', {
-        style: { background:'var(--surface)', borderRadius:16, padding:24, maxWidth:420, width:'100%', boxShadow:'0 8px 40px rgba(0,0,0,0.5)' }
+        style: { background:'var(--surface)', borderRadius:16, padding:24, maxWidth:420, width:'100%', maxHeight:'calc(100vh - 32px)', overflowY:'auto', boxShadow:'0 8px 40px rgba(0,0,0,0.5)' }
       },
         /*#__PURE__*/React.createElement('div', { style:{display:'flex',alignItems:'center',justifyContent:'space-between',marginBottom:18} },
           /*#__PURE__*/React.createElement('h3', { style:{margin:0, fontSize:16, color:'var(--text-primary)'} }, '☁️ Cloud Sync & Notifications'),
