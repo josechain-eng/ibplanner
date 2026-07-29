@@ -73,17 +73,6 @@ async function handleRequest(request, env) {
       return json({ count: log.length, log: log.slice().reverse() });
     }
 
-    // GET /debug-bcb  →  TEMPORAL: probar la ruta de Jina desde el Worker
-    if (p === '/debug-bcb' && request.method === 'GET') {
-      const attempts = [];
-      try {
-        const r = await fetch('https://r.jina.ai/https://www.bcb.gob.bo/', { headers: { 'User-Agent': 'Mozilla/5.0', 'Accept': 'text/plain', 'X-Return-Format': 'text' } });
-        const t = await r.text();
-        const m = t.match(/Bolivianos por d[oó]lar estadounidense[\s\S]{0,140}?([0-9]{1,2}[.,][0-9]{2})/i);
-        attempts.push({ url: 'r.jina.ai/bcb', status: r.status, len: t.length, match: m ? m[1] : null, snippet: (function(){ var i = t.indexOf('Bolivianos por'); return i >= 0 ? t.slice(i, i + 120) : t.slice(0, 200); })() });
-      } catch (e) { attempts.push({ url: 'r.jina.ai/bcb', error: String(e && e.message) }); }
-      return json({ attempts });
-    }
 
     // POST /sync  →  save full data blob for a sync key
     if (p === '/sync' && request.method === 'POST') {
@@ -934,13 +923,21 @@ async function refreshDailyInfo(env, trigger) {
   // desde su propia infra y devuelve texto. Sin lag (DolarAPI se atrasa ~13h). En el texto,
   // el valor aparece como: "Bolivianos por dólar estadounidense" <fecha> <valor NN,NN>.
   try {
-    const txt = await (await fetch('https://r.jina.ai/https://www.bcb.gob.bo/', { headers: { 'User-Agent': 'Mozilla/5.0', 'Accept': 'text/plain', 'X-Return-Format': 'text' } })).text();
-    const m = txt && txt.match(/Bolivianos por d[oó]lar estadounidense[\s\S]{0,140}?([0-9]{1,2}[.,][0-9]{2})/i);
-    if (m) {
-      const v = parseFloat(m[1].replace(',', '.'));
-      if (isFinite(v) && v > 1 && v < 100) { info.bcb = { venta: v, compra: v }; bcbSource = 'bcb'; }
+    const jinaHeaders = { 'User-Agent': 'Mozilla/5.0', 'Accept': 'text/plain', 'X-Return-Format': 'text' };
+    // Opcional: secret JINA_API_KEY sube el límite (por-clave, no por-IP compartida). Sin él funciona igual.
+    if (env.JINA_API_KEY) jinaHeaders['Authorization'] = 'Bearer ' + env.JINA_API_KEY;
+    let txt = '';
+    for (let attempt = 0; attempt < 2 && !bcbSource; attempt++) {
+      if (attempt) await new Promise(r => setTimeout(r, 1500)); // reintento si el 1º dio 429/vacío
+      const resp = await fetch('https://r.jina.ai/https://www.bcb.gob.bo/', { headers: jinaHeaders });
+      txt = await resp.text();
+      const m = txt && txt.match(/Bolivianos por d[oó]lar estadounidense[\s\S]{0,140}?([0-9]{1,2}[.,][0-9]{2})/i);
+      if (m) {
+        const v = parseFloat(m[1].replace(',', '.'));
+        if (isFinite(v) && v > 1 && v < 100) { info.bcb = { venta: v, compra: v }; bcbSource = 'bcb'; }
+      }
     }
-    if (!bcbSource) errs.push('bcb-jina:no-match');
+    if (!bcbSource) errs.push('bcb-jina:no-match:' + (txt || '').replace(/\s+/g, ' ').slice(0, 50));
   } catch (e) { errs.push('bcb-jina:' + (e && e.message)); }
 
   // DolarAPI: cripto/paralelo siempre; y RESPALDO del oficial solo si el BCB falló.
