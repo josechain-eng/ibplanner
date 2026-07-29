@@ -22,7 +22,7 @@
 <script>
 (function() {
   // ── Version ──────────────────────────────────────────────────────────────
-  window.LBP_VERSION = '4.88';
+  window.LBP_VERSION = '4.89';
 
   // ── PWA Install prompt ───────────────────────────────────────────────────
   window._installPrompt = null;
@@ -3692,11 +3692,11 @@ var HomeScreen = function HomeScreen(_ref14) {
     setDiBusy(true);
     fetch(window.LBP_WORKER_URL+'/dailyinfo?force=1')
       .then(function(r){return r&&r.ok?r.json():null;})
-      .then(function(j){ if(j&&!j.error){setDiData(j);try{localStorage.setItem('lbp_dailyinfo2',JSON.stringify({data:j,fetchedAt:Date.now()}));}catch(e){}} })
+      .then(function(j){ if(j&&!j.error){setDiData(j);try{localStorage.setItem('lbp_dailyinfo3',JSON.stringify({data:j,fetchedAt:Date.now()}));}catch(e){}} })
       .catch(function(){}).then(function(){setDiBusy(false);});
   };
   useEffect(function(){
-    var cached=null; try{cached=JSON.parse(localStorage.getItem('lbp_dailyinfo2')||'null');}catch(e){}
+    var cached=null; try{cached=JSON.parse(localStorage.getItem('lbp_dailyinfo3')||'null');}catch(e){}
     if(cached&&cached.data)setDiData(cached.data);
     if(!window.LBP_WORKER_URL)return;
     var age=cached?Date.now()-(cached.fetchedAt||0):Infinity;
@@ -3704,7 +3704,7 @@ var HomeScreen = function HomeScreen(_ref14) {
     fetch(window.LBP_WORKER_URL+'/dailyinfo')
       .then(function(r){return r&&r.ok?r.json():null;})
       .then(function(j){
-        if(j&&!j.error){setDiData(j);try{localStorage.setItem('lbp_dailyinfo2',JSON.stringify({data:j,fetchedAt:Date.now()}));}catch(e){}}
+        if(j&&!j.error){setDiData(j);try{localStorage.setItem('lbp_dailyinfo3',JSON.stringify({data:j,fetchedAt:Date.now()}));}catch(e){}}
       }).catch(function(){});
   },[]);
   useEffect(function(){
