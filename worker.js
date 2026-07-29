@@ -1,14 +1,14 @@
-// ═══════════════════════════════════════════════════════════════
-// Life Business Planner 2026 — Cloudflare Worker
+// \u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550
+// Life Business Planner 2026 \u2014 Cloudflare Worker
 // Handles: data sync, push subscriptions, alarm scheduling
-// ═══════════════════════════════════════════════════════════════
+// \u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550
 
-// ── VAPID keys (generated, do not change) ──────────────────────
+// \u2500\u2500 VAPID keys (generated, do not change) \u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500
 const VAPID_PUBLIC_KEY = 'BApPK_6j13xSMZOEpBPK2lUtfH02sSarLJ8469bpbULrUYe4u4mMnNTG8QNUl2FajsOZo_D2CohQ98j1HzArmD0';
 const VAPID_PRIVATE_JWK = {"key_ops":["sign"],"ext":true,"kty":"EC","x":"Ck8r_qPXfFIxk4SkE8raVS18fTaxJqssnzjr1ultQus","y":"UYe4u4mMnNTG8QNUl2FajsOZo_D2CohQ98j1HzArmD0","crv":"P-256","d":"-X7F-ZLnRwC0O8pjVQO7vjhYKmAQUsDR-f50nF2epuo"};
 const VAPID_SUBJECT = 'mailto:admin@lifeplanner.app';
 
-// ── CORS headers ───────────────────────────────────────────────
+// \u2500\u2500 CORS headers \u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500
 const CORS = {
   'Access-Control-Allow-Origin': '*',
   'Access-Control-Allow-Methods': 'GET,POST,DELETE,OPTIONS',
@@ -22,12 +22,12 @@ function json(data, status = 200) {
   });
 }
 
-// ── Main export ────────────────────────────────────────────────
+// \u2500\u2500 Main export \u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500
 export default {
-  // ── HTTP handler ─────────────────────────────────────────────
+  // \u2500\u2500 HTTP handler \u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500
   async fetch(request, env) {
     // Global try-catch: any unhandled exception returns a CORS-enabled error.
-    // Without this, Cloudflare's own 500 page has no CORS headers → browser
+    // Without this, Cloudflare's own 500 page has no CORS headers \u2192 browser
     // blocks the response and the app sees "CORS policy" errors for every request.
     try {
       return await handleRequest(request, env);
@@ -37,26 +37,26 @@ export default {
     }
   },
 
-  // ── Cron handler — runs every minute ─────────────────────────
+  // \u2500\u2500 Cron handler \u2014 runs every minute \u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500
   async scheduled(event, env) {
     return scheduledHandler(event, env);
   },
 };
 
-// ── Separated so the try-catch above can wrap everything cleanly ──
+// \u2500\u2500 Separated so the try-catch above can wrap everything cleanly \u2500\u2500
 async function handleRequest(request, env) {
     if (request.method === 'OPTIONS') return new Response(null, { headers: CORS });
 
     const url = new URL(request.url);
     const p = url.pathname;
 
-    // GET /vapid-key  →  return public key so app can subscribe
+    // GET /vapid-key  \u2192  return public key so app can subscribe
     if (p === '/vapid-key' && request.method === 'GET') {
       return json({ key: VAPID_PUBLIC_KEY });
     }
 
-    // GET /dailyinfo  →  exchange rates (BCB oficial + cripto) + Santa Cruz weather
-    // Cached in KV, refreshed by cron 3×/day (8:10pm/8am/4pm Bolivia). Lazy-refresh if stale.
+    // GET /dailyinfo  \u2192  exchange rates (BCB oficial + cripto) + Santa Cruz weather
+    // Cached in KV, refreshed by cron 3\u00d7/day (8:10pm/8am/4pm Bolivia). Lazy-refresh if stale.
     if (p === '/dailyinfo' && request.method === 'GET') {
       let info = JSON.parse(await env.LBP_KV.get('dailyinfo_v2') || 'null');
       const force = url.searchParams.get('force') === '1';
@@ -67,14 +67,14 @@ async function handleRequest(request, env) {
       return json(info || { error: 'no data yet' });
     }
 
-    // GET /dailyinfo-log  →  diagnóstico: últimos refrescos (hora, disparador, valor, fecha de la fuente, errores)
+    // GET /dailyinfo-log  \u2192  diagn\u00f3stico: \u00faltimos refrescos (hora, disparador, valor, fecha de la fuente, errores)
     if (p === '/dailyinfo-log' && request.method === 'GET') {
       const log = JSON.parse(await env.LBP_KV.get('dailyinfo_log') || '[]');
       return json({ count: log.length, log: log.slice().reverse() });
     }
 
 
-    // POST /sync  →  save full data blob for a sync key
+    // POST /sync  \u2192  save full data blob for a sync key
     if (p === '/sync' && request.method === 'POST') {
       const { syncKey, data } = await request.json();
       if (!syncKey) return json({ error: 'missing syncKey' }, 400);
@@ -93,7 +93,7 @@ async function handleRequest(request, env) {
       return json({ ok: true, sizeMB });
     }
 
-    // GET /sync?key=…  →  load data blob
+    // GET /sync?key=\u2026  \u2192  load data blob
     if (p === '/sync' && request.method === 'GET') {
       const syncKey = url.searchParams.get('key');
       if (!syncKey) return json({ error: 'missing key' }, 400);
@@ -101,7 +101,7 @@ async function handleRequest(request, env) {
       return json({ data: raw ? JSON.parse(raw) : null });
     }
 
-    // POST /subscribe  →  store push subscription for a sync key
+    // POST /subscribe  \u2192  store push subscription for a sync key
     if (p === '/subscribe' && request.method === 'POST') {
       const { syncKey, subscription } = await request.json();
       if (!syncKey || !subscription) return json({ error: 'missing fields' }, 400);
@@ -113,7 +113,7 @@ async function handleRequest(request, env) {
       return json({ ok: true });
     }
 
-    // POST /alarm  →  schedule an alarm (single, kept for compatibility)
+    // POST /alarm  \u2192  schedule an alarm (single, kept for compatibility)
     if (p === '/alarm' && request.method === 'POST') {
       const { syncKey, alarmId, triggerAt, title, body, vibration } = await request.json();
       if (!syncKey) return json({ error: 'missing syncKey' }, 400);
@@ -125,7 +125,7 @@ async function handleRequest(request, env) {
       return json({ ok: true });
     }
 
-    // POST /alarms/batch  →  replace ALL alarms for a syncKey in ONE KV write (preferred)
+    // POST /alarms/batch  \u2192  replace ALL alarms for a syncKey in ONE KV write (preferred)
     if (p === '/alarms/batch' && request.method === 'POST') {
       const { syncKey, alarms } = await request.json();
       if (!syncKey || !Array.isArray(alarms)) return json({ error: 'missing fields' }, 400);
@@ -134,7 +134,7 @@ async function handleRequest(request, env) {
       return json({ ok: true });
     }
 
-    // DELETE /alarm?key=…&id=…  →  cancel an alarm
+    // DELETE /alarm?key=\u2026&id=\u2026  \u2192  cancel an alarm
     if (p === '/alarm' && request.method === 'DELETE') {
       const syncKey = url.searchParams.get('key');
       const alarmId = url.searchParams.get('id');
@@ -144,7 +144,7 @@ async function handleRequest(request, env) {
       return json({ ok: true });
     }
 
-    // GET /list-alarms?key=…  →  list stored alarms (diagnostic)
+    // GET /list-alarms?key=\u2026  \u2192  list stored alarms (diagnostic)
     if (p === '/list-alarms' && request.method === 'GET') {
       const syncKey = url.searchParams.get('key');
       if (!syncKey) return json({ error: 'missing key' }, 400);
@@ -153,7 +153,7 @@ async function handleRequest(request, env) {
       return json({ alarms, alarmCount: alarms.length, subscriptionCount: subs.length });
     }
 
-    // POST /test-push  →  immediately push to all devices for a syncKey (diagnostic)
+    // POST /test-push  \u2192  immediately push to all devices for a syncKey (diagnostic)
     if (p === '/test-push' && request.method === 'POST') {
       const { syncKey } = await request.json();
       if (!syncKey) return json({ error: 'missing syncKey' }, 400);
@@ -162,7 +162,7 @@ async function handleRequest(request, env) {
       let sent = 0, failed = 0;
       for (const sub of subs) {
         try {
-          await sendPush(sub, { title: 'Test Push from Cloud ☁️', body: 'Cloudflare → phone pipeline is working!', alarmId: 'test_' + Date.now(), vibration: 'long' });
+          await sendPush(sub, { title: 'Test Push from Cloud \u2601\ufe0f', body: 'Cloudflare \u2192 phone pipeline is working!', alarmId: 'test_' + Date.now(), vibration: 'long' });
           sent++;
         } catch(e) {
           failed++;
@@ -175,9 +175,9 @@ async function handleRequest(request, env) {
       return json({ sent, failed, total: subs.length });
     }
 
-    // GET /rebuild-registry  →  one-time fix: seed synckeys_registry from KV.list()
+    // GET /rebuild-registry  \u2192  one-time fix: seed synckeys_registry from KV.list()
     // Call this ONCE from Cloud Settings if the registry is empty after a fresh deploy.
-    // Do NOT call this on a schedule — it burns list operations.
+    // Do NOT call this on a schedule \u2014 it burns list operations.
     if (p === '/rebuild-registry' && request.method === 'GET') {
       const existing = JSON.parse(await env.LBP_KV.get('synckeys_registry') || '[]');
       const { keys } = await env.LBP_KV.list({ prefix: 'alarms:' });
@@ -189,7 +189,7 @@ async function handleRequest(request, env) {
       return json({ ok: true, syncKeys: merged, wasEmpty: existing.length === 0 });
     }
 
-    // GET /debug-smart?key=  →  shows what smart notifications would fire NOW (no push sent)
+    // GET /debug-smart?key=  \u2192  shows what smart notifications would fire NOW (no push sent)
     if (p === '/debug-smart' && request.method === 'GET') {
       const syncKey = url.searchParams.get('key');
       if (!syncKey) return json({ error: 'missing key param' }, 400);
@@ -249,7 +249,7 @@ async function handleRequest(request, env) {
       });
     }
 
-    // GET /check-sub?key=…&endpoint=…  →  verify a subscription is still in KV
+    // GET /check-sub?key=\u2026&endpoint=\u2026  \u2192  verify a subscription is still in KV
     // Used by the app on startup / visibilitychange to detect silently-expired subs
     if (p === '/check-sub' && request.method === 'GET') {
       const syncKey = url.searchParams.get('key');
@@ -260,7 +260,7 @@ async function handleRequest(request, env) {
       return json({ found, count: subs.length });
     }
 
-    // POST /chat  →  proxy to Claude API (key stored as Worker secret ANTHROPIC_API_KEY)
+    // POST /chat  \u2192  proxy to Claude API (key stored as Worker secret ANTHROPIC_API_KEY)
     if (p === '/chat' && request.method === 'POST') {
       const apiKey = env.ANTHROPIC_API_KEY;
       if (!apiKey) return json({ error: 'ANTHROPIC_API_KEY not set.' }, 500);
@@ -270,7 +270,7 @@ async function handleRequest(request, env) {
       return json({ content });
     }
 
-    // GET /briefing-ai?key=&date=  →  returns today's AI-generated briefing from KV
+    // GET /briefing-ai?key=&date=  \u2192  returns today's AI-generated briefing from KV
     if (p === '/briefing-ai' && request.method === 'GET') {
       const syncKey = url.searchParams.get('key');
       const date = url.searchParams.get('date') || new Date().toISOString().slice(0, 10);
@@ -280,7 +280,7 @@ async function handleRequest(request, env) {
       return json({ ready: true, briefing: stored, date });
     }
 
-    // POST /analyze-doc  →  send a stored file to Claude for intelligent analysis
+    // POST /analyze-doc  \u2192  send a stored file to Claude for intelligent analysis
     if (p === '/analyze-doc' && request.method === 'POST') {
       const apiKey = env.ANTHROPIC_API_KEY;
       if (!apiKey) return json({ error: 'ANTHROPIC_API_KEY not set.' }, 500);
@@ -313,20 +313,20 @@ async function handleRequest(request, env) {
 
       if (!isPdf && !isImage) return json({ error: 'Only PDF and image files are supported for analysis' }, 400);
 
-      const systemPrompt = 'Eres un asistente de análisis de documentos para un gerente de mall (Ventura Mall, Bolivia). Analiza el documento y extrae información estructurada. Responde SOLO con JSON válido, sin texto adicional.';
+      const systemPrompt = 'Eres un asistente de an\u00e1lisis de documentos para un gerente de mall (Ventura Mall, Bolivia). Analiza el documento y extrae informaci\u00f3n estructurada. Responde SOLO con JSON v\u00e1lido, sin texto adicional.';
 
       const userPrompt = `Analiza este documento (${fileName}) y devuelve un JSON con esta estructura exacta:
 {
   "summary": ["punto clave 1", "punto clave 2", ...],
-  "dates": [{"date": "YYYY-MM-DD o descripción", "description": "qué significa esta fecha"}],
-  "obligations": ["obligación o compromiso 1", ...],
+  "dates": [{"date": "YYYY-MM-DD o descripci\u00f3n", "description": "qu\u00e9 significa esta fecha"}],
+  "obligations": ["obligaci\u00f3n o compromiso 1", ...],
   "parties": ["parte involucrada 1", ...],
-  "title": "título o tema del documento",
+  "title": "t\u00edtulo o tema del documento",
   "docType": "contrato|factura|propuesta|informe|otro"
 }
 
 Si no hay fechas, dates=[] ; si no hay obligaciones, obligations=[] ; etc.
-Máximo 6 items por lista. Sé conciso y específico.`;
+M\u00e1ximo 6 items por lista. S\u00e9 conciso y espec\u00edfico.`;
 
       let contentBlocks;
       if (isPdf) {
@@ -376,12 +376,12 @@ Máximo 6 items por lista. Sé conciso y específico.`;
       }
     }
 
-    // GET /briefing  →  daily briefing summary (tasks, projects, meetings, alarms)
-    // No syncKey needed — reads registry and picks freshest data blob.
+    // GET /briefing  \u2192  daily briefing summary (tasks, projects, meetings, alarms)
+    // No syncKey needed \u2014 reads registry and picks freshest data blob.
     if (p === '/briefing' && request.method === 'GET') {
       const now = Date.now();
       const registry = JSON.parse(await env.LBP_KV.get('synckeys_registry') || '[]');
-      if (!registry.length) return json({ error: 'no registry found — open the app first' }, 404);
+      if (!registry.length) return json({ error: 'no registry found \u2014 open the app first' }, 404);
 
       // Pick the freshest data blob across all devices
       let bestData = null;
@@ -398,7 +398,7 @@ Máximo 6 items por lista. Sé conciso y específico.`;
         const alarmRaw = await env.LBP_KV.get(`alarms:${syncKey}`);
         if (alarmRaw) {
           const alarms = JSON.parse(alarmRaw);
-          // Count alarms for TODAY (Bolivia UTC-4) — both already fired and upcoming
+          // Count alarms for TODAY (Bolivia UTC-4) \u2014 both already fired and upcoming
           const boliviaNow = now - 4 * 3600 * 1000;
           const todayBO = new Date(boliviaNow);
           todayBO.setUTCHours(0, 0, 0, 0);
@@ -408,19 +408,19 @@ Máximo 6 items por lista. Sé conciso y específico.`;
         }
       }
 
-      if (!bestData) return json({ error: 'no synced data found — open the app and sync' }, 404);
+      if (!bestData) return json({ error: 'no synced data found \u2014 open the app and sync' }, 404);
 
-      // Tasks — only non-DONE (status 'INBOX' is the active state used by the app)
+      // Tasks \u2014 only non-DONE (status 'INBOX' is the active state used by the app)
       const tasks = (bestData.tasks || [])
         .filter(t => t.status !== 'DONE' && t.status !== 'done' && t.status !== 'completed' && !t.completed)
         .map(t => ({ title: t.title || t.name, status: t.status, priority: t.priority, dueDate: t.dueDate }));
 
-      // Projects — active (not completed/archived/done)
+      // Projects \u2014 active (not completed/archived/done)
       const projects = (bestData.projects || [])
         .filter(pr => pr.status !== 'DONE' && pr.status !== 'done' && pr.status !== 'completed' && pr.status !== 'archived')
         .map(pr => ({ name: pr.name || pr.title, status: pr.status, department: pr.department }));
 
-      // Meetings — today and upcoming
+      // Meetings \u2014 today and upcoming
       const todayStr = new Date().toISOString().slice(0, 10);
       const meetings = (bestData.meetings || [])
         .filter(m => (m.date || '') >= todayStr)
@@ -428,12 +428,12 @@ Máximo 6 items por lista. Sé conciso y específico.`;
         .slice(0, 10)
         .map(m => ({ title: m.title || m.name, date: m.date, time: m.time, location: m.location }));
 
-      // Goals — active
+      // Goals \u2014 active
       const goals = (bestData.goals || [])
         .filter(g => g.status !== 'completed' && g.status !== 'done')
         .map(g => ({ title: g.title || g.name, progress: g.progress, dueDate: g.dueDate }));
 
-      // Habits — active
+      // Habits \u2014 active
       const habits = (bestData.habits || [])
         .filter(h => h.active !== false)
         .map(h => ({ name: h.name || h.title, frequency: h.frequency }));
@@ -449,7 +449,7 @@ Máximo 6 items por lista. Sé conciso y específico.`;
       });
     }
 
-    // ── GET /file-stats?key=  — R2 storage usage for this syncKey ──
+    // \u2500\u2500 GET /file-stats?key=  \u2014 R2 storage usage for this syncKey \u2500\u2500
     if (p === '/file-stats' && request.method === 'GET') {
       const syncKey = url.searchParams.get('key');
       if (!syncKey) return json({ error: 'missing key' }, 400);
@@ -468,7 +468,7 @@ Máximo 6 items por lista. Sé conciso y específico.`;
       return json({ r2: true, totalBytes, fileCount: files.length, files, usedPercent: Math.round(totalBytes / R2_FREE_BYTES * 100 * 10) / 10, freeGB: 10 });
     }
 
-    // ── POST /file  — upload file to R2 (or KV fallback) for cross-device access ──
+    // \u2500\u2500 POST /file  \u2014 upload file to R2 (or KV fallback) for cross-device access \u2500\u2500
     // R2: no per-file size limit (~75 MB practical max via Worker transfer).
     // KV fallback: used only if LBP_R2 binding is not configured (~15 MB limit).
     if (p === '/file' && request.method === 'POST') {
@@ -482,14 +482,14 @@ Máximo 6 items por lista. Sé conciso y específico.`;
           customMetadata: { name: body.name || '', mime: body.mime || '' }
         });
       } else {
-        // KV fallback: 25 MB value limit → ~15 MB file cap
-        if (body.data.length > 22 * 1024 * 1024) return json({ error: 'file too large for cloud sync — add R2 binding for larger files' }, 413);
+        // KV fallback: 25 MB value limit \u2192 ~15 MB file cap
+        if (body.data.length > 22 * 1024 * 1024) return json({ error: 'file too large for cloud sync \u2014 add R2 binding for larger files' }, 413);
         await env.LBP_KV.put(`file:${body.syncKey}:${body.fileId}`, val, { expirationTtl: 365 * 24 * 3600 });
       }
       return json({ ok: true });
     }
 
-    // ── GET /file?key=&id=  — retrieve file from R2 (or KV fallback) ──
+    // \u2500\u2500 GET /file?key=&id=  \u2014 retrieve file from R2 (or KV fallback) \u2500\u2500
     if (p === '/file' && request.method === 'GET') {
       const syncKey = url.searchParams.get('key');
       const fileId  = url.searchParams.get('id');
@@ -505,7 +505,7 @@ Máximo 6 items por lista. Sé conciso y específico.`;
       }
     }
 
-    // ── DELETE /file?key=&id=  — remove file from R2 (or KV fallback) ──
+    // \u2500\u2500 DELETE /file?key=&id=  \u2014 remove file from R2 (or KV fallback) \u2500\u2500
     if (p === '/file' && request.method === 'DELETE') {
       const syncKey = url.searchParams.get('key');
       const fileId  = url.searchParams.get('id');
@@ -518,7 +518,7 @@ Máximo 6 items por lista. Sé conciso y específico.`;
       return json({ ok: true });
     }
 
-    // POST /backup?key=…&date=…  →  store daily backup snapshot in KV (kept 30 days)
+    // POST /backup?key=\u2026&date=\u2026  \u2192  store daily backup snapshot in KV (kept 30 days)
     if (p === '/backup' && request.method === 'POST') {
       const key = url.searchParams.get('key');
       const date = url.searchParams.get('date') || new Date().toISOString().slice(0,10);
@@ -529,7 +529,7 @@ Máximo 6 items por lista. Sé conciso y específico.`;
       return json({ ok: true, date: date, bytes: body.length });
     }
 
-    // GET /backups?key=…  →  list available backup dates
+    // GET /backups?key=\u2026  \u2192  list available backup dates
     if (p === '/backups' && request.method === 'GET') {
       const key = url.searchParams.get('key');
       if (!key) return json({ error: 'missing key' }, 400);
@@ -539,7 +539,7 @@ Máximo 6 items por lista. Sé conciso y específico.`;
       return json({ dates: dates });
     }
 
-    // GET /backup?key=…&date=…  →  retrieve a specific backup
+    // GET /backup?key=\u2026&date=\u2026  \u2192  retrieve a specific backup
     if (p === '/backup' && request.method === 'GET') {
       const key = url.searchParams.get('key');
       const date = url.searchParams.get('date');
@@ -552,9 +552,9 @@ Máximo 6 items por lista. Sé conciso y específico.`;
     return new Response('Not found', { status: 404, headers: CORS });
 }
 
-// ── Registry helper — tracks known syncKeys using get/put instead of list() ──
+// \u2500\u2500 Registry helper \u2014 tracks known syncKeys using get/put instead of list() \u2500\u2500
 // list() costs 1 op each call; get() costs 1 op from a 100k/day quota.
-// We call scheduledHandler every minute (1,440×/day) so list() burns the
+// We call scheduledHandler every minute (1,440\u00d7/day) so list() burns the
 // 1,000 list-op free-tier limit before 17:00 every day.
 async function registerSyncKey(env, syncKey) {
   const registry = JSON.parse(await env.LBP_KV.get('synckeys_registry') || '[]');
@@ -626,20 +626,20 @@ async function sendSmartNotif(env, syncKeys, type, todayStr, tomorrowStr) {
           { role: 'user', content: 'Datos de hoy (' + todayStr + ') para el gerente del Ventura Mall:\n' + JSON.stringify(ctx, null, 2) + '\n\nEscribe un briefing matutino ESTRUCTURADO en espa\u00f1ol. USA SOLO datos reales del JSON, NO inventes nada. Formato EXACTO (texto plano, sin markdown, sin asteriscos, sin guiones extra):\n\nREUNIONES HOY: [lista por hora y nombre, o \'ninguna\']\nTAREAS VENCIDAS (3 mas antiguas): [nombre + fecha vencida de cada una]\nHOY EN AGENDA: [tareas con fecha de hoy, o \'ninguna\']\nRECIEN AGREGADAS: [tareas de los ultimos 3 dias que requieren atencion, o \'ninguna\']\n\nMantener conciso. Cada seccion en una linea. Nombres exactos de las tareas/reuniones.' }
         ], 'Eres el asistente ejecutivo del Ventura Mall (La Paz, Bolivia). Das briefings matutinos estructurados en texto plano sin markdown. USA SOLO datos reales provistos, NO inventes nada.', 450);
 
-        // Conserva los saltos de línea (colapsa múltiples a uno) para que las secciones queden separadas
+        // Conserva los saltos de l\u00ednea (colapsa m\u00faltiples a uno) para que las secciones queden separadas
         const stripMd = (s) => s.replace(/#{1,6}\s*/g,'').replace(/\*{1,3}([^*]+)\*{1,3}/g,'$1').replace(/^-{2,}\s*$/gm,'').replace(/^>\s*/gm,'').replace(/[ \t]{2,}/g,' ').replace(/\n{2,}/g,'\n').trim();
         if (aiText && aiText.trim().length > 10) {
-          // Notificación (push): emojis por sección para que escanee mejor
+          // Notificaci\u00f3n (push): emojis por secci\u00f3n para que escanee mejor
           const pushBody = stripMd(aiText)
-            .replace(/^REUNIONES/mi, '📅 REUNIONES')
-            .replace(/^TAREAS VENCIDAS/mi, '⚠️ TAREAS VENCIDAS')
-            .replace(/^HOY EN AGENDA/mi, '📋 HOY EN AGENDA')
-            .replace(/^RECI[EÉ]N AGREGADAS/mi, '🆕 RECIÉN AGREGADAS');
-          // Primera línea: tipo de cambio oficial (BCB) desde dailyinfo_v2
+            .replace(/^REUNIONES/mi, '\ud83d\udcc5 REUNIONES')
+            .replace(/^TAREAS VENCIDAS/mi, '\u26a0\ufe0f TAREAS VENCIDAS')
+            .replace(/^HOY EN AGENDA/mi, '\ud83d\udccb HOY EN AGENDA')
+            .replace(/^RECI[E\u00c9]N AGREGADAS/mi, '\ud83c\udd95 RECI\u00c9N AGREGADAS');
+          // Primera l\u00ednea: tipo de cambio oficial (BCB) desde dailyinfo_v2
           let tcLine = '';
           try {
             const di = JSON.parse(await env.LBP_KV.get('dailyinfo_v2') || 'null');
-            if (di && di.bcb && di.bcb.venta != null) tcLine = '💵 TC oficial: Bs ' + Number(di.bcb.venta).toFixed(2) + '\n';
+            if (di && di.bcb && di.bcb.venta != null) tcLine = '\ud83d\udcb5 TC oficial: Bs ' + Number(di.bcb.venta).toFixed(2) + '\n';
           } catch (e) { /* sin TC si falla */ }
           body = (tcLine + pushBody).slice(0, 600);
           const fullBriefing = JSON.stringify({
@@ -710,7 +710,7 @@ async function sendSmartNotif(env, syncKeys, type, todayStr, tomorrowStr) {
         const open = allTasks.filter(t => t.status !== 'DONE').length;
         const recentDone = allTasks.filter(t => t.status === 'DONE' && t.updatedAt && (Date.now() - t.updatedAt) < 7 * 86400000).length;
         title = '\uD83D\uDCCA Resumen semanal';
-        body = `${recentDone} completadas esta semana · ${open} pendientes — ¡sigue así!`;
+        body = `${recentDone} completadas esta semana \u00b7 ${open} pendientes \u2014 \u00a1sigue as\u00ed!`;
 
       } else if (type === 'stale_alarms') {
         // Tasks with fired alarms that are still open (1-14 days overdue)
@@ -726,11 +726,11 @@ async function sendSmartNotif(env, syncKeys, type, todayStr, tomorrowStr) {
         const days = Math.floor((now - new Date(oldest.alarm.datetime).getTime()) / 86400000);
         title = '\u23F0 Tareas con alarma sin completar';
         body = stale.length === 1
-          ? `"${oldest.title}" — alarma de hace ${days} día${days>1?'s':''}, sigue abierta`
+          ? `"${oldest.title}" \u2014 alarma de hace ${days} d\u00eda${days>1?'s':''}, sigue abierta`
           : `${stale.length} tareas con alarma pasada siguen abiertas`;
 
       } else if (type === 'meeting_followup') {
-        // Meetings from past 1-14 days without followup — fires daily per unresolved meeting
+        // Meetings from past 1-14 days without followup \u2014 fires daily per unresolved meeting
         const cutoff14 = new Date(now - 14 * 86400000).toISOString().slice(0, 10);
         const pastMeetings = (data.meetings || []).filter(m => m.date >= cutoff14 && m.date < todayStr);
         if (!pastMeetings.length) continue;
@@ -772,7 +772,7 @@ async function sendSmartNotif(env, syncKeys, type, todayStr, tomorrowStr) {
         if (!stagnant.length) continue;
         title = '\uD83D\uDCCB Proyectos sin actividad';
         body = stagnant.length === 1
-          ? `"${stagnant[0].name}" lleva más de 10 días sin actualizaciones`
+          ? `"${stagnant[0].name}" lleva m\u00e1s de 10 d\u00edas sin actualizaciones`
           : `${stagnant.length} proyectos activos sin actividad reciente`;
 
       } else if (type === 'client_health') {
@@ -788,8 +788,8 @@ async function sendSmartNotif(env, syncKeys, type, todayStr, tomorrowStr) {
         if (!neglected.length) continue;
         title = '\uD83D\uDC65 Clientes sin contacto reciente';
         body = neglected.length === 1
-          ? `"${neglected[0].name || neglected[0].company}" — más de 30 días sin reunión`
-          : `${neglected.length} clientes activos sin reunión en 30+ días`;
+          ? `"${neglected[0].name || neglected[0].company}" \u2014 m\u00e1s de 30 d\u00edas sin reuni\u00f3n`
+          : `${neglected.length} clientes activos sin reuni\u00f3n en 30+ d\u00edas`;
       }
 
       if (!title) continue;
@@ -811,9 +811,9 @@ async function sendSmartNotif(env, syncKeys, type, todayStr, tomorrowStr) {
   }
 }
 
-// ═══════════════════════════════════════════════════════════════
+// \u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550
 // Daily info: exchange rates (BCB oficial + cripto P2P) + Santa Cruz weather
-// ═══════════════════════════════════════════════════════════════
+// \u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550
 function _median(nums) {
   const a = nums.filter(n => isFinite(n)).sort((x, y) => x - y);
   if (!a.length) return null;
@@ -832,34 +832,34 @@ async function _fetchBinanceP2P(tradeType) {
   return _median(prices.slice(0, 6));
 }
 
-// WMO weathercode → emoji (fallback open-meteo)
+// WMO weathercode \u2192 emoji (fallback open-meteo)
 function _wmoEmoji(c) {
-  if (c === 0) return '☀️';
-  if (c === 1 || c === 2) return '⛅';
-  if (c === 3) return '☁️';
-  if (c >= 45 && c <= 48) return '🌫️';
-  if (c >= 51 && c <= 67) return '🌧️';
-  if (c >= 71 && c <= 77) return '🌨️';
-  if (c >= 80 && c <= 82) return '🌦️';
-  if (c >= 95) return '⛈️';
-  return '🌤️';
+  if (c === 0) return '\u2600\ufe0f';
+  if (c === 1 || c === 2) return '\u26c5';
+  if (c === 3) return '\u2601\ufe0f';
+  if (c >= 45 && c <= 48) return '\ud83c\udf2b\ufe0f';
+  if (c >= 51 && c <= 67) return '\ud83c\udf27\ufe0f';
+  if (c >= 71 && c <= 77) return '\ud83c\udf28\ufe0f';
+  if (c >= 80 && c <= 82) return '\ud83c\udf26\ufe0f';
+  if (c >= 95) return '\u26c8\ufe0f';
+  return '\ud83c\udf24\ufe0f';
 }
 
-// Condición (texto alt de Meteored) → emoji. El orden importa (lluvia antes que "parcial").
+// Condici\u00f3n (texto alt de Meteored) \u2192 emoji. El orden importa (lluvia antes que "parcial").
 function _meteoEmoji(alt) {
   const a = (alt || '').toLowerCase();
-  if (a.indexOf('torment') >= 0) return '⛈️';
-  if (a.indexOf('chubasc') >= 0) return '🌦️';
-  if (a.indexOf('lluvia') >= 0 || a.indexOf('llovizna') >= 0) return '🌧️';
-  if (a.indexOf('nieve') >= 0) return '🌨️';
-  if (a.indexOf('niebla') >= 0 || a.indexOf('neblina') >= 0 || a.indexOf('bruma') >= 0) return '🌫️';
-  if (a.indexOf('parcial') >= 0 || a.indexOf('claros') >= 0 || a.indexOf('poco nub') >= 0) return '⛅';
-  if (a.indexOf('cubierto') >= 0 || a.indexOf('nuboso') >= 0 || a.indexOf('nublado') >= 0 || a.indexOf('nubes') >= 0) return '☁️';
-  if (a.indexOf('despejado') >= 0 || a.indexOf('sol') >= 0) return '☀️';
-  return '🌤️';
+  if (a.indexOf('torment') >= 0) return '\u26c8\ufe0f';
+  if (a.indexOf('chubasc') >= 0) return '\ud83c\udf26\ufe0f';
+  if (a.indexOf('lluvia') >= 0 || a.indexOf('llovizna') >= 0) return '\ud83c\udf27\ufe0f';
+  if (a.indexOf('nieve') >= 0) return '\ud83c\udf28\ufe0f';
+  if (a.indexOf('niebla') >= 0 || a.indexOf('neblina') >= 0 || a.indexOf('bruma') >= 0) return '\ud83c\udf2b\ufe0f';
+  if (a.indexOf('parcial') >= 0 || a.indexOf('claros') >= 0 || a.indexOf('poco nub') >= 0) return '\u26c5';
+  if (a.indexOf('cubierto') >= 0 || a.indexOf('nuboso') >= 0 || a.indexOf('nublado') >= 0 || a.indexOf('nubes') >= 0) return '\u2601\ufe0f';
+  if (a.indexOf('despejado') >= 0 || a.indexOf('sol') >= 0) return '\u2600\ufe0f';
+  return '\ud83c\udf24\ufe0f';
 }
 
-// Meteored (meteored.com.bo) — pronóstico 7 días, tomamos 3 (Hoy, Mañana, +1).
+// Meteored (meteored.com.bo) \u2014 pron\u00f3stico 7 d\u00edas, tomamos 3 (Hoy, Ma\u00f1ana, +1).
 // Datos correctos para Santa Cruz. Devuelve {days:[{label,max,min,emoji}], nowTemp} o null.
 async function _fetchMeteoredWeather() {
   const html = await (await fetch('https://www.meteored.com.bo/tiempo-en_Santa+Cruz+de+la+Sierra-America+Sur-Bolivia-Santa+Cruz--1-17636.html', {
@@ -874,13 +874,13 @@ async function _fetchMeteoredWeather() {
   const cm = html.match(/dato-temperatura[^>]*data-weather="([\d.\-]+)/);
   if (cm) nowTemp = Math.round(parseFloat(cm[1]));
 
-  // tarjetas de días (grid-item dia d1..d7)
+  // tarjetas de d\u00edas (grid-item dia d1..d7)
   const marks = [...html.matchAll(/class="grid-item dia d\d/g)].map(m => m.index);
   if (!marks.length) return null;
   const seg = html.slice(marks[0], marks[marks.length - 1] + 3000);
   const tiles = seg.split(/class="grid-item dia d\d[^"]*"/).slice(1);
-  const decode = s => s.replace(/&ntilde;/g, 'ñ').replace(/&aacute;/g, 'á').replace(/&eacute;/g, 'é')
-    .replace(/&iacute;/g, 'í').replace(/&oacute;/g, 'ó').replace(/&uacute;/g, 'ú');
+  const decode = s => s.replace(/&ntilde;/g, '\u00f1').replace(/&aacute;/g, '\u00e1').replace(/&eacute;/g, '\u00e9')
+    .replace(/&iacute;/g, '\u00ed').replace(/&oacute;/g, '\u00f3').replace(/&uacute;/g, '\u00fa');
   const days = [];
   for (let i = 0; i < Math.min(tiles.length, 3); i++) {
     const t = tiles[i];
@@ -891,7 +891,7 @@ async function _fetchMeteoredWeather() {
     const pM = t.match(/probabilidad[^>]*>\s*(\d+)%/);
     if (!mxM || !mnM) continue;
     days.push({
-      label: labM ? decode(labM[1].trim()) : (i === 0 ? 'Hoy' : (i === 1 ? 'Mañana' : '')),
+      label: labM ? decode(labM[1].trim()) : (i === 0 ? 'Hoy' : (i === 1 ? 'Ma\u00f1ana' : '')),
       max: Math.round(parseFloat(mxM[1])),
       min: Math.round(parseFloat(mnM[1])),
       emoji: _meteoEmoji(altM ? altM[1] : ''),
@@ -913,17 +913,17 @@ async function refreshDailyInfo(env, trigger) {
 
   // 1+2. Tipo de cambio: oficial (BCB) + cripto/paralelo. Fuente principal: DolarAPI Bolivia.
   // (fetch directo a bcb.gob.bo / p2p.binance.com FALLA desde Cloudflare: bloquean IPs de datacenter.
-  //  DolarAPI es una API pública que sí responde a Workers.)
+  //  DolarAPI es una API p\u00fablica que s\u00ed responde a Workers.)
   const errs = [];
   let dolarFecha = null;   // fechaActualizacion que reporta DolarAPI para el oficial
   let bcbSource = null;    // 'bcb' (directo, sin lag) | 'dolarapi' (respaldo, ~13h de retraso)
 
-  // PRIMARIO oficial: BCB vía proxy lector r.jina.ai. bcb.gob.bo responde 429 (challenge)
-  // a las IPs de datacenter de Cloudflare, así que el fetch directo NO sirve; Jina lo trae
+  // PRIMARIO oficial: BCB v\u00eda proxy lector r.jina.ai. bcb.gob.bo responde 429 (challenge)
+  // a las IPs de datacenter de Cloudflare, as\u00ed que el fetch directo NO sirve; Jina lo trae
   // desde su propia infra y devuelve texto. Sin lag (DolarAPI se atrasa ~13h). En el texto,
-  // el valor aparece como: "Bolivianos por dólar estadounidense" <fecha> <valor NN,NN>.
-  // (1) dolarbluebolivia.click (directo, SIN rate limit, mismo día, más estable que Jina).
-  //     Astro server-render: el oficial está en <span class="faq-official">Bs 11.80</span>.
+  // el valor aparece como: "Bolivianos por d\u00f3lar estadounidense" <fecha> <valor NN,NN>.
+  // (1) dolarbluebolivia.click (directo, SIN rate limit, mismo d\u00eda, m\u00e1s estable que Jina).
+  //     Astro server-render: el oficial est\u00e1 en <span class="faq-official">Bs 11.80</span>.
   try {
     const h2 = await (await fetch('https://www.dolarbluebolivia.click/', { headers: { 'User-Agent': 'Mozilla/5.0' } })).text();
     const m = h2 && h2.match(/faq-official[^>]*>\s*Bs\s*([0-9]{1,2}[.,][0-9]{2})/i);
@@ -931,20 +931,20 @@ async function refreshDailyInfo(env, trigger) {
     if (!bcbSource) errs.push('dolarblue:no-match');
   } catch (e) { errs.push('dolarblue:' + (e && e.message)); }
 
-  // (2) BCB real vía proxy lector r.jina.ai (autoritativo, pero inestable: 429 / render variable).
-  //     Solo si dolarblue falló. Opcional secret JINA_API_KEY sube el límite (por-clave).
+  // (2) BCB real v\u00eda proxy lector r.jina.ai (autoritativo, pero inestable: 429 / render variable).
+  //     Solo si dolarblue fall\u00f3. Opcional secret JINA_API_KEY sube el l\u00edmite (por-clave).
   if (!bcbSource) {
     try {
       const jinaHeaders = { 'User-Agent': 'Mozilla/5.0', 'Accept': 'text/plain', 'X-Return-Format': 'text' };
       if (env.JINA_API_KEY) jinaHeaders['Authorization'] = 'Bearer ' + env.JINA_API_KEY;
       const txt = await (await fetch('https://r.jina.ai/https://www.bcb.gob.bo/', { headers: jinaHeaders })).text();
-      const m = txt && txt.match(/Bolivianos por d[oó]lar estadounidense[\s\S]{0,140}?([0-9]{1,2}[.,][0-9]{2})/i);
+      const m = txt && txt.match(/Bolivianos por d[o\u00f3]lar estadounidense[\s\S]{0,140}?([0-9]{1,2}[.,][0-9]{2})/i);
       if (m) { const v = parseFloat(m[1].replace(',', '.')); if (isFinite(v) && v > 1 && v < 100) { info.bcb = { venta: v, compra: v }; bcbSource = 'bcb-jina'; } }
       if (!bcbSource) errs.push('jina:no-match:' + (txt || '').replace(/\s+/g, ' ').slice(0, 40));
     } catch (e) { errs.push('jina:' + (e && e.message)); }
   }
 
-  // DolarAPI: cripto/paralelo siempre; y RESPALDO del oficial solo si el BCB falló.
+  // DolarAPI: cripto/paralelo siempre; y RESPALDO del oficial solo si el BCB fall\u00f3.
   try {
     const arr = await (await fetch('https://bo.dolarapi.com/v1/dolares', { headers: { 'User-Agent': 'Mozilla/5.0' } })).json();
     if (Array.isArray(arr)) {
@@ -966,7 +966,7 @@ async function refreshDailyInfo(env, trigger) {
   }
   info._errors = errs;
 
-  // 3. Clima Santa Cruz — PRIMARIO: Meteored (datos correctos). FALLBACK: open-meteo.
+  // 3. Clima Santa Cruz \u2014 PRIMARIO: Meteored (datos correctos). FALLBACK: open-meteo.
   let mtWeather = null;
   try { mtWeather = await _fetchMeteoredWeather(); } catch (e) { errs.push('meteored:' + (e && e.message)); }
   if (mtWeather && mtWeather.days.length) {
@@ -978,7 +978,7 @@ async function refreshDailyInfo(env, trigger) {
       const d = w.daily;
       if (d && d.time) {
         info.weather = d.time.slice(0, 3).map((t, i) => ({
-          label: i === 0 ? 'Hoy' : (i === 1 ? 'Mañana' : ['dom','lun','mar','mié','jue','vie','sáb'][new Date(t + 'T00:00').getDay()]),
+          label: i === 0 ? 'Hoy' : (i === 1 ? 'Ma\u00f1ana' : ['dom','lun','mar','mi\u00e9','jue','vie','s\u00e1b'][new Date(t + 'T00:00').getDay()]),
           max: Math.round(d.temperature_2m_max[i]),
           min: Math.round(d.temperature_2m_min[i]),
           emoji: _wmoEmoji(d.weathercode[i]),
@@ -990,9 +990,9 @@ async function refreshDailyInfo(env, trigger) {
 
   await env.LBP_KV.put('dailyinfo_v2', JSON.stringify(info));
 
-  // Diagnóstico: una entrada por refresco (rolling, últimas 40). Permite ver CUÁNDO
-  // corrió cada refresco, qué valor devolvió DolarAPI, su propio fechaActualizacion,
-  // y cualquier error — para saber si el refresco de las 7am corrió y qué trajo.
+  // Diagn\u00f3stico: una entrada por refresco (rolling, \u00faltimas 40). Permite ver CU\u00c1NDO
+  // corri\u00f3 cada refresco, qu\u00e9 valor devolvi\u00f3 DolarAPI, su propio fechaActualizacion,
+  // y cualquier error \u2014 para saber si el refresco de las 7am corri\u00f3 y qu\u00e9 trajo.
   try {
     const log = JSON.parse(await env.LBP_KV.get('dailyinfo_log') || '[]');
     log.push({
@@ -1014,7 +1014,7 @@ async function refreshDailyInfo(env, trigger) {
 async function scheduledHandler(event, env) {
     const now = Date.now();
 
-    // Daily info refresh 3×/day: 8:10pm, 8am, 4pm Bolivia = 00:10, 12:00, 20:00 UTC.
+    // Daily info refresh 3\u00d7/day: 8:10pm, 8am, 4pm Bolivia = 00:10, 12:00, 20:00 UTC.
     // 8:10pm is right AFTER the BCB publishes the official rate (8pm Bolivia),
     // so the cache carries the fresh value into the 8am briefing (12:00 UTC).
     // Runs before the syncKeys early-return so it works regardless of registry.
@@ -1026,7 +1026,7 @@ async function scheduledHandler(event, env) {
       }
     }
 
-    // NEVER call KV.list() here — free tier allows only 1,000 list ops/day
+    // NEVER call KV.list() here \u2014 free tier allows only 1,000 list ops/day
     // but the cron fires 1,440 times/day. Using list() in the cron exhausts
     // the quota before noon every day.
     // If the registry is empty, skip silently. It gets populated automatically
@@ -1047,7 +1047,7 @@ async function scheduledHandler(event, env) {
           try {
             await sendPush(sub, { title: alarm.title, body: alarm.body, alarmId: alarm.alarmId, vibration: alarm.vibration || 'long' });
           } catch (e) {
-            // Subscription expired — remove it
+            // Subscription expired \u2014 remove it
             if (e.status === 404 || e.status === 410) {
               const updated = subs.filter(s => s.endpoint !== sub.endpoint);
               await env.LBP_KV.put(`subs:${syncKey}`, JSON.stringify(updated));
@@ -1077,7 +1077,7 @@ async function scheduledHandler(event, env) {
     if (utcH === 1 && utcM < 2) {
       await sendSmartNotif(env, syncKeys, 'habits', todayUTC, tomorrowUTC);
     }
-    // Deadline alerts: 21:00 UTC = 5pm Bolivia (UTC-4) — one push per entry
+    // Deadline alerts: 21:00 UTC = 5pm Bolivia (UTC-4) \u2014 one push per entry
     if (utcH === 21 && utcM < 2) {
       await sendSmartNotif(env, syncKeys, 'deadlines', todayUTC, tomorrowUTC);
     }
@@ -1086,7 +1086,7 @@ async function scheduledHandler(event, env) {
       await sendSmartNotif(env, syncKeys, 'weekly', todayUTC, tomorrowUTC);
     }
 
-    // ── Intelligent Alerts (Bolivia UTC-4) ────────────────────────────────
+    // \u2500\u2500 Intelligent Alerts (Bolivia UTC-4) \u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500
     // Stale alarms: Mon-Fri 10am Bolivia = 14:00 UTC
     if (utcH === 14 && utcM < 2 && utcDow >= 1 && utcDow <= 5) {
       await sendSmartNotif(env, syncKeys, 'stale_alarms', todayUTC, tomorrowUTC);
@@ -1102,9 +1102,9 @@ async function scheduledHandler(event, env) {
     }
 }
 
-// ═══════════════════════════════════════════════════════════════
+// \u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550
 // Web Push implementation (RFC 8030 + RFC 8291 aes128gcm + VAPID)
-// ═══════════════════════════════════════════════════════════════
+// \u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550
 
 function b64u(buf) {
   return btoa(String.fromCharCode(...new Uint8Array(buf)))
@@ -1193,7 +1193,7 @@ async function sendPush(subscription, data) {
       'Content-Encoding': 'aes128gcm',
       'Content-Type': 'application/octet-stream',
       'TTL': '86400',
-      'Urgency': 'high',   // delivers immediately via FCM/APNs → enables heads-up banners on Android
+      'Urgency': 'high',   // delivers immediately via FCM/APNs \u2192 enables heads-up banners on Android
     },
     body,
   });
