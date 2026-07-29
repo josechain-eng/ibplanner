@@ -73,6 +73,24 @@ async function handleRequest(request, env) {
       return json({ count: log.length, log: log.slice().reverse() });
     }
 
+    // GET /debug-bcb  →  TEMPORAL: ver qué HTML recibe el Worker desde bcb.gob.bo
+    if (p === '/debug-bcb' && request.method === 'GET') {
+      const urls = ['https://www.bcb.gob.bo/', 'https://www.bcb.gob.bo/?q=content/tipo-de-cambio-oficial-del-dia'];
+      const hdrs = { 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0 Safari/537.36', 'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8', 'Accept-Language': 'es-BO,es;q=0.9' };
+      const attempts = [];
+      for (const u of urls) {
+        try {
+          const r = await fetch(u, { headers: hdrs });
+          const t = await r.text();
+          const m = t.match(/bcb-tco-num[^>]*>\s*([0-9]+[.,][0-9]+)/i);
+          const nums = (t.match(/[0-9]{2},[0-9]{2}/g) || []).slice(0, 15);
+          const idx = t.toLowerCase().indexOf('tco-num');
+          attempts.push({ url: u, status: r.status, len: t.length, tcoMatch: m ? m[1] : null, numbersFound: nums, snippet: idx >= 0 ? t.slice(Math.max(0, idx - 70), idx + 40) : t.slice(0, 220) });
+        } catch (e) { attempts.push({ url: u, error: String(e && e.message) }); }
+      }
+      return json({ attempts });
+    }
+
     // POST /sync  →  save full data blob for a sync key
     if (p === '/sync' && request.method === 'POST') {
       const { syncKey, data } = await request.json();
@@ -921,8 +939,13 @@ async function refreshDailyInfo(env, trigger) {
   // DolarAPI recién refleja el valor a media mañana del día siguiente). El BCB sirve
   // el valor en su HTML como <span class="bcb-tco-num">11,80</span>.
   try {
-    const html = await (await fetch('https://www.bcb.gob.bo/', { headers: { 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0 Safari/537.36' } })).text();
-    const m = html && html.match(/bcb-tco-num[^>]*>\s*([0-9]+[.,][0-9]+)/i);
+    const _bcbHeaders = { 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0 Safari/537.36', 'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8', 'Accept-Language': 'es-BO,es;q=0.9' };
+    let html = await (await fetch('https://www.bcb.gob.bo/', { headers: _bcbHeaders })).text();
+    let m = html && html.match(/bcb-tco-num[^>]*>\s*([0-9]+[.,][0-9]+)/i);
+    if (!m) { // reintento con la página específica del TCO del día
+      html = await (await fetch('https://www.bcb.gob.bo/?q=content/tipo-de-cambio-oficial-del-dia', { headers: _bcbHeaders })).text();
+      m = html && html.match(/bcb-tco-num[^>]*>\s*([0-9]+[.,][0-9]+)/i);
+    }
     if (m) {
       const v = parseFloat(m[1].replace(',', '.'));
       if (isFinite(v)) { info.bcb = { venta: v, compra: v }; bcbSource = 'bcb'; }
