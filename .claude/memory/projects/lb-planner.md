@@ -1,6 +1,13 @@
 # Life & Business Planner 2026
 
-**Status:** Active, **v4.88**
+**Status:** Active, **v4.90**
+
+## Sesión 29-jul-2026 (v4.88→4.90) — resumen
+- **v4.88:** clima mojibake (worker→ASCII puro) + notificación repetida en cada refresh (dedup en `CHECK_MISSED` sw.js + persistir `alarmId+'_missed'` en `lbp_shown_alarms` antes de postear). Confirmado por Pepe: tarea "Pedir Claudia..." ya no se repite.
+- **v4.89:** clima seguía mojibake en el cel porque la app cacheaba el dato viejo (<3.5h no re-fetchea). Fix: bump de clave de cache `lbp_dailyinfo2`→`lbp_dailyinfo3` → re-fetch fresco una vez. Confirmado OK.
+- **v4.90:** modal Cloud & Sync cubría toda la pantalla SIN scroll (no se veía la versión al fondo). Fix: `maxHeight:'calc(100vh - 32px)' + overflowY:'auto'` en el contenedor interno (~línea 15964). El número de versión `vX.XX` vive al FONDO de ese modal.
+- **También:** worker Opus 5 global (thinking disabled), cadena TC oficial dolarblue→Jina→DolarAPI, Goal Clarity Coach (fases 1-3) + hitos en Goals. Todo confirmado en vivo.
+- Backups v4.90 creados en `backups/` (HTML+worker+sw, 20260729).
 
 ## Fixes v4.88 (2 bugs)
 1. **Clima con mojibake (¸õÖ, Ma√±ana):** el copy-paste del `worker.js` al editor de Cloudflare corrompía los emojis LITERALES del clima (`_wmoEmoji`/`_meteoEmoji` devolvían `'☀️'` etc.) y la ñ. Fix: **todo el `worker.js` se convirtió a ASCII puro** (non-ASCII → `\uXXXX`) → inmune a corrupción de paste. Script usado: iterar por codepoint, `\u`+charCodeAt por code unit. Verificado `_wmoEmoji(0)='☀️'` + regex dólar OK. **Requiere re-deploy del worker.**
