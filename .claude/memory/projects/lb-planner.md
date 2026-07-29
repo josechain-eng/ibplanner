@@ -6,7 +6,7 @@
 1. **Clima con mojibake (¸õÖ, Ma√±ana):** el copy-paste del `worker.js` al editor de Cloudflare corrompía los emojis LITERALES del clima (`_wmoEmoji`/`_meteoEmoji` devolvían `'☀️'` etc.) y la ñ. Fix: **todo el `worker.js` se convirtió a ASCII puro** (non-ASCII → `\uXXXX`) → inmune a corrupción de paste. Script usado: iterar por codepoint, `\u`+charCodeAt por code unit. Verificado `_wmoEmoji(0)='☀️'` + regex dólar OK. **Requiere re-deploy del worker.**
 2. **Notificación repetida en cada refresh del cel:** `CHECK_MISSED` en sw.js no tenía dedup y el `visibilitychange` (HTML ~3532) disparaba missed alarms (ventana 4h) en cada foco sin marcarlas como mostradas. Fix: app persiste `alarmId+'_missed'` en `lbp_shown_alarms` ANTES de postear; SW deduplica CHECK_MISSED vía cache `lbp-fired-v1` (patrón igual a periodicsync). Va por GitHub Pages (HTML+sw.js).
 **File:** `LifeBusinessPlanner2026.html` (~795KB)
-**Hosted:** josechain-eng.github.io/lbplanner/LifeBusinessPlanner2026.html
+**Hosted:** josechain-eng.github.io/**ibplanner**/LifeBusinessPlanner2026.html (⚠️ repo=`ibplanner`, NO `lbplanner` — /lbplanner/ da 404. Verificado 29-jul: /ibplanner/ sirve v4.88+)
 **Worker:** https://life-planner.josechain.workers.dev
 
 ## Recent version history (v4.60+)
