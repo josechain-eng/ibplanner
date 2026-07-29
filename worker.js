@@ -73,21 +73,15 @@ async function handleRequest(request, env) {
       return json({ count: log.length, log: log.slice().reverse() });
     }
 
-    // GET /debug-bcb  →  TEMPORAL: ver qué HTML recibe el Worker desde bcb.gob.bo
+    // GET /debug-bcb  →  TEMPORAL: probar la ruta de Jina desde el Worker
     if (p === '/debug-bcb' && request.method === 'GET') {
-      const urls = ['https://www.bcb.gob.bo/', 'https://www.bcb.gob.bo/?q=content/tipo-de-cambio-oficial-del-dia'];
-      const hdrs = { 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0 Safari/537.36', 'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8', 'Accept-Language': 'es-BO,es;q=0.9' };
       const attempts = [];
-      for (const u of urls) {
-        try {
-          const r = await fetch(u, { headers: hdrs });
-          const t = await r.text();
-          const m = t.match(/bcb-tco-num[^>]*>\s*([0-9]+[.,][0-9]+)/i);
-          const nums = (t.match(/[0-9]{2},[0-9]{2}/g) || []).slice(0, 15);
-          const idx = t.toLowerCase().indexOf('tco-num');
-          attempts.push({ url: u, status: r.status, len: t.length, tcoMatch: m ? m[1] : null, numbersFound: nums, snippet: idx >= 0 ? t.slice(Math.max(0, idx - 70), idx + 40) : t.slice(0, 220) });
-        } catch (e) { attempts.push({ url: u, error: String(e && e.message) }); }
-      }
+      try {
+        const r = await fetch('https://r.jina.ai/https://www.bcb.gob.bo/', { headers: { 'User-Agent': 'Mozilla/5.0', 'Accept': 'text/plain', 'X-Return-Format': 'text' } });
+        const t = await r.text();
+        const m = t.match(/Bolivianos por d[oó]lar estadounidense[\s\S]{0,140}?([0-9]{1,2}[.,][0-9]{2})/i);
+        attempts.push({ url: 'r.jina.ai/bcb', status: r.status, len: t.length, match: m ? m[1] : null, snippet: (function(){ var i = t.indexOf('Bolivianos por'); return i >= 0 ? t.slice(i, i + 120) : t.slice(0, 200); })() });
+      } catch (e) { attempts.push({ url: 'r.jina.ai/bcb', error: String(e && e.message) }); }
       return json({ attempts });
     }
 
@@ -935,23 +929,19 @@ async function refreshDailyInfo(env, trigger) {
   let dolarFecha = null;   // fechaActualizacion que reporta DolarAPI para el oficial
   let bcbSource = null;    // 'bcb' (directo, sin lag) | 'dolarapi' (respaldo, ~13h de retraso)
 
-  // PRIMARIO oficial: BCB directo. DolarAPI se atrasa ~13h (el BCB publica 8pm pero
-  // DolarAPI recién refleja el valor a media mañana del día siguiente). El BCB sirve
-  // el valor en su HTML como <span class="bcb-tco-num">11,80</span>.
+  // PRIMARIO oficial: BCB vía proxy lector r.jina.ai. bcb.gob.bo responde 429 (challenge)
+  // a las IPs de datacenter de Cloudflare, así que el fetch directo NO sirve; Jina lo trae
+  // desde su propia infra y devuelve texto. Sin lag (DolarAPI se atrasa ~13h). En el texto,
+  // el valor aparece como: "Bolivianos por dólar estadounidense" <fecha> <valor NN,NN>.
   try {
-    const _bcbHeaders = { 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0 Safari/537.36', 'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8', 'Accept-Language': 'es-BO,es;q=0.9' };
-    let html = await (await fetch('https://www.bcb.gob.bo/', { headers: _bcbHeaders })).text();
-    let m = html && html.match(/bcb-tco-num[^>]*>\s*([0-9]+[.,][0-9]+)/i);
-    if (!m) { // reintento con la página específica del TCO del día
-      html = await (await fetch('https://www.bcb.gob.bo/?q=content/tipo-de-cambio-oficial-del-dia', { headers: _bcbHeaders })).text();
-      m = html && html.match(/bcb-tco-num[^>]*>\s*([0-9]+[.,][0-9]+)/i);
-    }
+    const txt = await (await fetch('https://r.jina.ai/https://www.bcb.gob.bo/', { headers: { 'User-Agent': 'Mozilla/5.0', 'Accept': 'text/plain', 'X-Return-Format': 'text' } })).text();
+    const m = txt && txt.match(/Bolivianos por d[oó]lar estadounidense[\s\S]{0,140}?([0-9]{1,2}[.,][0-9]{2})/i);
     if (m) {
       const v = parseFloat(m[1].replace(',', '.'));
-      if (isFinite(v)) { info.bcb = { venta: v, compra: v }; bcbSource = 'bcb'; }
+      if (isFinite(v) && v > 1 && v < 100) { info.bcb = { venta: v, compra: v }; bcbSource = 'bcb'; }
     }
-    if (!bcbSource) errs.push('bcb:no-match');
-  } catch (e) { errs.push('bcb:' + (e && e.message)); }
+    if (!bcbSource) errs.push('bcb-jina:no-match');
+  } catch (e) { errs.push('bcb-jina:' + (e && e.message)); }
 
   // DolarAPI: cripto/paralelo siempre; y RESPALDO del oficial solo si el BCB falló.
   try {
