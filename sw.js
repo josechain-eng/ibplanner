@@ -198,11 +198,20 @@ self.addEventListener('message', function(e) {
   }
   if (d.type === 'CHECK_MISSED') {
     var now2 = Date.now();
-    (d.alarms || []).forEach(function(a) {
-      var age = now2 - a.triggerAt;
-      if (age >= 0 && age < 3600000) showAlarm(a.title, '(Missed) ' + a.body, 'lbp_m_' + a.alarmId, a.vibration);
-      else if (a.triggerAt > now2) scheduleOne(a.alarmId, a.triggerAt, a.title, a.body, a.vibration);
-    });
+    e.waitUntil(caches.open('lbp-fired-v1').then(function(fc) {
+      return fc.keys().then(function(keys) {
+        var fired = keys.map(function(k) { var pr = k.url.split('/fired/'); return pr[1] ? decodeURIComponent(pr[1]) : ''; });
+        return Promise.all((d.alarms || []).map(function(a) {
+          var age = now2 - a.triggerAt;
+          if (age >= 0 && age < 3600000) {
+            var fkey = 'm_' + a.alarmId;
+            if (fired.indexOf(fkey) !== -1) return;  // ya mostrada antes → no repetir
+            return fc.put(new Request('https://lbp.local/fired/' + encodeURIComponent(fkey)), new Response(String(now2)))
+              .then(function() { return showAlarm(a.title, '(Missed) ' + a.body, 'lbp_m_' + a.alarmId, a.vibration); });
+          } else if (a.triggerAt > now2) { scheduleOne(a.alarmId, a.triggerAt, a.title, a.body, a.vibration); }
+        }));
+      });
+    }).catch(function(){}));
     return;
   }
 });

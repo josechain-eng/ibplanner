@@ -22,7 +22,7 @@
 <script>
 (function() {
   // ── Version ──────────────────────────────────────────────────────────────
-  window.LBP_VERSION = '4.87';
+  window.LBP_VERSION = '4.88';
 
   // ── PWA Install prompt ───────────────────────────────────────────────────
   window._installPrompt = null;
@@ -3533,6 +3533,13 @@ document.addEventListener('visibilitychange', function() {
       var _shownSet;try{_shownSet=new Set(JSON.parse(localStorage.getItem('lbp_shown_alarms')||'[]').map(function(x){return x.k;}));}catch(_){_shownSet=new Set();}
       var _missed = _pend.filter(function(a) { return a.triggerAt <= _now && (_now - a.triggerAt) < 14400000 && !_shownSet.has(a.alarmId) && !_shownSet.has(a.alarmId+'_missed'); });
       if (_missed.length > 0 && 'serviceWorker' in navigator) {
+        // Marcar como mostradas ANTES de disparar, para que el próximo refresh/foco no las repita
+        try {
+          var _lsm = JSON.parse(localStorage.getItem('lbp_shown_alarms') || '[]');
+          _missed.forEach(function(a) { _lsm.push({k: a.alarmId + '_missed', t: _now}); });
+          if (_lsm.length > 200) _lsm = _lsm.slice(-100);
+          localStorage.setItem('lbp_shown_alarms', JSON.stringify(_lsm));
+        } catch(_) {}
         navigator.serviceWorker.ready.then(function(reg) {
           if (reg.active) reg.active.postMessage({type:'CHECK_MISSED', alarms:_missed});
         }).catch(function(){});
