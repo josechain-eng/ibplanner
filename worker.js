@@ -914,14 +914,30 @@ async function refreshDailyInfo(env, trigger) {
   // (fetch directo a bcb.gob.bo / p2p.binance.com FALLA desde Cloudflare: bloquean IPs de datacenter.
   //  DolarAPI es una API pública que sí responde a Workers.)
   const errs = [];
-  let dolarFecha = null; // fechaActualizacion que reporta DolarAPI para el oficial
+  let dolarFecha = null;   // fechaActualizacion que reporta DolarAPI para el oficial
+  let bcbSource = null;    // 'bcb' (directo, sin lag) | 'dolarapi' (respaldo, ~13h de retraso)
+
+  // PRIMARIO oficial: BCB directo. DolarAPI se atrasa ~13h (el BCB publica 8pm pero
+  // DolarAPI recién refleja el valor a media mañana del día siguiente). El BCB sirve
+  // el valor en su HTML como <span class="bcb-tco-num">11,80</span>.
+  try {
+    const html = await (await fetch('https://www.bcb.gob.bo/', { headers: { 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0 Safari/537.36' } })).text();
+    const m = html && html.match(/bcb-tco-num[^>]*>\s*([0-9]+[.,][0-9]+)/i);
+    if (m) {
+      const v = parseFloat(m[1].replace(',', '.'));
+      if (isFinite(v)) { info.bcb = { venta: v, compra: v }; bcbSource = 'bcb'; }
+    }
+    if (!bcbSource) errs.push('bcb:no-match');
+  } catch (e) { errs.push('bcb:' + (e && e.message)); }
+
+  // DolarAPI: cripto/paralelo siempre; y RESPALDO del oficial solo si el BCB falló.
   try {
     const arr = await (await fetch('https://bo.dolarapi.com/v1/dolares', { headers: { 'User-Agent': 'Mozilla/5.0' } })).json();
     if (Array.isArray(arr)) {
       const of = arr.find(x => x.casa === 'oficial');
       const bn = arr.find(x => ['binance', 'cripto', 'blue', 'paralelo'].includes(x.casa));
       if (of) dolarFecha = of.fechaActualizacion || null;
-      if (of && isFinite(of.venta)) info.bcb = { venta: of.venta, compra: of.compra };
+      if (!bcbSource && of && isFinite(of.venta)) { info.bcb = { venta: of.venta, compra: of.compra }; bcbSource = 'dolarapi'; }
       if (bn && isFinite(bn.venta)) info.crypto = { venta: bn.venta, compra: bn.compra };
     }
   } catch (e) { errs.push('dolarapi:' + (e && e.message)); }
@@ -969,6 +985,7 @@ async function refreshDailyInfo(env, trigger) {
       t: new Date().toISOString(),
       trigger: trigger || 'unknown',
       bcbVenta: info.bcb ? info.bcb.venta : null,
+      bcbSource: bcbSource,
       dolarFecha: dolarFecha,
       cryptoVenta: info.crypto ? info.crypto.venta : null,
       errors: errs,
