@@ -922,26 +922,26 @@ async function refreshDailyInfo(env, trigger) {
   // a las IPs de datacenter de Cloudflare, así que el fetch directo NO sirve; Jina lo trae
   // desde su propia infra y devuelve texto. Sin lag (DolarAPI se atrasa ~13h). En el texto,
   // el valor aparece como: "Bolivianos por dólar estadounidense" <fecha> <valor NN,NN>.
-  // (1) BCB real vía proxy lector r.jina.ai (autoritativo). Rate-limit por-IP: si da 429
-  //     cae a la (2). Opcional secret JINA_API_KEY sube el límite (por-clave).
+  // (1) dolarbluebolivia.click (directo, SIN rate limit, mismo día, más estable que Jina).
+  //     Astro server-render: el oficial está en <span class="faq-official">Bs 11.80</span>.
   try {
-    const jinaHeaders = { 'User-Agent': 'Mozilla/5.0', 'Accept': 'text/plain', 'X-Return-Format': 'text' };
-    if (env.JINA_API_KEY) jinaHeaders['Authorization'] = 'Bearer ' + env.JINA_API_KEY;
-    const txt = await (await fetch('https://r.jina.ai/https://www.bcb.gob.bo/', { headers: jinaHeaders })).text();
-    const m = txt && txt.match(/Bolivianos por d[oó]lar estadounidense[\s\S]{0,140}?([0-9]{1,2}[.,][0-9]{2})/i);
-    if (m) { const v = parseFloat(m[1].replace(',', '.')); if (isFinite(v) && v > 1 && v < 100) { info.bcb = { venta: v, compra: v }; bcbSource = 'bcb-jina'; } }
-    if (!bcbSource) errs.push('jina:no-match:' + (txt || '').replace(/\s+/g, ' ').slice(0, 40));
-  } catch (e) { errs.push('jina:' + (e && e.message)); }
+    const h2 = await (await fetch('https://www.dolarbluebolivia.click/', { headers: { 'User-Agent': 'Mozilla/5.0' } })).text();
+    const m = h2 && h2.match(/faq-official[^>]*>\s*Bs\s*([0-9]{1,2}[.,][0-9]{2})/i);
+    if (m) { const v = parseFloat(m[1].replace(',', '.')); if (isFinite(v) && v > 1 && v < 100) { info.bcb = { venta: v, compra: v }; bcbSource = 'dolarblue'; } }
+    if (!bcbSource) errs.push('dolarblue:no-match');
+  } catch (e) { errs.push('dolarblue:' + (e && e.message)); }
 
-  // (2) dolarbluebolivia.click (directo, sin rate limit, mismo día). Astro server-render:
-  //     el oficial está en <span class="faq-official">Bs 11.80</span>.
+  // (2) BCB real vía proxy lector r.jina.ai (autoritativo, pero inestable: 429 / render variable).
+  //     Solo si dolarblue falló. Opcional secret JINA_API_KEY sube el límite (por-clave).
   if (!bcbSource) {
     try {
-      const h2 = await (await fetch('https://www.dolarbluebolivia.click/', { headers: { 'User-Agent': 'Mozilla/5.0' } })).text();
-      const m = h2 && h2.match(/faq-official[^>]*>\s*Bs\s*([0-9]{1,2}[.,][0-9]{2})/i);
-      if (m) { const v = parseFloat(m[1].replace(',', '.')); if (isFinite(v) && v > 1 && v < 100) { info.bcb = { venta: v, compra: v }; bcbSource = 'dolarblue'; } }
-      if (!bcbSource) errs.push('dolarblue:no-match');
-    } catch (e) { errs.push('dolarblue:' + (e && e.message)); }
+      const jinaHeaders = { 'User-Agent': 'Mozilla/5.0', 'Accept': 'text/plain', 'X-Return-Format': 'text' };
+      if (env.JINA_API_KEY) jinaHeaders['Authorization'] = 'Bearer ' + env.JINA_API_KEY;
+      const txt = await (await fetch('https://r.jina.ai/https://www.bcb.gob.bo/', { headers: jinaHeaders })).text();
+      const m = txt && txt.match(/Bolivianos por d[oó]lar estadounidense[\s\S]{0,140}?([0-9]{1,2}[.,][0-9]{2})/i);
+      if (m) { const v = parseFloat(m[1].replace(',', '.')); if (isFinite(v) && v > 1 && v < 100) { info.bcb = { venta: v, compra: v }; bcbSource = 'bcb-jina'; } }
+      if (!bcbSource) errs.push('jina:no-match:' + (txt || '').replace(/\s+/g, ' ').slice(0, 40));
+    } catch (e) { errs.push('jina:' + (e && e.message)); }
   }
 
   // DolarAPI: cripto/paralelo siempre; y RESPALDO del oficial solo si el BCB falló.
