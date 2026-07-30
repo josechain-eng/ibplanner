@@ -1,7 +1,71 @@
 // Life Business Planner 2026 — Service Worker
 
-self.addEventListener('install', function(e) { self.skipWaiting(); });
-self.addEventListener('activate', function(e) { e.waitUntil(self.clients.claim()); });
+// ── OFFLINE app shell ────────────────────────────────────────────────────
+// Precachea el HTML + React (CDN) + iconos para que la app ABRA sin conexión.
+// La data ya es local (localStorage/IDB); esto faltaba: cachear el shell mismo.
+var SHELL_CACHE = 'lbp-shell-v1';
+var _CDN_ASSETS = [
+  'https://cdnjs.cloudflare.com/ajax/libs/react/18.2.0/umd/react.production.min.js',
+  'https://cdnjs.cloudflare.com/ajax/libs/react-dom/18.2.0/umd/react-dom.production.min.js'
+];
+var SHELL_URLS = ['LifeBusinessPlanner2026.html', 'icon-192.png', 'icon-512.png'].concat(_CDN_ASSETS);
+
+self.addEventListener('install', function(e) {
+  self.skipWaiting();
+  e.waitUntil(caches.open(SHELL_CACHE).then(function(cache) {
+    // best-effort por URL: si una falla (p.ej. sin red al instalar), no rompe el resto
+    return Promise.all(SHELL_URLS.map(function(u) { return cache.add(u).catch(function(){}); }));
+  }));
+});
+
+self.addEventListener('activate', function(e) {
+  e.waitUntil(Promise.all([
+    self.clients.claim(),
+    caches.keys().then(function(keys) {
+      return Promise.all(keys.map(function(k) {
+        if (k.indexOf('lbp-shell-') === 0 && k !== SHELL_CACHE) return caches.delete(k);
+      }));
+    })
+  ]));
+});
+
+self.addEventListener('fetch', function(e) {
+  var req = e.request;
+  if (req.method !== 'GET') return;
+  var url;
+  try { url = new URL(req.url); } catch (_) { return; }
+
+  // (1) Navegación / documento HTML → stale-while-revalidate: sirve el HTML cacheado
+  //     al instante (rápido + OFFLINE) y lo refresca en 2º plano cuando hay red.
+  if (req.mode === 'navigate' || (url.origin === self.location.origin && url.pathname.indexOf('.html') !== -1)) {
+    e.respondWith(caches.open(SHELL_CACHE).then(function(cache) {
+      return cache.match(req).then(function(hit) {
+        return hit || cache.match('LifeBusinessPlanner2026.html');
+      }).then(function(cached) {
+        var net = fetch(req).then(function(resp) {
+          if (resp && resp.ok) cache.put('LifeBusinessPlanner2026.html', resp.clone());
+          return resp;
+        }).catch(function() { return cached; });
+        return cached || net;
+      });
+    }));
+    return;
+  }
+
+  // (2) React (CDN) + iconos → cache-first (versionados/estáticos; funcionan offline).
+  var isCdn = _CDN_ASSETS.indexOf(url.href) !== -1;
+  var isIcon = url.origin === self.location.origin && url.pathname.indexOf('.png') !== -1;
+  if (isCdn || isIcon) {
+    e.respondWith(caches.match(req).then(function(cached) {
+      return cached || fetch(req).then(function(resp) {
+        if (resp) { var clone = resp.clone(); caches.open(SHELL_CACHE).then(function(cache) { cache.put(req, clone); }); }
+        return resp;
+      });
+    }));
+    return;
+  }
+  // (3) Resto (worker API, DolarAPI, Google, etc.) → red directa (passthrough).
+});
 
 var _timers = {};
 
