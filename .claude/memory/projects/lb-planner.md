@@ -1,6 +1,11 @@
 # Life & Business Planner 2026
 
-**Status:** Active, **v4.90**
+**Status:** Active, **v4.91**
+
+## Offline (v4.91, 30-jul-2026) — IMPORTANTE
+- **Bug hallado:** el "abrir offline" NUNCA estuvo realmente habilitado. `sw.js` no tenía handler `fetch` ni precache del shell, y **React/ReactDOM se cargan desde CDN** (cdnjs 18.2.0). Offline: el documento no cargaba (red colgada) y aunque cargara, sin React no renderiza. La data sí era local (localStorage/IDB).
+- **Fix:** en `sw.js` — `SHELL_CACHE='lbp-shell-v1'`, precache en install de `['LifeBusinessPlanner2026.html','icon-192.png','icon-512.png', react.production.min.js, react-dom.production.min.js]` (best-effort por URL con `cache.add().catch`), `activate` limpia shells viejos, y handler `fetch`: (1) navegación/HTML → stale-while-revalidate; (2) React CDN + iconos → cache-first; (3) resto (worker API, DolarAPI, Google GSI) → passthrough a la red.
+- ⚠️ **Requiere UNA visita ONLINE tras el deploy** para que el shell se cachee; después abre offline. **Cambio de comportamiento:** el HTML ahora es SWR → tras un deploy nuevo, el usuario ve el HTML anterior en la 1ª carga y el nuevo en la 2ª (la versión "atrasa" una carga). Para forzar update inmediato: 2 refreshes. Si algún día hay que romper cache del shell, subir `lbp-shell-v1`→`v2`.
 
 ## Sesión 29-jul-2026 (v4.88→4.90) — resumen
 - **v4.88:** clima mojibake (worker→ASCII puro) + notificación repetida en cada refresh (dedup en `CHECK_MISSED` sw.js + persistir `alarmId+'_missed'` en `lbp_shown_alarms` antes de postear). Confirmado por Pepe: tarea "Pedir Claudia..." ya no se repite.

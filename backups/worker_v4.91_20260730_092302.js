@@ -1,0 +1,1206 @@
+// \u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550
+// Life Business Planner 2026 \u2014 Cloudflare Worker
+// Handles: data sync, push subscriptions, alarm scheduling
+// \u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550
+
+// \u2500\u2500 VAPID keys (generated, do not change) \u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500
+const VAPID_PUBLIC_KEY = 'BApPK_6j13xSMZOEpBPK2lUtfH02sSarLJ8469bpbULrUYe4u4mMnNTG8QNUl2FajsOZo_D2CohQ98j1HzArmD0';
+const VAPID_PRIVATE_JWK = {"key_ops":["sign"],"ext":true,"kty":"EC","x":"Ck8r_qPXfFIxk4SkE8raVS18fTaxJqssnzjr1ultQus","y":"UYe4u4mMnNTG8QNUl2FajsOZo_D2CohQ98j1HzArmD0","crv":"P-256","d":"-X7F-ZLnRwC0O8pjVQO7vjhYKmAQUsDR-f50nF2epuo"};
+const VAPID_SUBJECT = 'mailto:admin@lifeplanner.app';
+
+// \u2500\u2500 CORS headers \u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500
+const CORS = {
+  'Access-Control-Allow-Origin': '*',
+  'Access-Control-Allow-Methods': 'GET,POST,DELETE,OPTIONS',
+  'Access-Control-Allow-Headers': 'Content-Type',
+};
+
+function json(data, status = 200) {
+  return new Response(JSON.stringify(data), {
+    status,
+    headers: { 'Content-Type': 'application/json', ...CORS },
+  });
+}
+
+// \u2500\u2500 Main export \u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500
+export default {
+  // \u2500\u2500 HTTP handler \u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500
+  async fetch(request, env) {
+    // Global try-catch: any unhandled exception returns a CORS-enabled error.
+    // Without this, Cloudflare's own 500 page has no CORS headers \u2192 browser
+    // blocks the response and the app sees "CORS policy" errors for every request.
+    try {
+      return await handleRequest(request, env);
+    } catch (err) {
+      console.error('Worker unhandled exception:', err && err.message ? err.message : String(err));
+      return json({ error: 'Internal server error', detail: err && err.message ? err.message : String(err) }, 500);
+    }
+  },
+
+  // \u2500\u2500 Cron handler \u2014 runs every minute \u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500
+  async scheduled(event, env) {
+    return scheduledHandler(event, env);
+  },
+};
+
+// \u2500\u2500 Separated so the try-catch above can wrap everything cleanly \u2500\u2500
+async function handleRequest(request, env) {
+    if (request.method === 'OPTIONS') return new Response(null, { headers: CORS });
+
+    const url = new URL(request.url);
+    const p = url.pathname;
+
+    // GET /vapid-key  \u2192  return public key so app can subscribe
+    if (p === '/vapid-key' && request.method === 'GET') {
+      return json({ key: VAPID_PUBLIC_KEY });
+    }
+
+    // GET /dailyinfo  \u2192  exchange rates (BCB oficial + cripto) + Santa Cruz weather
+    // Cached in KV, refreshed by cron 3\u00d7/day (8:10pm/8am/4pm Bolivia). Lazy-refresh if stale.
+    if (p === '/dailyinfo' && request.method === 'GET') {
+      let info = JSON.parse(await env.LBP_KV.get('dailyinfo_v2') || 'null');
+      const force = url.searchParams.get('force') === '1';
+      const stale = !info || force || (Date.now() - (info.updatedAt || 0) > 5 * 3600 * 1000);
+      if (stale) {
+        try { info = await refreshDailyInfo(env, force ? 'force' : 'lazy'); } catch (e) { /* keep old cache */ }
+      }
+      return json(info || { error: 'no data yet' });
+    }
+
+    // GET /dailyinfo-log  \u2192  diagn\u00f3stico: \u00faltimos refrescos (hora, disparador, valor, fecha de la fuente, errores)
+    if (p === '/dailyinfo-log' && request.method === 'GET') {
+      const log = JSON.parse(await env.LBP_KV.get('dailyinfo_log') || '[]');
+      return json({ count: log.length, log: log.slice().reverse() });
+    }
+
+
+    // POST /sync  \u2192  save full data blob for a sync key
+    if (p === '/sync' && request.method === 'POST') {
+      const { syncKey, data } = await request.json();
+      if (!syncKey) return json({ error: 'missing syncKey' }, 400);
+      const serialized = JSON.stringify(data);
+      const MAX_BYTES = 20 * 1024 * 1024; // 20 MB safety limit (KV hard limit is 25 MB)
+      if (serialized.length > MAX_BYTES) {
+        const sizeMB = (serialized.length / (1024 * 1024)).toFixed(1);
+        return json({
+          error: 'Data too large',
+          detail: `Your data blob is ${sizeMB} MB (limit: 20 MB). Clear old brainstorm sessions or attachments to reduce size.`,
+          sizeMB
+        }, 413);
+      }
+      await env.LBP_KV.put(`data:${syncKey}`, serialized, { expirationTtl: 60 * 60 * 24 * 365 });
+      const sizeMB = (serialized.length / (1024 * 1024)).toFixed(2);
+      return json({ ok: true, sizeMB });
+    }
+
+    // GET /sync?key=\u2026  \u2192  load data blob
+    if (p === '/sync' && request.method === 'GET') {
+      const syncKey = url.searchParams.get('key');
+      if (!syncKey) return json({ error: 'missing key' }, 400);
+      const raw = await env.LBP_KV.get(`data:${syncKey}`);
+      return json({ data: raw ? JSON.parse(raw) : null });
+    }
+
+    // POST /subscribe  \u2192  store push subscription for a sync key
+    if (p === '/subscribe' && request.method === 'POST') {
+      const { syncKey, subscription } = await request.json();
+      if (!syncKey || !subscription) return json({ error: 'missing fields' }, 400);
+      const existing = JSON.parse(await env.LBP_KV.get(`subs:${syncKey}`) || '[]');
+      const filtered = existing.filter(s => s.endpoint !== subscription.endpoint);
+      filtered.push(subscription);
+      await env.LBP_KV.put(`subs:${syncKey}`, JSON.stringify(filtered), { expirationTtl: 60 * 60 * 24 * 365 });
+      await registerSyncKey(env, syncKey);
+      return json({ ok: true });
+    }
+
+    // POST /alarm  \u2192  schedule an alarm (single, kept for compatibility)
+    if (p === '/alarm' && request.method === 'POST') {
+      const { syncKey, alarmId, triggerAt, title, body, vibration } = await request.json();
+      if (!syncKey) return json({ error: 'missing syncKey' }, 400);
+      const alarms = JSON.parse(await env.LBP_KV.get(`alarms:${syncKey}`) || '[]');
+      const filtered = alarms.filter(a => a.alarmId !== alarmId);
+      filtered.push({ alarmId, triggerAt, title, body, vibration: vibration || 'long' });
+      await env.LBP_KV.put(`alarms:${syncKey}`, JSON.stringify(filtered), { expirationTtl: 60 * 60 * 24 * 365 });
+      await registerSyncKey(env, syncKey);
+      return json({ ok: true });
+    }
+
+    // POST /alarms/batch  \u2192  replace ALL alarms for a syncKey in ONE KV write (preferred)
+    if (p === '/alarms/batch' && request.method === 'POST') {
+      const { syncKey, alarms } = await request.json();
+      if (!syncKey || !Array.isArray(alarms)) return json({ error: 'missing fields' }, 400);
+      await env.LBP_KV.put(`alarms:${syncKey}`, JSON.stringify(alarms), { expirationTtl: 60 * 60 * 24 * 365 });
+      await registerSyncKey(env, syncKey);
+      return json({ ok: true });
+    }
+
+    // DELETE /alarm?key=\u2026&id=\u2026  \u2192  cancel an alarm
+    if (p === '/alarm' && request.method === 'DELETE') {
+      const syncKey = url.searchParams.get('key');
+      const alarmId = url.searchParams.get('id');
+      if (!syncKey) return json({ error: 'missing key' }, 400);
+      const alarms = JSON.parse(await env.LBP_KV.get(`alarms:${syncKey}`) || '[]');
+      await env.LBP_KV.put(`alarms:${syncKey}`, JSON.stringify(alarms.filter(a => a.alarmId !== alarmId)));
+      return json({ ok: true });
+    }
+
+    // GET /list-alarms?key=\u2026  \u2192  list stored alarms (diagnostic)
+    if (p === '/list-alarms' && request.method === 'GET') {
+      const syncKey = url.searchParams.get('key');
+      if (!syncKey) return json({ error: 'missing key' }, 400);
+      const alarms = JSON.parse(await env.LBP_KV.get(`alarms:${syncKey}`) || '[]');
+      const subs = JSON.parse(await env.LBP_KV.get(`subs:${syncKey}`) || '[]');
+      return json({ alarms, alarmCount: alarms.length, subscriptionCount: subs.length });
+    }
+
+    // POST /test-push  \u2192  immediately push to all devices for a syncKey (diagnostic)
+    if (p === '/test-push' && request.method === 'POST') {
+      const { syncKey } = await request.json();
+      if (!syncKey) return json({ error: 'missing syncKey' }, 400);
+      const subs = JSON.parse(await env.LBP_KV.get(`subs:${syncKey}`) || '[]');
+      if (!subs.length) return json({ error: 'no subscriptions registered for this syncKey', hint: 'Open the app on this device, go to Cloud Settings and tap Re-register' }, 404);
+      let sent = 0, failed = 0;
+      for (const sub of subs) {
+        try {
+          await sendPush(sub, { title: 'Test Push from Cloud \u2601\ufe0f', body: 'Cloudflare \u2192 phone pipeline is working!', alarmId: 'test_' + Date.now(), vibration: 'long' });
+          sent++;
+        } catch(e) {
+          failed++;
+          if (e.status === 404 || e.status === 410) {
+            const updated = subs.filter(s => s.endpoint !== sub.endpoint);
+            await env.LBP_KV.put(`subs:${syncKey}`, JSON.stringify(updated));
+          }
+        }
+      }
+      return json({ sent, failed, total: subs.length });
+    }
+
+    // GET /rebuild-registry  \u2192  one-time fix: seed synckeys_registry from KV.list()
+    // Call this ONCE from Cloud Settings if the registry is empty after a fresh deploy.
+    // Do NOT call this on a schedule \u2014 it burns list operations.
+    if (p === '/rebuild-registry' && request.method === 'GET') {
+      const existing = JSON.parse(await env.LBP_KV.get('synckeys_registry') || '[]');
+      const { keys } = await env.LBP_KV.list({ prefix: 'alarms:' });
+      const fromList = keys.map(k => k.name.slice('alarms:'.length));
+      const merged = Array.from(new Set([...existing, ...fromList]));
+      if (merged.length > 0) {
+        await env.LBP_KV.put('synckeys_registry', JSON.stringify(merged));
+      }
+      return json({ ok: true, syncKeys: merged, wasEmpty: existing.length === 0 });
+    }
+
+    // GET /debug-smart?key=  \u2192  shows what smart notifications would fire NOW (no push sent)
+    if (p === '/debug-smart' && request.method === 'GET') {
+      const syncKey = url.searchParams.get('key');
+      if (!syncKey) return json({ error: 'missing key param' }, 400);
+      const raw = await env.LBP_KV.get(`data:${syncKey}`);
+      if (!raw) return json({ error: 'no data found for this sync key' }, 404);
+      const data = JSON.parse(raw);
+      const subs = JSON.parse(await env.LBP_KV.get(`subs:${syncKey}`) || '[]');
+      const now = Date.now();
+      const nowDate = new Date(now);
+      const todayStr = nowDate.toISOString().slice(0, 10);
+      const tomorrowStr = new Date(now + 86400000).toISOString().slice(0, 10);
+      const utcH = nowDate.getUTCHours();
+
+      const allTasks = (data.tasks || []);
+      const openTasks = allTasks.filter(t => t.status !== 'DONE');
+      const todayTasks = openTasks.filter(t => t.dueDate === todayStr);
+      const tomorrowTasks = openTasks.filter(t => t.dueDate === tomorrowStr);
+      const overdue = openTasks.filter(t => t.dueDate && t.dueDate < todayStr);
+      const meetings = (data.meetings || []).filter(m => m.date === todayStr);
+      const habits = (data.habits || []).filter(h => h.active !== false);
+      const habitEntries = (data.habitEntries || []).filter(e => e.date === todayStr);
+      const doneHabitIds = new Set(habitEntries.map(e => e.habitId));
+      const pendingHabits = habits.filter(h => !doneHabitIds.has(h.id));
+      const recentDone = allTasks.filter(t => t.status === 'DONE' && t.updatedAt && (now - t.updatedAt) < 7 * 86400000).length;
+
+      // Check which sentKeys already exist
+      const [bKey, hKey, dKey, wKey] = await Promise.all([
+        env.LBP_KV.get(`smart:${syncKey}:${todayStr}:briefing`),
+        env.LBP_KV.get(`smart:${syncKey}:${todayStr}:habits`),
+        env.LBP_KV.get(`smart:${syncKey}:${todayStr}:dl:${tomorrowStr}`),
+        env.LBP_KV.get(`smart:${syncKey}:${todayStr}:weekly`),
+      ]);
+
+      return json({
+        now_utc: nowDate.toISOString(),
+        utc_hour: utcH,
+        today: todayStr,
+        tomorrow: tomorrowStr,
+        subscriptions: subs.length,
+        data_found: true,
+        tasks: {
+          total: allTasks.length,
+          open: openTasks.length,
+          due_today: todayTasks.map(t => t.title),
+          due_tomorrow: tomorrowTasks.map(t => t.title),
+          overdue: overdue.length,
+        },
+        meetings_today: meetings.length,
+        habits: { total: habits.length, pending_today: pendingHabits.map(h => h.name) },
+        completed_this_week: recentDone,
+        smart_notifs: {
+          briefing: { already_sent_today: !!bKey, would_fire_at: '12:00 UTC (8am Bolivia)' },
+          habits: { already_sent_today: !!hKey, would_fire_at: '01:00 UTC (9pm Bolivia)', pending: pendingHabits.length },
+          deadlines: { already_sent_today: !!dKey, tasks_due_tomorrow: tomorrowTasks.length, runs_every_minute: true },
+          weekly: { already_sent_today: !!wKey, would_fire_at: 'Sat 01:00 UTC (Fri 9pm Bolivia)', open_tasks: openTasks.length, done_this_week: recentDone },
+        }
+      });
+    }
+
+    // GET /check-sub?key=\u2026&endpoint=\u2026  \u2192  verify a subscription is still in KV
+    // Used by the app on startup / visibilitychange to detect silently-expired subs
+    if (p === '/check-sub' && request.method === 'GET') {
+      const syncKey = url.searchParams.get('key');
+      const endpoint = url.searchParams.get('endpoint');
+      if (!syncKey || !endpoint) return json({ error: 'missing params' }, 400);
+      const subs = JSON.parse(await env.LBP_KV.get(`subs:${syncKey}`) || '[]');
+      const found = subs.some(s => s.endpoint === endpoint);
+      return json({ found, count: subs.length });
+    }
+
+    // POST /chat  \u2192  proxy to Claude API (key stored as Worker secret ANTHROPIC_API_KEY)
+    if (p === '/chat' && request.method === 'POST') {
+      const apiKey = env.ANTHROPIC_API_KEY;
+      if (!apiKey) return json({ error: 'ANTHROPIC_API_KEY not set.' }, 500);
+      const { messages, systemPrompt, area } = await request.json();
+      if (!messages || !Array.isArray(messages)) return json({ error: 'messages array required' }, 400);
+      const content = await callClaude(env, messages, systemPrompt || ('You are a strategic business consultant for Ventura Mall. Help brainstorm ' + (area || 'business') + ' ideas.'), 4096);
+      return json({ content });
+    }
+
+    // GET /briefing-ai?key=&date=  \u2192  returns today's AI-generated briefing from KV
+    if (p === '/briefing-ai' && request.method === 'GET') {
+      const syncKey = url.searchParams.get('key');
+      const date = url.searchParams.get('date') || new Date().toISOString().slice(0, 10);
+      if (!syncKey) return json({ error: 'missing key' }, 400);
+      const stored = await env.LBP_KV.get(`briefing_ai:${syncKey}:${date}`);
+      if (!stored) return json({ ready: false, message: 'Briefing not yet generated. Will arrive at 8am.' });
+      return json({ ready: true, briefing: stored, date });
+    }
+
+    // POST /analyze-doc  \u2192  send a stored file to Claude for intelligent analysis
+    if (p === '/analyze-doc' && request.method === 'POST') {
+      const apiKey = env.ANTHROPIC_API_KEY;
+      if (!apiKey) return json({ error: 'ANTHROPIC_API_KEY not set.' }, 500);
+      const body = await request.json().catch(() => null);
+      if (!body || !body.syncKey || !body.fileId) return json({ error: 'missing syncKey or fileId' }, 400);
+
+      // Fetch file data from R2 or KV
+      let fileJson = null;
+      if (env.LBP_R2) {
+        const obj = await env.LBP_R2.get(`${body.syncKey}/${body.fileId}`);
+        if (obj) fileJson = JSON.parse(await obj.text());
+      }
+      if (!fileJson) {
+        const val = await env.LBP_KV.get(`file:${body.syncKey}:${body.fileId}`);
+        if (val) fileJson = JSON.parse(val);
+      }
+      if (!fileJson || !fileJson.data) return json({ error: 'file not found in cloud' }, 404);
+
+      // Parse data URL: data:mime;base64,XXX
+      const dataUrl = fileJson.data;
+      const commaIdx = dataUrl.indexOf(',');
+      if (commaIdx === -1) return json({ error: 'invalid file data' }, 400);
+      const meta = dataUrl.slice(5, commaIdx); // "mime;base64"
+      const b64 = dataUrl.slice(commaIdx + 1);
+      const mime = meta.split(';')[0] || fileJson.mime || 'application/octet-stream';
+      const fileName = fileJson.name || body.fileId;
+
+      const isPdf = mime === 'application/pdf' || fileName.toLowerCase().endsWith('.pdf');
+      const isImage = mime.startsWith('image/');
+
+      if (!isPdf && !isImage) return json({ error: 'Only PDF and image files are supported for analysis' }, 400);
+
+      const systemPrompt = 'Eres un asistente de an\u00e1lisis de documentos para un gerente de mall (Ventura Mall, Bolivia). Analiza el documento y extrae informaci\u00f3n estructurada. Responde SOLO con JSON v\u00e1lido, sin texto adicional.';
+
+      const userPrompt = `Analiza este documento (${fileName}) y devuelve un JSON con esta estructura exacta:
+{
+  "summary": ["punto clave 1", "punto clave 2", ...],
+  "dates": [{"date": "YYYY-MM-DD o descripci\u00f3n", "description": "qu\u00e9 significa esta fecha"}],
+  "obligations": ["obligaci\u00f3n o compromiso 1", ...],
+  "parties": ["parte involucrada 1", ...],
+  "title": "t\u00edtulo o tema del documento",
+  "docType": "contrato|factura|propuesta|informe|otro"
+}
+
+Si no hay fechas, dates=[] ; si no hay obligaciones, obligations=[] ; etc.
+M\u00e1ximo 6 items por lista. S\u00e9 conciso y espec\u00edfico.`;
+
+      let contentBlocks;
+      if (isPdf) {
+        contentBlocks = [
+          { type: 'document', source: { type: 'base64', media_type: 'application/pdf', data: b64 } },
+          { type: 'text', text: userPrompt }
+        ];
+      } else {
+        contentBlocks = [
+          { type: 'image', source: { type: 'base64', media_type: mime, data: b64 } },
+          { type: 'text', text: userPrompt }
+        ];
+      }
+
+      const apiRes = await fetch('https://api.anthropic.com/v1/messages', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'x-api-key': apiKey,
+          'anthropic-version': '2023-06-01'
+        },
+        body: JSON.stringify({
+          model: 'claude-opus-5',
+          max_tokens: 2048,
+          thinking: { type: 'disabled' },
+          system: systemPrompt,
+          messages: [{ role: 'user', content: contentBlocks }]
+        })
+      });
+
+      if (!apiRes.ok) {
+        const err = await apiRes.text();
+        return json({ error: 'Claude API error: ' + err }, apiRes.status);
+      }
+      const apiData = await apiRes.json();
+      const _tb = Array.isArray(apiData.content) ? apiData.content.find(function(b){ return b && b.type === 'text'; }) : null;
+      const rawText = _tb ? _tb.text : '{}';
+
+      // Parse Claude's JSON response
+      try {
+        const jsonStart = rawText.indexOf('{');
+        const jsonEnd = rawText.lastIndexOf('}') + 1;
+        const parsed = JSON.parse(rawText.slice(jsonStart, jsonEnd));
+        return json({ ok: true, analysis: parsed, fileName });
+      } catch(e) {
+        return json({ ok: true, analysis: { summary: [rawText], dates: [], obligations: [], parties: [], title: fileName, docType: 'otro' }, fileName });
+      }
+    }
+
+    // GET /briefing  \u2192  daily briefing summary (tasks, projects, meetings, alarms)
+    // No syncKey needed \u2014 reads registry and picks freshest data blob.
+    if (p === '/briefing' && request.method === 'GET') {
+      const now = Date.now();
+      const registry = JSON.parse(await env.LBP_KV.get('synckeys_registry') || '[]');
+      if (!registry.length) return json({ error: 'no registry found \u2014 open the app first' }, 404);
+
+      // Pick the freshest data blob across all devices
+      let bestData = null;
+      let bestTime = 0;
+      let totalAlarms = 0;
+
+      for (const syncKey of registry) {
+        const raw = await env.LBP_KV.get(`data:${syncKey}`);
+        if (raw) {
+          const parsed = JSON.parse(raw);
+          const t = parsed._cloudSaveTime || 0;
+          if (t > bestTime) { bestTime = t; bestData = parsed; }
+        }
+        const alarmRaw = await env.LBP_KV.get(`alarms:${syncKey}`);
+        if (alarmRaw) {
+          const alarms = JSON.parse(alarmRaw);
+          // Count alarms for TODAY (Bolivia UTC-4) \u2014 both already fired and upcoming
+          const boliviaNow = now - 4 * 3600 * 1000;
+          const todayBO = new Date(boliviaNow);
+          todayBO.setUTCHours(0, 0, 0, 0);
+          const todayStartUTC = todayBO.getTime() + 4 * 3600 * 1000;
+          const todayEndUTC   = todayStartUTC + 86400000;
+          totalAlarms += alarms.filter(a => a.triggerAt >= todayStartUTC && a.triggerAt < todayEndUTC).length;
+        }
+      }
+
+      if (!bestData) return json({ error: 'no synced data found \u2014 open the app and sync' }, 404);
+
+      // Tasks \u2014 only non-DONE (status 'INBOX' is the active state used by the app)
+      const tasks = (bestData.tasks || [])
+        .filter(t => t.status !== 'DONE' && t.status !== 'done' && t.status !== 'completed' && !t.completed)
+        .map(t => ({ title: t.title || t.name, status: t.status, priority: t.priority, dueDate: t.dueDate }));
+
+      // Projects \u2014 active (not completed/archived/done)
+      const projects = (bestData.projects || [])
+        .filter(pr => pr.status !== 'DONE' && pr.status !== 'done' && pr.status !== 'completed' && pr.status !== 'archived')
+        .map(pr => ({ name: pr.name || pr.title, status: pr.status, department: pr.department }));
+
+      // Meetings \u2014 today and upcoming
+      const todayStr = new Date().toISOString().slice(0, 10);
+      const meetings = (bestData.meetings || [])
+        .filter(m => (m.date || '') >= todayStr)
+        .sort((a, b) => (a.date + (a.time || '')).localeCompare(b.date + (b.time || '')))
+        .slice(0, 10)
+        .map(m => ({ title: m.title || m.name, date: m.date, time: m.time, location: m.location }));
+
+      // Goals \u2014 active
+      const goals = (bestData.goals || [])
+        .filter(g => g.status !== 'completed' && g.status !== 'done')
+        .map(g => ({ title: g.title || g.name, progress: g.progress, dueDate: g.dueDate }));
+
+      // Habits \u2014 active
+      const habits = (bestData.habits || [])
+        .filter(h => h.active !== false)
+        .map(h => ({ name: h.name || h.title, frequency: h.frequency }));
+
+      return json({
+        lastSync: bestTime ? new Date(bestTime).toISOString() : null,
+        activeAlarms: totalAlarms,
+        tasks:    { count: tasks.length,    items: tasks.slice(0, 100) },
+        projects: { count: projects.length, items: projects.slice(0, 50) },
+        meetings: { count: meetings.length, items: meetings },
+        goals:    { count: goals.length,    items: goals.slice(0, 50) },
+        habits:   { count: habits.length,   items: habits.slice(0, 50) },
+      });
+    }
+
+    // \u2500\u2500 GET /file-stats?key=  \u2014 R2 storage usage for this syncKey \u2500\u2500
+    if (p === '/file-stats' && request.method === 'GET') {
+      const syncKey = url.searchParams.get('key');
+      if (!syncKey) return json({ error: 'missing key' }, 400);
+      if (!env.LBP_R2) return json({ error: 'R2 not configured', r2: false }, 200);
+      const listed = await env.LBP_R2.list({ prefix: `${syncKey}/` });
+      let totalBytes = 0;
+      const files = [];
+      for (const obj of listed.objects) {
+        totalBytes += obj.size || 0;
+        const fileId = obj.key.replace(`${syncKey}/`, '');
+        // Try to get the name from metadata
+        const name = (obj.customMetadata && obj.customMetadata.name) ? obj.customMetadata.name : fileId;
+        files.push({ fileId, name, size: obj.size || 0, uploaded: obj.uploaded ? obj.uploaded.toISOString() : null });
+      }
+      const R2_FREE_BYTES = 10 * 1024 * 1024 * 1024; // 10 GB
+      return json({ r2: true, totalBytes, fileCount: files.length, files, usedPercent: Math.round(totalBytes / R2_FREE_BYTES * 100 * 10) / 10, freeGB: 10 });
+    }
+
+    // \u2500\u2500 POST /file  \u2014 upload file to R2 (or KV fallback) for cross-device access \u2500\u2500
+    // R2: no per-file size limit (~75 MB practical max via Worker transfer).
+    // KV fallback: used only if LBP_R2 binding is not configured (~15 MB limit).
+    if (p === '/file' && request.method === 'POST') {
+      const body = await request.json().catch(() => null);
+      if (!body || !body.syncKey || !body.fileId || !body.data) return json({ error: 'missing params' }, 400);
+      const val = JSON.stringify({ data: body.data, name: body.name || '', mime: body.mime || '' });
+      if (env.LBP_R2) {
+        // R2: store as JSON text, no size cap beyond Worker 100 MB body limit
+        await env.LBP_R2.put(`${body.syncKey}/${body.fileId}`, val, {
+          httpMetadata: { contentType: 'application/json' },
+          customMetadata: { name: body.name || '', mime: body.mime || '' }
+        });
+      } else {
+        // KV fallback: 25 MB value limit \u2192 ~15 MB file cap
+        if (body.data.length > 22 * 1024 * 1024) return json({ error: 'file too large for cloud sync \u2014 add R2 binding for larger files' }, 413);
+        await env.LBP_KV.put(`file:${body.syncKey}:${body.fileId}`, val, { expirationTtl: 365 * 24 * 3600 });
+      }
+      return json({ ok: true });
+    }
+
+    // \u2500\u2500 GET /file?key=&id=  \u2014 retrieve file from R2 (or KV fallback) \u2500\u2500
+    if (p === '/file' && request.method === 'GET') {
+      const syncKey = url.searchParams.get('key');
+      const fileId  = url.searchParams.get('id');
+      if (!syncKey || !fileId) return json({ error: 'missing params' }, 400);
+      if (env.LBP_R2) {
+        const obj = await env.LBP_R2.get(`${syncKey}/${fileId}`);
+        if (!obj) return json({ error: 'not found' }, 404);
+        return json(JSON.parse(await obj.text()));
+      } else {
+        const val = await env.LBP_KV.get(`file:${syncKey}:${fileId}`);
+        if (!val) return json({ error: 'not found' }, 404);
+        return json(JSON.parse(val));
+      }
+    }
+
+    // \u2500\u2500 DELETE /file?key=&id=  \u2014 remove file from R2 (or KV fallback) \u2500\u2500
+    if (p === '/file' && request.method === 'DELETE') {
+      const syncKey = url.searchParams.get('key');
+      const fileId  = url.searchParams.get('id');
+      if (!syncKey || !fileId) return json({ error: 'missing params' }, 400);
+      if (env.LBP_R2) {
+        await env.LBP_R2.delete(`${syncKey}/${fileId}`);
+      } else {
+        await env.LBP_KV.delete(`file:${syncKey}:${fileId}`);
+      }
+      return json({ ok: true });
+    }
+
+    // POST /backup?key=\u2026&date=\u2026  \u2192  store daily backup snapshot in KV (kept 30 days)
+    if (p === '/backup' && request.method === 'POST') {
+      const key = url.searchParams.get('key');
+      const date = url.searchParams.get('date') || new Date().toISOString().slice(0,10);
+      if (!key) return json({ error: 'missing key' }, 400);
+      const body = await request.text();
+      if (!body || body.length > 20971520) return json({ error: 'too large' }, 413);
+      await env.LBP_KV.put('backup:' + key + ':' + date, body, { expirationTtl: 30 * 86400 });
+      return json({ ok: true, date: date, bytes: body.length });
+    }
+
+    // GET /backups?key=\u2026  \u2192  list available backup dates
+    if (p === '/backups' && request.method === 'GET') {
+      const key = url.searchParams.get('key');
+      if (!key) return json({ error: 'missing key' }, 400);
+      const prefix = 'backup:' + key + ':';
+      const list = await env.LBP_KV.list({ prefix: prefix });
+      const dates = list.keys.map(function(k){ return k.name.replace(prefix,''); }).sort().reverse();
+      return json({ dates: dates });
+    }
+
+    // GET /backup?key=\u2026&date=\u2026  \u2192  retrieve a specific backup
+    if (p === '/backup' && request.method === 'GET') {
+      const key = url.searchParams.get('key');
+      const date = url.searchParams.get('date');
+      if (!key || !date) return json({ error: 'missing key or date' }, 400);
+      const data = await env.LBP_KV.get('backup:' + key + ':' + date);
+      if (!data) return json({ error: 'not found' }, 404);
+      return new Response(data, { headers: Object.assign({ 'Content-Type': 'application/json' }, CORS) });
+    }
+
+    return new Response('Not found', { status: 404, headers: CORS });
+}
+
+// \u2500\u2500 Registry helper \u2014 tracks known syncKeys using get/put instead of list() \u2500\u2500
+// list() costs 1 op each call; get() costs 1 op from a 100k/day quota.
+// We call scheduledHandler every minute (1,440\u00d7/day) so list() burns the
+// 1,000 list-op free-tier limit before 17:00 every day.
+async function registerSyncKey(env, syncKey) {
+  const registry = JSON.parse(await env.LBP_KV.get('synckeys_registry') || '[]');
+  if (!registry.includes(syncKey)) {
+    registry.push(syncKey);
+    await env.LBP_KV.put('synckeys_registry', JSON.stringify(registry));
+  }
+}
+
+async function callClaude(env, messages, system, maxTokens) {
+  const apiKey = env.ANTHROPIC_API_KEY;
+  if (!apiKey) return '';
+  try {
+    const res = await fetch('https://api.anthropic.com/v1/messages', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'x-api-key': apiKey, 'anthropic-version': '2023-06-01' },
+      body: JSON.stringify({ model: 'claude-opus-5', max_tokens: maxTokens || 2048, thinking: { type: 'disabled' }, system, messages })
+    });
+    if (!res.ok) return '';
+    const data = await res.json();
+    const textBlock = Array.isArray(data.content) ? data.content.find(function(b){ return b && b.type === 'text'; }) : null;
+    return textBlock ? textBlock.text : '';
+  } catch(e) {
+    return '';
+  }
+}
+
+async function sendSmartNotif(env, syncKeys, type, todayStr, tomorrowStr) {
+  for (const syncKey of syncKeys) {
+    try {
+      const sentKey = type === 'deadlines'
+        ? `smart:${syncKey}:${todayStr}:dl:${tomorrowStr}`
+        : `smart:${syncKey}:${todayStr}:${type}`;
+      const already = await env.LBP_KV.get(sentKey);
+      if (already) continue;
+
+      const raw = await env.LBP_KV.get(`data:${syncKey}`);
+      if (!raw) continue;
+      const data = JSON.parse(raw);
+      const subs = JSON.parse(await env.LBP_KV.get(`subs:${syncKey}`) || '[]');
+      if (!subs.length) continue;
+
+      let title = '', body = '';
+
+      if (type === 'briefing') {
+        const tasks = (data.tasks || []).filter(t => t.status !== 'DONE');
+        const todayTasks = tasks.filter(t => t.dueDate === todayStr);
+        const meetings = (data.meetings || []).filter(m => m.date === todayStr);
+        const habits = (data.habits || []).filter(h => h.active !== false);
+        const overdue = tasks.filter(t => t.dueDate && t.dueDate < todayStr);
+        const projects = (data.projects || []).filter(p => !['DONE','CANCELLED'].includes(p.status));
+        title = '\uD83C\uDF05 Briefing del d\u00eda';
+
+        const threeDaysAgo = new Date(); threeDaysAgo.setDate(threeDaysAgo.getDate() - 3);
+        const recentTasks = tasks.filter(t => t.createdAt && new Date(t.createdAt) >= threeDaysAgo)
+          .sort((a,b) => (b.createdAt||'').localeCompare(a.createdAt||'')).slice(0,3);
+        const overdueSort = overdue.sort((a,b) => (a.dueDate||'').localeCompare(b.dueDate||''));
+        const ctx = {
+          fecha: todayStr,
+          tareasHoy: todayTasks.map(t => ({ titulo: t.title, prioridad: t.priority })),
+          reunionesHoy: meetings.map(m => ({ titulo: m.title, hora: m.startTime || '' })),
+          tareasVencidas: overdueSort.slice(0, 5).map(t => ({ titulo: t.title, vencio: t.dueDate })),
+          tareasRecientes: recentTasks.map(t => ({ titulo: t.title, creado: (t.createdAt||'').slice(0,10) })),
+          proyectosActivos: projects.slice(0, 5).map(p => ({ nombre: p.name, estado: p.status })),
+          habitosPendientes: habits.length
+        };
+
+        const aiText = await callClaude(env, [
+          { role: 'user', content: 'Datos de hoy (' + todayStr + ') para el gerente del Ventura Mall:\n' + JSON.stringify(ctx, null, 2) + '\n\nEscribe un briefing matutino ESTRUCTURADO en espa\u00f1ol. USA SOLO datos reales del JSON, NO inventes nada. Formato EXACTO (texto plano, sin markdown, sin asteriscos, sin guiones extra):\n\nREUNIONES HOY: [lista por hora y nombre, o \'ninguna\']\nTAREAS VENCIDAS (3 mas antiguas): [nombre + fecha vencida de cada una]\nHOY EN AGENDA: [tareas con fecha de hoy, o \'ninguna\']\nRECIEN AGREGADAS: [tareas de los ultimos 3 dias que requieren atencion, o \'ninguna\']\n\nMantener conciso. Cada seccion en una linea. Nombres exactos de las tareas/reuniones.' }
+        ], 'Eres el asistente ejecutivo del Ventura Mall (La Paz, Bolivia). Das briefings matutinos estructurados en texto plano sin markdown. USA SOLO datos reales provistos, NO inventes nada.', 450);
+
+        // Conserva los saltos de l\u00ednea (colapsa m\u00faltiples a uno) para que las secciones queden separadas
+        const stripMd = (s) => s.replace(/#{1,6}\s*/g,'').replace(/\*{1,3}([^*]+)\*{1,3}/g,'$1').replace(/^-{2,}\s*$/gm,'').replace(/^>\s*/gm,'').replace(/[ \t]{2,}/g,' ').replace(/\n{2,}/g,'\n').trim();
+        if (aiText && aiText.trim().length > 10) {
+          // Notificaci\u00f3n (push): emojis por secci\u00f3n para que escanee mejor
+          const pushBody = stripMd(aiText)
+            .replace(/^REUNIONES/mi, '\ud83d\udcc5 REUNIONES')
+            .replace(/^TAREAS VENCIDAS/mi, '\u26a0\ufe0f TAREAS VENCIDAS')
+            .replace(/^HOY EN AGENDA/mi, '\ud83d\udccb HOY EN AGENDA')
+            .replace(/^RECI[E\u00c9]N AGREGADAS/mi, '\ud83c\udd95 RECI\u00c9N AGREGADAS');
+          // Primera l\u00ednea: tipo de cambio oficial (BCB) desde dailyinfo_v2
+          let tcLine = '';
+          try {
+            const di = JSON.parse(await env.LBP_KV.get('dailyinfo_v2') || 'null');
+            if (di && di.bcb && di.bcb.venta != null) tcLine = '\ud83d\udcb5 TC oficial: Bs ' + Number(di.bcb.venta).toFixed(2) + '\n';
+          } catch (e) { /* sin TC si falla */ }
+          body = (tcLine + pushBody).slice(0, 600);
+          const fullBriefing = JSON.stringify({
+            generated: new Date().toISOString(),
+            summary: stripMd(aiText),
+            stats: { tareasHoy: todayTasks.length, reunionesHoy: meetings.length, vencidas: overdue.length, habitosPendientes: habits.length, proyectosActivos: projects.length },
+            tareasHoy: todayTasks.slice(0, 5).map(t => t.title),
+            reunionesHoy: meetings.map(m => ({ title: m.title, time: m.startTime || '', client: m.clientName || '' }))
+          });
+          await env.LBP_KV.put('briefing_ai:' + syncKey + ':' + todayStr, fullBriefing, { expirationTtl: 172800 });
+        } else {
+          const parts = [];
+          if (todayTasks.length) parts.push(todayTasks.length + ' tarea' + (todayTasks.length > 1 ? 's' : '') + ' para hoy');
+          else if (tasks.length) parts.push(tasks.length + ' pendiente' + (tasks.length > 1 ? 's' : ''));
+          if (meetings.length) parts.push(meetings.length + (meetings.length > 1 ? ' reuniones' : ' reuni\u00f3n') + ' hoy');
+          if (overdue.length) parts.push(overdue.length + ' vencida' + (overdue.length > 1 ? 's' : ''));
+          if (habits.length) parts.push(habits.length + ' h\u00e1bito' + (habits.length > 1 ? 's' : ''));
+          body = parts.length ? parts.join(' \u00b7 ') : '\u00a1Que tengas un gran d\u00eda! \u2728';
+        }
+      } else if (type === 'habits') {
+        const habits = (data.habits || []).filter(h => h.active !== false);
+        if (!habits.length) continue;
+        const entries = data.habitEntries || [];
+        const todayEntries = entries.filter(e => e.date === todayStr);
+        const completedIds = new Set(todayEntries.map(e => e.habitId));
+        const missing = habits.filter(h => !completedIds.has(h.id));
+        if (!missing.length) continue;
+        title = '\uD83D\uDD04 \u00a1H\u00e1bitos pendientes!';
+        body = missing.length === 1
+          ? `Pendiente: "${missing[0].name}"`
+          : `${missing.length} h\u00e1bitos sin registrar hoy \u2014 \u00a1no rompas la racha!`;
+      } else if (type === 'deadlines') {
+        // Collect all entry types with dueDate = tomorrow
+        const dueTasks = (data.tasks || []).filter(t => t.status !== 'DONE' && t.dueDate === tomorrowStr);
+        const dueProjects = (data.projects || []).filter(p => !['DONE','CANCELLED','ARCHIVED'].includes(p.status) && p.dueDate === tomorrowStr);
+        const dueMeetings = (data.meetings || []).filter(m => m.date === tomorrowStr);
+        const dueGoals = (data.goals || []).filter(g => g.status !== 'DONE' && g.dueDate === tomorrowStr);
+        // Build one entry per item \u2014 each gets its own push and sentKey
+        const allDue = [
+          ...dueTasks.map(t => ({ label: t.title, type: 'Tarea' })),
+          ...dueProjects.map(p => ({ label: p.name, type: 'Proyecto' })),
+          ...dueMeetings.map(m => ({ label: m.title, type: 'Reuni\u00f3n' })),
+          ...dueGoals.map(g => ({ label: g.title, type: 'Meta' })),
+        ];
+        if (!allDue.length) continue;
+        // Send one push per due entry, with unique sentKey per entry
+        for (const entry of allDue) {
+          const entrySentKey = `smart:${syncKey}:${todayStr}:dl:${tomorrowStr}:${entry.label.slice(0,40)}`;
+          const alreadySent = await env.LBP_KV.get(entrySentKey);
+          if (alreadySent) continue;
+          const eTitle = `\u23F0 Vence ma\u00f1ana`;
+          const eBody = `${entry.type}: "${entry.label}"`;
+          for (const sub of subs) {
+            try {
+              await sendPush(sub, { title: eTitle, body: eBody, alarmId: `dl_${todayStr}_${entry.label.slice(0,20)}`, vibration: 'long' });
+            } catch(e) {
+              if (e.status === 404 || e.status === 410) {
+                const updated = subs.filter(s => s.endpoint !== sub.endpoint);
+                await env.LBP_KV.put(`subs:${syncKey}`, JSON.stringify(updated));
+              }
+            }
+          }
+          await env.LBP_KV.put(entrySentKey, '1', { expirationTtl: 90000 });
+        }
+        continue; // already sent individually above, skip the generic send below
+      } else if (type === 'weekly') {
+        const allTasks = data.tasks || [];
+        const open = allTasks.filter(t => t.status !== 'DONE').length;
+        const recentDone = allTasks.filter(t => t.status === 'DONE' && t.updatedAt && (Date.now() - t.updatedAt) < 7 * 86400000).length;
+        title = '\uD83D\uDCCA Resumen semanal';
+        body = `${recentDone} completadas esta semana \u00b7 ${open} pendientes \u2014 \u00a1sigue as\u00ed!`;
+
+      } else if (type === 'stale_alarms') {
+        // Tasks with fired alarms that are still open (1-14 days overdue)
+        const stale = (data.tasks || []).filter(t => {
+          if (t.status === 'DONE') return false;
+          if (!t.alarm || !t.alarm.enabled || !t.alarm.datetime) return false;
+          const ms = new Date(t.alarm.datetime).getTime();
+          const days = (now - ms) / 86400000;
+          return ms < now && days >= 1 && days <= 14;
+        });
+        if (!stale.length) continue;
+        const oldest = [...stale].sort((a,b) => new Date(a.alarm.datetime) - new Date(b.alarm.datetime))[0];
+        const days = Math.floor((now - new Date(oldest.alarm.datetime).getTime()) / 86400000);
+        title = '\u23F0 Tareas con alarma sin completar';
+        body = stale.length === 1
+          ? `"${oldest.title}" \u2014 alarma de hace ${days} d\u00eda${days>1?'s':''}, sigue abierta`
+          : `${stale.length} tareas con alarma pasada siguen abiertas`;
+
+      } else if (type === 'meeting_followup') {
+        // Meetings from past 1-14 days without followup \u2014 fires daily per unresolved meeting
+        const cutoff14 = new Date(now - 14 * 86400000).toISOString().slice(0, 10);
+        const pastMeetings = (data.meetings || []).filter(m => m.date >= cutoff14 && m.date < todayStr);
+        if (!pastMeetings.length) continue;
+        const hasFollowup = (m) => {
+          if (m.followedUp) return true;
+          const mEnd = new Date(m.date + 'T' + (m.endTime || m.startTime || '23:00')).getTime();
+          return [...(data.tasks || []), ...(data.projects || []), ...(data.journal || [])].some(
+            e => e.meetingId === m.id || (e.createdAt && e.createdAt > mEnd && e.createdAt < mEnd + 48 * 3600000)
+          );
+        };
+        const unresolved = pastMeetings.filter(m => !hasFollowup(m));
+        if (!unresolved.length) continue;
+        for (const m of unresolved) {
+          const mSentKey = 'smart:' + syncKey + ':' + todayStr + ':fu:' + (m.id || m.title).slice(0, 30);
+          if (await env.LBP_KV.get(mSentKey)) continue;
+          const daysAgo = Math.round((now - new Date(m.date).getTime()) / 86400000);
+          const mTitle = '\uD83D\uDCCB Reuni\u00f3n sin seguimiento';
+          const mBody = '"' + m.title + '" (hace ' + daysAgo + ' d\u00eda' + (daysAgo > 1 ? 's' : '') + ') \u2014 marca seguimiento o crea un entry';
+          for (const sub of subs) {
+            try {
+              await sendPush(sub, { title: mTitle, body: mBody, alarmId: 'fu_' + todayStr + '_' + (m.id || '').slice(0, 12), vibration: 'long' });
+            } catch(e) {
+              if (e.status === 404 || e.status === 410) {
+                await env.LBP_KV.put('subs:' + syncKey, JSON.stringify(subs.filter(s => s.endpoint !== sub.endpoint)));
+              }
+            }
+          }
+          await env.LBP_KV.put(mSentKey, '1', { expirationTtl: 90000 });
+        }
+        continue;
+
+      } else if (type === 'project_health') {
+        // Active projects with no updates in 10+ days
+        const stagnant = (data.projects || []).filter(p => {
+          if (['DONE','ON_HOLD','PAUSED'].includes(p.status)) return false;
+          const last = p.updatedAt || p.createdAt || 0;
+          return last && (now - last) / 86400000 > 10;
+        });
+        if (!stagnant.length) continue;
+        title = '\uD83D\uDCCB Proyectos sin actividad';
+        body = stagnant.length === 1
+          ? `"${stagnant[0].name}" lleva m\u00e1s de 10 d\u00edas sin actualizaciones`
+          : `${stagnant.length} proyectos activos sin actividad reciente`;
+
+      } else if (type === 'client_health') {
+        // Active clients with no meeting in 30+ days
+        const cMeetings = data.meetings || [];
+        const neglected = (data.clients || []).filter(c => {
+          if (!['ACTIVE','CLIENT'].includes(c.status)) return false;
+          const cm = cMeetings.filter(m => m.clientId === c.id);
+          if (!cm.length) return c.createdAt && (now - c.createdAt) / 86400000 > 30;
+          const lastMs = Math.max(...cm.map(m => new Date(m.date).getTime()));
+          return (now - lastMs) / 86400000 > 30;
+        });
+        if (!neglected.length) continue;
+        title = '\uD83D\uDC65 Clientes sin contacto reciente';
+        body = neglected.length === 1
+          ? `"${neglected[0].name || neglected[0].company}" \u2014 m\u00e1s de 30 d\u00edas sin reuni\u00f3n`
+          : `${neglected.length} clientes activos sin reuni\u00f3n en 30+ d\u00edas`;
+      }
+
+      if (!title) continue;
+
+      for (const sub of subs) {
+        try {
+          await sendPush(sub, { title, body, alarmId: `smart_${type}_${todayStr}`, vibration: 'long' });
+        } catch(e) {
+          if (e.status === 404 || e.status === 410) {
+            const updated = subs.filter(s => s.endpoint !== sub.endpoint);
+            await env.LBP_KV.put(`subs:${syncKey}`, JSON.stringify(updated));
+          }
+        }
+      }
+      await env.LBP_KV.put(sentKey, '1', { expirationTtl: 90000 }); // 25h TTL
+    } catch(e) {
+      console.error('Smart notif error:', type, syncKey, e && e.message);
+    }
+  }
+}
+
+// \u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550
+// Daily info: exchange rates (BCB oficial + cripto P2P) + Santa Cruz weather
+// \u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550
+function _median(nums) {
+  const a = nums.filter(n => isFinite(n)).sort((x, y) => x - y);
+  if (!a.length) return null;
+  const m = Math.floor(a.length / 2);
+  return a.length % 2 ? a[m] : (a[m - 1] + a[m]) / 2;
+}
+
+async function _fetchBinanceP2P(tradeType) {
+  const r = await fetch('https://p2p.binance.com/bapi/c2c/v2/friendly/c2c/adv/search', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', 'User-Agent': 'Mozilla/5.0' },
+    body: JSON.stringify({ asset: 'USDT', fiat: 'BOB', tradeType, page: 1, rows: 8, payTypes: [], publisherType: null }),
+  });
+  const j = await r.json();
+  const prices = (j.data || []).map(a => parseFloat(a.adv && a.adv.price)).filter(isFinite);
+  return _median(prices.slice(0, 6));
+}
+
+// WMO weathercode \u2192 emoji (fallback open-meteo)
+function _wmoEmoji(c) {
+  if (c === 0) return '\u2600\ufe0f';
+  if (c === 1 || c === 2) return '\u26c5';
+  if (c === 3) return '\u2601\ufe0f';
+  if (c >= 45 && c <= 48) return '\ud83c\udf2b\ufe0f';
+  if (c >= 51 && c <= 67) return '\ud83c\udf27\ufe0f';
+  if (c >= 71 && c <= 77) return '\ud83c\udf28\ufe0f';
+  if (c >= 80 && c <= 82) return '\ud83c\udf26\ufe0f';
+  if (c >= 95) return '\u26c8\ufe0f';
+  return '\ud83c\udf24\ufe0f';
+}
+
+// Condici\u00f3n (texto alt de Meteored) \u2192 emoji. El orden importa (lluvia antes que "parcial").
+function _meteoEmoji(alt) {
+  const a = (alt || '').toLowerCase();
+  if (a.indexOf('torment') >= 0) return '\u26c8\ufe0f';
+  if (a.indexOf('chubasc') >= 0) return '\ud83c\udf26\ufe0f';
+  if (a.indexOf('lluvia') >= 0 || a.indexOf('llovizna') >= 0) return '\ud83c\udf27\ufe0f';
+  if (a.indexOf('nieve') >= 0) return '\ud83c\udf28\ufe0f';
+  if (a.indexOf('niebla') >= 0 || a.indexOf('neblina') >= 0 || a.indexOf('bruma') >= 0) return '\ud83c\udf2b\ufe0f';
+  if (a.indexOf('parcial') >= 0 || a.indexOf('claros') >= 0 || a.indexOf('poco nub') >= 0) return '\u26c5';
+  if (a.indexOf('cubierto') >= 0 || a.indexOf('nuboso') >= 0 || a.indexOf('nublado') >= 0 || a.indexOf('nubes') >= 0) return '\u2601\ufe0f';
+  if (a.indexOf('despejado') >= 0 || a.indexOf('sol') >= 0) return '\u2600\ufe0f';
+  return '\ud83c\udf24\ufe0f';
+}
+
+// Meteored (meteored.com.bo) \u2014 pron\u00f3stico 7 d\u00edas, tomamos 3 (Hoy, Ma\u00f1ana, +1).
+// Datos correctos para Santa Cruz. Devuelve {days:[{label,max,min,emoji}], nowTemp} o null.
+async function _fetchMeteoredWeather() {
+  const html = await (await fetch('https://www.meteored.com.bo/tiempo-en_Santa+Cruz+de+la+Sierra-America+Sur-Bolivia-Santa+Cruz--1-17636.html', {
+    headers: {
+      'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0 Safari/537.36',
+      'Accept': 'text/html',
+    },
+  })).text();
+
+  // temperatura actual observada
+  let nowTemp = null;
+  const cm = html.match(/dato-temperatura[^>]*data-weather="([\d.\-]+)/);
+  if (cm) nowTemp = Math.round(parseFloat(cm[1]));
+
+  // tarjetas de d\u00edas (grid-item dia d1..d7)
+  const marks = [...html.matchAll(/class="grid-item dia d\d/g)].map(m => m.index);
+  if (!marks.length) return null;
+  const seg = html.slice(marks[0], marks[marks.length - 1] + 3000);
+  const tiles = seg.split(/class="grid-item dia d\d[^"]*"/).slice(1);
+  const decode = s => s.replace(/&ntilde;/g, '\u00f1').replace(/&aacute;/g, '\u00e1').replace(/&eacute;/g, '\u00e9')
+    .replace(/&iacute;/g, '\u00ed').replace(/&oacute;/g, '\u00f3').replace(/&uacute;/g, '\u00fa');
+  const days = [];
+  for (let i = 0; i < Math.min(tiles.length, 3); i++) {
+    const t = tiles[i];
+    const labM = t.match(/text-0">\s*([^<]+?)\s*<\/span>/);
+    const altM = t.match(/symbols\/color\/\d+\.svg"[^>]*alt="([^"]*)"/);
+    const mxM = t.match(/class="max[^"]*"[^>]*data-weather="([\d.\-]+)/);
+    const mnM = t.match(/class="min[^"]*"[^>]*data-weather="([\d.\-]+)/);
+    const pM = t.match(/probabilidad[^>]*>\s*(\d+)%/);
+    if (!mxM || !mnM) continue;
+    days.push({
+      label: labM ? decode(labM[1].trim()) : (i === 0 ? 'Hoy' : (i === 1 ? 'Ma\u00f1ana' : '')),
+      max: Math.round(parseFloat(mxM[1])),
+      min: Math.round(parseFloat(mnM[1])),
+      emoji: _meteoEmoji(altM ? altM[1] : ''),
+      rain: pM ? parseInt(pM[1], 10) : null,
+    });
+  }
+  return days.length ? { days: days, nowTemp: nowTemp } : null;
+}
+
+async function refreshDailyInfo(env, trigger) {
+  const prev = JSON.parse(await env.LBP_KV.get('dailyinfo_v2') || 'null') || {};
+  const info = {
+    bcb: prev.bcb || null,
+    crypto: prev.crypto || null,
+    weather: prev.weather || null,
+    weatherNow: prev.weatherNow || null,
+    updatedAt: Date.now(),
+  };
+
+  // 1+2. Tipo de cambio: oficial (BCB) + cripto/paralelo. Fuente principal: DolarAPI Bolivia.
+  // (fetch directo a bcb.gob.bo / p2p.binance.com FALLA desde Cloudflare: bloquean IPs de datacenter.
+  //  DolarAPI es una API p\u00fablica que s\u00ed responde a Workers.)
+  const errs = [];
+  let dolarFecha = null;   // fechaActualizacion que reporta DolarAPI para el oficial
+  let bcbSource = null;    // 'bcb' (directo, sin lag) | 'dolarapi' (respaldo, ~13h de retraso)
+
+  // PRIMARIO oficial: BCB v\u00eda proxy lector r.jina.ai. bcb.gob.bo responde 429 (challenge)
+  // a las IPs de datacenter de Cloudflare, as\u00ed que el fetch directo NO sirve; Jina lo trae
+  // desde su propia infra y devuelve texto. Sin lag (DolarAPI se atrasa ~13h). En el texto,
+  // el valor aparece como: "Bolivianos por d\u00f3lar estadounidense" <fecha> <valor NN,NN>.
+  // (1) dolarbluebolivia.click (directo, SIN rate limit, mismo d\u00eda, m\u00e1s estable que Jina).
+  //     Astro server-render: el oficial est\u00e1 en <span class="faq-official">Bs 11.80</span>.
+  try {
+    const h2 = await (await fetch('https://www.dolarbluebolivia.click/', { headers: { 'User-Agent': 'Mozilla/5.0' } })).text();
+    const m = h2 && h2.match(/faq-official[^>]*>\s*Bs\s*([0-9]{1,2}[.,][0-9]{2})/i);
+    if (m) { const v = parseFloat(m[1].replace(',', '.')); if (isFinite(v) && v > 1 && v < 100) { info.bcb = { venta: v, compra: v }; bcbSource = 'dolarblue'; } }
+    if (!bcbSource) errs.push('dolarblue:no-match');
+  } catch (e) { errs.push('dolarblue:' + (e && e.message)); }
+
+  // (2) BCB real v\u00eda proxy lector r.jina.ai (autoritativo, pero inestable: 429 / render variable).
+  //     Solo si dolarblue fall\u00f3. Opcional secret JINA_API_KEY sube el l\u00edmite (por-clave).
+  if (!bcbSource) {
+    try {
+      const jinaHeaders = { 'User-Agent': 'Mozilla/5.0', 'Accept': 'text/plain', 'X-Return-Format': 'text' };
+      if (env.JINA_API_KEY) jinaHeaders['Authorization'] = 'Bearer ' + env.JINA_API_KEY;
+      const txt = await (await fetch('https://r.jina.ai/https://www.bcb.gob.bo/', { headers: jinaHeaders })).text();
+      const m = txt && txt.match(/Bolivianos por d[o\u00f3]lar estadounidense[\s\S]{0,140}?([0-9]{1,2}[.,][0-9]{2})/i);
+      if (m) { const v = parseFloat(m[1].replace(',', '.')); if (isFinite(v) && v > 1 && v < 100) { info.bcb = { venta: v, compra: v }; bcbSource = 'bcb-jina'; } }
+      if (!bcbSource) errs.push('jina:no-match:' + (txt || '').replace(/\s+/g, ' ').slice(0, 40));
+    } catch (e) { errs.push('jina:' + (e && e.message)); }
+  }
+
+  // DolarAPI: cripto/paralelo siempre; y RESPALDO del oficial solo si el BCB fall\u00f3.
+  try {
+    const arr = await (await fetch('https://bo.dolarapi.com/v1/dolares', { headers: { 'User-Agent': 'Mozilla/5.0' } })).json();
+    if (Array.isArray(arr)) {
+      const of = arr.find(x => x.casa === 'oficial');
+      const bn = arr.find(x => ['binance', 'cripto', 'blue', 'paralelo'].includes(x.casa));
+      if (of) dolarFecha = of.fechaActualizacion || null;
+      if (!bcbSource && of && isFinite(of.venta)) { info.bcb = { venta: of.venta, compra: of.compra }; bcbSource = 'dolarapi'; }
+      if (bn && isFinite(bn.venta)) info.crypto = { venta: bn.venta, compra: bn.compra };
+    }
+  } catch (e) { errs.push('dolarapi:' + (e && e.message)); }
+
+  // Fallback cripto: CriptoYa (Binance P2P USDT/BOB) si DolarAPI no dio cripto
+  if (!info.crypto) {
+    try {
+      const cy = await (await fetch('https://criptoya.com/api/usdt/bob/1')).json();
+      const bp = cy && cy.binancep2p;
+      if (bp && isFinite(bp.ask)) info.crypto = { venta: bp.ask, compra: bp.bid };
+    } catch (e) { errs.push('criptoya:' + (e && e.message)); }
+  }
+  info._errors = errs;
+
+  // 3. Clima Santa Cruz \u2014 PRIMARIO: Meteored (datos correctos). FALLBACK: open-meteo.
+  let mtWeather = null;
+  try { mtWeather = await _fetchMeteoredWeather(); } catch (e) { errs.push('meteored:' + (e && e.message)); }
+  if (mtWeather && mtWeather.days.length) {
+    info.weather = mtWeather.days;
+    info.weatherNow = (mtWeather.nowTemp != null) ? { temp: mtWeather.nowTemp } : (info.weatherNow || null);
+  } else {
+    try {
+      const w = await (await fetch('https://api.open-meteo.com/v1/forecast?latitude=-17.7833&longitude=-63.1821&daily=temperature_2m_max,temperature_2m_min,weathercode,precipitation_probability_max&timezone=America/La_Paz&forecast_days=3')).json();
+      const d = w.daily;
+      if (d && d.time) {
+        info.weather = d.time.slice(0, 3).map((t, i) => ({
+          label: i === 0 ? 'Hoy' : (i === 1 ? 'Ma\u00f1ana' : ['dom','lun','mar','mi\u00e9','jue','vie','s\u00e1b'][new Date(t + 'T00:00').getDay()]),
+          max: Math.round(d.temperature_2m_max[i]),
+          min: Math.round(d.temperature_2m_min[i]),
+          emoji: _wmoEmoji(d.weathercode[i]),
+          rain: d.precipitation_probability_max[i],
+        }));
+      }
+    } catch (e) { errs.push('openmeteo:' + (e && e.message)); }
+  }
+
+  await env.LBP_KV.put('dailyinfo_v2', JSON.stringify(info));
+
+  // Diagn\u00f3stico: una entrada por refresco (rolling, \u00faltimas 40). Permite ver CU\u00c1NDO
+  // corri\u00f3 cada refresco, qu\u00e9 valor devolvi\u00f3 DolarAPI, su propio fechaActualizacion,
+  // y cualquier error \u2014 para saber si el refresco de las 7am corri\u00f3 y qu\u00e9 trajo.
+  try {
+    const log = JSON.parse(await env.LBP_KV.get('dailyinfo_log') || '[]');
+    log.push({
+      t: new Date().toISOString(),
+      trigger: trigger || 'unknown',
+      bcbVenta: info.bcb ? info.bcb.venta : null,
+      bcbSource: bcbSource,
+      dolarFecha: dolarFecha,
+      cryptoVenta: info.crypto ? info.crypto.venta : null,
+      errors: errs,
+    });
+    while (log.length > 40) log.shift();
+    await env.LBP_KV.put('dailyinfo_log', JSON.stringify(log));
+  } catch (e) { /* el logging nunca debe romper el refresco */ }
+
+  return info;
+}
+
+async function scheduledHandler(event, env) {
+    const now = Date.now();
+
+    // Daily info refresh 3\u00d7/day: 8:10pm, 8am, 4pm Bolivia = 00:10, 12:00, 20:00 UTC.
+    // 8:10pm is right AFTER the BCB publishes the official rate (8pm Bolivia),
+    // so the cache carries the fresh value into the 8am briefing (12:00 UTC).
+    // Runs before the syncKeys early-return so it works regardless of registry.
+    {
+      const h = new Date(now).getUTCHours(), mm = new Date(now).getUTCMinutes();
+      const isRefreshTime = (h === 0 && mm >= 10 && mm < 12) || (h === 12 && mm < 2) || (h === 20 && mm < 2);
+      if (isRefreshTime) {
+        try { await refreshDailyInfo(env, 'cron:' + String(h).padStart(2,'0') + ':' + String(mm).padStart(2,'0') + 'UTC'); } catch (e) { /* ignore */ }
+      }
+    }
+
+    // NEVER call KV.list() here \u2014 free tier allows only 1,000 list ops/day
+    // but the cron fires 1,440 times/day. Using list() in the cron exhausts
+    // the quota before noon every day.
+    // If the registry is empty, skip silently. It gets populated automatically
+    // when the app registers for push (/subscribe) or schedules alarms (/alarms/batch).
+    // Use GET /rebuild-registry from Cloud Settings to seed it manually if needed.
+    const syncKeys = JSON.parse(await env.LBP_KV.get('synckeys_registry') || '[]');
+    if (syncKeys.length === 0) return;
+
+    for (const syncKey of syncKeys) {
+      const name = `alarms:${syncKey}`;
+      const alarms = JSON.parse(await env.LBP_KV.get(name) || '[]');
+      const due = alarms.filter(a => a.triggerAt <= now && (now - a.triggerAt) < 6 * 60 * 1000);
+      if (!due.length) continue;
+
+      const subs = JSON.parse(await env.LBP_KV.get(`subs:${syncKey}`) || '[]');
+      for (const alarm of due) {
+        for (const sub of subs) {
+          try {
+            await sendPush(sub, { title: alarm.title, body: alarm.body, alarmId: alarm.alarmId, vibration: alarm.vibration || 'long' });
+          } catch (e) {
+            // Subscription expired \u2014 remove it
+            if (e.status === 404 || e.status === 410) {
+              const updated = subs.filter(s => s.endpoint !== sub.endpoint);
+              await env.LBP_KV.put(`subs:${syncKey}`, JSON.stringify(updated));
+            }
+          }
+        }
+      }
+      // Remove fired alarms
+      const remaining = alarms.filter(a => !due.find(d => d.alarmId === a.alarmId));
+      await env.LBP_KV.put(name, JSON.stringify(remaining));
+    }
+
+    // === Smart Notifications ===
+    // Times are UTC. La Paz, Bolivia = UTC-4 (always, no DST).
+    const nowDate = new Date(now);
+    const utcH = nowDate.getUTCHours();
+    const utcM = nowDate.getUTCMinutes();
+    const utcDow = nowDate.getUTCDay(); // 0=Sun
+    const todayUTC = nowDate.toISOString().slice(0, 10);
+    const tomorrowUTC = new Date(now + 86400000).toISOString().slice(0, 10);
+
+    // Daily briefing: 12:00 UTC = 8am Bolivia (UTC-4, no DST)
+    if (utcH === 12 && utcM < 2) {
+      await sendSmartNotif(env, syncKeys, 'briefing', todayUTC, tomorrowUTC);
+    }
+    // Habit reminder: 01:00 UTC = 9pm Bolivia (UTC-4)
+    if (utcH === 1 && utcM < 2) {
+      await sendSmartNotif(env, syncKeys, 'habits', todayUTC, tomorrowUTC);
+    }
+    // Deadline alerts: 21:00 UTC = 5pm Bolivia (UTC-4) \u2014 one push per entry
+    if (utcH === 21 && utcM < 2) {
+      await sendSmartNotif(env, syncKeys, 'deadlines', todayUTC, tomorrowUTC);
+    }
+    // Weekend summary: Saturday 11am Bolivia = 15:00 UTC
+    if (utcDow === 6 && utcH === 15 && utcM < 2) {
+      await sendSmartNotif(env, syncKeys, 'weekly', todayUTC, tomorrowUTC);
+    }
+
+    // \u2500\u2500 Intelligent Alerts (Bolivia UTC-4) \u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500
+    // Stale alarms: Mon-Fri 10am Bolivia = 14:00 UTC
+    if (utcH === 14 && utcM < 2 && utcDow >= 1 && utcDow <= 5) {
+      await sendSmartNotif(env, syncKeys, 'stale_alarms', todayUTC, tomorrowUTC);
+    }
+    // Meeting follow-up: every day 9am Bolivia = 13:00 UTC (daily until followedUp)
+    if (utcH === 13 && utcM < 2) {
+      await sendSmartNotif(env, syncKeys, 'meeting_followup', todayUTC, tomorrowUTC);
+    }
+    // Project health + Client health: every Monday 9:45am Bolivia = 13:45 UTC
+    if (utcDow === 1 && utcH === 13 && utcM >= 45 && utcM < 47) {
+      await sendSmartNotif(env, syncKeys, 'project_health', todayUTC, tomorrowUTC);
+      await sendSmartNotif(env, syncKeys, 'client_health', todayUTC, tomorrowUTC);
+    }
+}
+
+// \u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550
+// Web Push implementation (RFC 8030 + RFC 8291 aes128gcm + VAPID)
+// \u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550
+
+function b64u(buf) {
+  return btoa(String.fromCharCode(...new Uint8Array(buf)))
+    .replace(/\+/g, '-').replace(/\//g, '_').replace(/=/g, '');
+}
+function b64uDecode(s) {
+  s = s.replace(/-/g, '+').replace(/_/g, '/');
+  while (s.length % 4) s += '=';
+  return Uint8Array.from(atob(s), c => c.charCodeAt(0));
+}
+function concat(...bufs) {
+  const total = bufs.reduce((n, b) => n + b.byteLength, 0);
+  const out = new Uint8Array(total);
+  let off = 0;
+  for (const b of bufs) { out.set(new Uint8Array(b), off); off += b.byteLength; }
+  return out.buffer;
+}
+
+async function makeVapidJWT(endpoint) {
+  const origin = new URL(endpoint).origin;
+  const exp = Math.floor(Date.now() / 1000) + 43200;
+  const enc = new TextEncoder();
+  const hdr = b64u(enc.encode(JSON.stringify({ typ: 'JWT', alg: 'ES256' })));
+  const pay = b64u(enc.encode(JSON.stringify({ aud: origin, exp, sub: VAPID_SUBJECT })));
+  const msg = `${hdr}.${pay}`;
+  const key = await crypto.subtle.importKey('jwk', VAPID_PRIVATE_JWK,
+    { name: 'ECDSA', namedCurve: 'P-256' }, false, ['sign']);
+  const sig = await crypto.subtle.sign({ name: 'ECDSA', hash: 'SHA-256' }, key, enc.encode(msg));
+  return `${msg}.${b64u(sig)}`;
+}
+
+async function encryptPayload(subscription, plaintext) {
+  const enc = new TextEncoder();
+  const payload = enc.encode(JSON.stringify(plaintext));
+
+  // User keys from subscription
+  const uaPublic = b64uDecode(subscription.keys.p256dh);
+  const authSecret = b64uDecode(subscription.keys.auth);
+
+  // Generate server EC key pair
+  const serverKeys = await crypto.subtle.generateKey({ name: 'ECDH', namedCurve: 'P-256' }, true, ['deriveBits']);
+  const serverPublicRaw = new Uint8Array(await crypto.subtle.exportKey('raw', serverKeys.publicKey));
+
+  // Import user public key
+  const uaPublicKey = await crypto.subtle.importKey('raw', uaPublic, { name: 'ECDH', namedCurve: 'P-256' }, false, []);
+
+  // ECDH shared secret
+  const sharedSecret = await crypto.subtle.deriveBits({ name: 'ECDH', public: uaPublicKey }, serverKeys.privateKey, 256);
+
+  // Salt
+  const salt = crypto.getRandomValues(new Uint8Array(16));
+
+  // IKM = HKDF(salt=auth, IKM=sharedSecret, info="WebPush: info\0" || uaPublic || serverPublicRaw, len=32)
+  const prkInfo = concat(enc.encode('WebPush: info\0'), uaPublic, serverPublicRaw);
+  const ikmKey = await crypto.subtle.importKey('raw', sharedSecret, 'HKDF', false, ['deriveBits']);
+  const ikm = await crypto.subtle.deriveBits(
+    { name: 'HKDF', hash: 'SHA-256', salt: authSecret, info: prkInfo }, ikmKey, 256);
+
+  // CEK = HKDF(salt, ikm, "Content-Encoding: aes128gcm\0", 16)
+  const cekInfo = enc.encode('Content-Encoding: aes128gcm\0');
+  const nonceInfo = enc.encode('Content-Encoding: nonce\0');
+  const hkdfKey = await crypto.subtle.importKey('raw', ikm, 'HKDF', false, ['deriveBits']);
+  const cek = await crypto.subtle.deriveBits({ name: 'HKDF', hash: 'SHA-256', salt, info: cekInfo }, hkdfKey, 128);
+  const nonce = await crypto.subtle.deriveBits({ name: 'HKDF', hash: 'SHA-256', salt, info: nonceInfo }, hkdfKey, 96);
+
+  // AES-GCM encrypt (add padding delimiter byte 0x02)
+  const padded = concat(payload, new Uint8Array([2]));
+  const aesCek = await crypto.subtle.importKey('raw', cek, 'AES-GCM', false, ['encrypt']);
+  const ciphertext = await crypto.subtle.encrypt({ name: 'AES-GCM', iv: nonce }, aesCek, padded);
+
+  // Build aes128gcm content: salt(16) + rs(4, big-endian) + keylen(1) + serverPublic(65) + ciphertext
+  const rs = new Uint8Array(4);
+  new DataView(rs.buffer).setUint32(0, 4096, false);
+  const body = concat(salt, rs, new Uint8Array([65]), serverPublicRaw, ciphertext);
+  return body;
+}
+
+async function sendPush(subscription, data) {
+  const jwt = await makeVapidJWT(subscription.endpoint);
+  const body = await encryptPayload(subscription, data);
+
+  const res = await fetch(subscription.endpoint, {
+    method: 'POST',
+    headers: {
+      'Authorization': `vapid t=${jwt},k=${VAPID_PUBLIC_KEY}`,
+      'Content-Encoding': 'aes128gcm',
+      'Content-Type': 'application/octet-stream',
+      'TTL': '86400',
+      'Urgency': 'high',   // delivers immediately via FCM/APNs \u2192 enables heads-up banners on Android
+    },
+    body,
+  });
+
+  if (!res.ok && res.status !== 201) {
+    const err = new Error(`Push failed: ${res.status}`);
+    err.status = res.status;
+    throw err;
+  }
+}
