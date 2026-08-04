@@ -1,6 +1,14 @@
 # Life & Business Planner 2026
 
-**Status:** Active, **v4.91**
+**Status:** Active, **v4.92**
+
+## Recurrencia de alarmas (v4.92, 4-ago-2026) — bug de fondo
+- **La recurrencia NUNCA estuvo implementada.** `scheduleAlarms` tomaba `alarm.datetime` (timestamp fijo) y hacía `if (alarmMs < nowMs) return` → una alarma diaria con fecha pasada nunca se re-agendaba. `recurrence:'daily'` era solo cosmético (se guardaba/mostraba pero nada calculaba la próxima ocurrencia). Por eso la tarea diaria de Pepe no sonó ni ese día ni los anteriores.
+- **Fix (solo app, sin deploy worker):** helper `_futureOccurrences(baseIso, rec, alarm, nowMs)` genera las próximas ocurrencias futuras (daily/weekly/monthly/weekdays/custom con customInterval/customUnit) con **horizonte 60 días / máx 62**. `scheduleAlarms` agenda occ[0] (primaria, con SW+local si <24h) y occ[1..N] solo en la nube. Cada apertura de la app re-extiende el horizonte (idempotente porque `/alarms/batch` reemplaza todo el set con TODAS las ocurrencias).
+- **Bug latente corregido de paso:** el re-sync en `visibilitychange` usaba `/alarms/batch` (reemplaza TODO) con solo alarmas <24h → borraba las ocurrencias futuras. Cambiado a **upsert por `/alarm`** (no destructivo).
+- El worker ya elimina cada alarma tras dispararla (cron línea ~1059), así que cada ocurrencia suena una vez. NO requiere cambios en worker.js.
+- Limitación: horizonte 60 días; si la app no se abre en 2 meses, se agota. En la práctica se re-extiende en cada apertura.
+
 
 ## Offline (v4.91, 30-jul-2026) — IMPORTANTE
 - **Bug hallado:** el "abrir offline" NUNCA estuvo realmente habilitado. `sw.js` no tenía handler `fetch` ni precache del shell, y **React/ReactDOM se cargan desde CDN** (cdnjs 18.2.0). Offline: el documento no cargaba (red colgada) y aunque cargara, sin React no renderiza. La data sí era local (localStorage/IDB).
