@@ -1,6 +1,12 @@
 # Life & Business Planner 2026
 
-**Status:** Active, **v4.92**
+**Status:** Active, **v4.93**
+
+## Auditoría de alarmas (v4.93, 4-ago-2026)
+- **Cobertura OK:** 10 módulos con alarma (tasks/goals/projects/journal/routines/habits/medications/householdTasks/workouts/meetings) cubiertos consistentemente en agendar (HTML ~17418), check local `types` (~17355) y missed (~17431). Subtareas de proyectos: agendadas + missed, pero NO en check() (menor; nube cubre). Dedup nube↔local vía `lbp_cloud_fired` (escrito por SW push, leído por check/missed como `_cloudFired`/`_cloudFiredM`, formato `id_<ms>`).
+- **Hueco corregido:** check() y missed leían `al.datetime` fijo → NO disparaban recurrencia localmente (solo la nube v4.92). Añadido helper `_recentOccurrence(baseIso,rec,alarm,nowMs)` (ms-math para daily/weekly/custom-days/weeks/hours; stepping para monthly/weekdays/custom-months). check()/missed ahora usan la ocurrencia y clave `id_<ms>` que calza con el alarmId de la nube (`_futureOccurrences`). En Bolivia (sin DST) ambos coinciden exactamente; con DST podría desalinear 1h en transiciones (edge, aceptable).
+- Worker cron: dispara alarmas due (ventana 6min) y las ELIMINA tras enviar (línea ~1059) → cada ocurrencia suena 1 vez. NO requirió cambios de worker.
+- Repeticiones (`repeatIntervals`): aplican solo a la PRÓXIMA ocurrencia de un recurrente (occ[0]), no a las futuras occ[1..N]. Aceptable; si se quiere repetir cada día habría que expandir.
 
 ## Recurrencia de alarmas (v4.92, 4-ago-2026) — bug de fondo
 - **La recurrencia NUNCA estuvo implementada.** `scheduleAlarms` tomaba `alarm.datetime` (timestamp fijo) y hacía `if (alarmMs < nowMs) return` → una alarma diaria con fecha pasada nunca se re-agendaba. `recurrence:'daily'` era solo cosmético (se guardaba/mostraba pero nada calculaba la próxima ocurrencia). Por eso la tarea diaria de Pepe no sonó ni ese día ni los anteriores.
