@@ -1,6 +1,12 @@
 # Life & Business Planner 2026
 
-**Status:** Active, **v4.94**
+**Status:** Active, **v4.95**
+
+## Brainstorm IA nutrido para sobrestock (v4.95, 4-ago-2026)
+- BrainstormScreen (~15623) tiene areas con `SYSTEM_PROMPTS` por area + `brainstormProfile` del usuario que se antepone. Modelo Opus 5 via /chat.
+- Añadida area **"Sobrestock"** (rojo #E53935, 🏷️) = experto internacional en retail/ventas LatAm (Bolivia) para **reducir sobrestock fuerte y rapido** (stock vigente vs vencido/obsoleto). Caja de herramientas: precio/oferta (markdown por antiguedad, combos, cajas misteriosas), canales (live selling, WhatsApp difusion/grupos VIP, ferias, mayoristas/lotes, marketplaces de saldos), urgencia/gamificacion, incentivos al equipo de ventas, B2B/donacion RSE, CRM/influencers, merchandising, y datos (ABC, sell-through). Da ideas especificas + como ejecutar + metrica; separa vigente (margen) vs obsoleto (velocidad).
+- Enriquecidos prompts Sales y Marketing con contexto retail LatAm/Bolivia + tacticas (live selling, WhatsApp, ferias, cuotas/QR). Corregido bug: Branding decia "Panama" → "La Paz, Bolivia".
+- Patch: `scratchpad/patch_brainstorm.py`. Solo app (GitHub Pages), sin worker.
 
 ## Goal Clarity Coach — nutrido con 3 videos Tony Robbins (v4.94, 4-ago-2026)
 - Reescrito `GC_SP` (system prompt del coach, HTML ~9280) integrando 3 marcos de los videos que pasó Pepe: (A) **RPM for Planning** = Resultado/Proposito/MAP; (B) **7 pasos "The Path"** (fHVzWwRMTtE/CwsBMt4yP50/HiVu2Lcv6vA): 1 que quieres realmente, 2 enfrenta la verdad, 3 crea MAP, 4 haz lo dificil, 5 practica diaria, 6 sube estandares y mide, 7 celebra/contribuye; (C) **80% psicologia / 20% mecanica** (estado=fisiologia/lenguaje/foco, historia, estandares). Secuencia de 9 preguntas (una por mensaje): resultado→especificidad/medicion→enfrentar la verdad→POR QUE es un MUST (+crecimiento/contribucion)→palanca dolor/placer→nuevo estandar/identidad→psicologia/estado→MAP+lo dificil→practica diaria. Mantiene el mismo bloque de salida `[[GOAL]]{title,description,vision,targetDate,period,category,firstAction,whyPain}` (sin cambio de schema/código; los conceptos nuevos se pliegan en esos campos).
