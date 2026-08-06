@@ -1,6 +1,12 @@
 # Life & Business Planner 2026
 
-**Status:** Active, **v4.95**
+**Status:** Active, **v4.96**
+
+## Fix: brainstormProfile no guardaba (v4.96, 6-ago-2026)
+- Sintoma: en el brainstorm, el boton "Save Profile" no hacia nada al pegar el perfil. Causa probable: textarea CONTROLADO (`value:profileDraft`) + gate `disabled:!profileDraft.trim()`; un quirk de pegado/teclado en movil dejaba el estado vacio → boton deshabilitado → "no pasa nada".
+- Fix (BrainstormScreen ~15650): textarea **no controlado** (`defaultValue`+`ref=profileRef`, se mantiene onChange solo para UI), `saveProfile` lee `profileRef.current.value` como fuente autoritativa, quitado el gate `disabled`, y el boton Clear tambien limpia el ref. Ademas salvaguarda en `_mergeData` (~766): conservar `brainstormProfile` no vacio de cualquier lado para que la sync no lo borre (es escalar, no esta en `_SYNC_LISTS`).
+- Verificado en vivo por curl+grep (4 marcadores presentes en v4.96). Solo app.
+- Nota de testing: la app cachea el shell (SW, v4.91); para ver una version nueva en un navegador limpio hay que unregister SW + `caches.delete` + navegar con `?cb=` o 2 refreshes.
 
 ## Brainstorm IA nutrido para sobrestock (v4.95, 4-ago-2026)
 - BrainstormScreen (~15623) tiene areas con `SYSTEM_PROMPTS` por area + `brainstormProfile` del usuario que se antepone. Modelo Opus 5 via /chat.
