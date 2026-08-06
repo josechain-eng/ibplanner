@@ -1,6 +1,11 @@
 # Life & Business Planner 2026
 
-**Status:** Active, **v4.93**
+**Status:** Active, **v4.94**
+
+## Goal Clarity Coach — nutrido con 3 videos Tony Robbins (v4.94, 4-ago-2026)
+- Reescrito `GC_SP` (system prompt del coach, HTML ~9280) integrando 3 marcos de los videos que pasó Pepe: (A) **RPM for Planning** = Resultado/Proposito/MAP; (B) **7 pasos "The Path"** (fHVzWwRMTtE/CwsBMt4yP50/HiVu2Lcv6vA): 1 que quieres realmente, 2 enfrenta la verdad, 3 crea MAP, 4 haz lo dificil, 5 practica diaria, 6 sube estandares y mide, 7 celebra/contribuye; (C) **80% psicologia / 20% mecanica** (estado=fisiologia/lenguaje/foco, historia, estandares). Secuencia de 9 preguntas (una por mensaje): resultado→especificidad/medicion→enfrentar la verdad→POR QUE es un MUST (+crecimiento/contribucion)→palanca dolor/placer→nuevo estandar/identidad→psicologia/estado→MAP+lo dificil→practica diaria. Mantiene el mismo bloque de salida `[[GOAL]]{title,description,vision,targetDate,period,category,firstAction,whyPain}` (sin cambio de schema/código; los conceptos nuevos se pliegan en esos campos).
+- Enriquecido el prompt de generación de plan (MAP): pide hitos que muevan la aguja + 1 accion DIFICIL + 1 habito/practica diaria.
+- Patch aplicado con `scratchpad/patch_coach.py` (regex, comillas JSON escapadas `\\"`). Solo app (GitHub Pages), sin worker. El modelo IA sigue siendo Opus 5 vía /chat.
 
 ## Auditoría de alarmas (v4.93, 4-ago-2026)
 - **Cobertura OK:** 10 módulos con alarma (tasks/goals/projects/journal/routines/habits/medications/householdTasks/workouts/meetings) cubiertos consistentemente en agendar (HTML ~17418), check local `types` (~17355) y missed (~17431). Subtareas de proyectos: agendadas + missed, pero NO en check() (menor; nube cubre). Dedup nube↔local vía `lbp_cloud_fired` (escrito por SW push, leído por check/missed como `_cloudFired`/`_cloudFiredM`, formato `id_<ms>`).
