@@ -1,6 +1,12 @@
 # Life & Business Planner 2026
 
-**Status:** Active, **v4.96**
+**Status:** Active, **v4.97**
+
+## Grabación de voz — idioma ES-BO / EN (v4.97, 6-ago-2026)
+- Transcripción = **Web Speech API del navegador** (`SpeechRecognition`, Chrome/Chromium), NO Claude. Claude solo resume después (`/chat`, prompts ya dicen "usa el idioma de la transcripción"). ⚠️ La Web Speech API maneja **UN idioma por sesión** — no transcribe ES+EN simultáneo/mezclado bien.
+- 2 grabadores: `recStart` (reuniones ~7756) y `jRecStart` (journal ~4962). Antes `sr.lang='es'` (genérico). Ahora `sr.lang=(localStorage.getItem('lbp_rec_lang')||'es-BO')` → default **es-BO** (español Bolivia, mejor acento).
+- Añadido **selector 🇧🇴 Español / 🇺🇸 English** en ambos grabadores (visible cuando !active), estados `recLang`/`jRecLang`, persiste en `lbp_rec_lang`. Para una reunión en inglés, elegir 🇺🇸 antes de grabar.
+- Limitación honesta comunicada a Pepe: no hay API de navegador que transcriba perfecto una conversación mezclada ES+EN a la vez; el selector cubre el caso práctico (reunión mayormente en un idioma). Solo app.
 
 ## Fix: brainstormProfile no guardaba (v4.96, 6-ago-2026)
 - Sintoma: en el brainstorm, el boton "Save Profile" no hacia nada al pegar el perfil. Causa probable: textarea CONTROLADO (`value:profileDraft`) + gate `disabled:!profileDraft.trim()`; un quirk de pegado/teclado en movil dejaba el estado vacio → boton deshabilitado → "no pasa nada".
