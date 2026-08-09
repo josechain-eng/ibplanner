@@ -22,7 +22,7 @@
 <script>
 (function() {
   // ── Version ──────────────────────────────────────────────────────────────
-  window.LBP_VERSION = '4.98';
+  window.LBP_VERSION = '4.99';
 
   // ── PWA Install prompt ───────────────────────────────────────────────────
   window._installPrompt = null;
@@ -4957,10 +4957,11 @@ var GoalsScreen = function GoalsScreen(_ref19) {
       });
     });
   };
-  var jRecOpen=function(entry){setJRecEntry(entry||null);setJRecModal(true);setJRecFinal('');setJRecInterim('');setJRecActive(false);setJRecSumRes(null);setJRecExtTasks(null);setJRecExtSel([]);setJRecLinkId('');setJRecLinkType(null);jRecRunRef.current=false;if(jRecSRRef.current){try{jRecSRRef.current.abort();}catch(e){}jRecSRRef.current=null;}};
-  var jRecClose=function(){jRecRunRef.current=false;if(jRecSRRef.current){try{jRecSRRef.current.abort();}catch(e){}jRecSRRef.current=null;}setJRecActive(false);setJRecModal(false);setJRecEntry(null);};
-  var jRecStart=function(){var SR=window.SpeechRecognition||window.webkitSpeechRecognition;if(!SR){alert('Grabaci\u00f3n requiere Chrome.');return;}if(jRecSRRef.current){try{jRecSRRef.current.abort();}catch(e){}}var sr=new SR();jRecSRRef.current=sr;sr.continuous=true;sr.interimResults=true;sr.lang=(localStorage.getItem('lbp_rec_lang')||'es-BO');sr.onresult=function(e){var fin='',intr='';for(var i=e.resultIndex;i<e.results.length;i++){if(e.results[i].isFinal)fin+=e.results[i][0].transcript+' ';else intr+=e.results[i][0].transcript;}if(fin)setJRecFinal(function(p){return p+fin;});setJRecInterim(intr);};sr.onend=function(){if(jRecRunRef.current){try{sr.start();}catch(e){}}else{setJRecActive(false);setJRecInterim('');}};sr.onerror=function(e){if(e.error!=='aborted')setJRecInterim('[Error: '+e.error+']');};jRecRunRef.current=true;try{sr.start();}catch(e){alert('Error al iniciar: '+e.message);}setJRecActive(true);};
-  var jRecStop=function(){jRecRunRef.current=false;if(jRecSRRef.current){try{jRecSRRef.current.stop();}catch(e){}jRecSRRef.current=null;}setJRecInterim('');};
+  var _jRecCleanup=function(){jRecRunRef.current=false;if(jRecTimerRef.current){clearInterval(jRecTimerRef.current);jRecTimerRef.current=null;}if(jRecMRRef.current&&jRecMRRef.current.state!=='inactive'){try{jRecMRRef.current.onstop=null;jRecMRRef.current.stop();}catch(e){}}jRecMRRef.current=null;if(jRecStreamRef.current){try{jRecStreamRef.current.getTracks().forEach(function(t){t.stop();});}catch(e){}jRecStreamRef.current=null;}jRecChunksRef.current=[];if(jRecWakeLockRef.current){try{jRecWakeLockRef.current.release();}catch(e){}jRecWakeLockRef.current=null;}};
+  var jRecOpen=function(entry){_jRecCleanup();setJRecEntry(entry||null);setJRecModal(true);setJRecFinal('');setJRecInterim('');setJRecActive(false);setJRecTranscribing(false);setJRecElapsed(0);setJRecSumRes(null);setJRecExtTasks(null);setJRecExtSel([]);setJRecLinkId('');setJRecLinkType(null);};
+  var jRecClose=function(){_jRecCleanup();setJRecActive(false);setJRecTranscribing(false);setJRecSleepScreen(false);setJRecModal(false);setJRecEntry(null);};
+  var jRecStart=function(){if(!window.MediaRecorder||!navigator.mediaDevices||!navigator.mediaDevices.getUserMedia){alert('Tu navegador no soporta grabaci\u00f3n de audio. Usa Chrome.');return;}if(!window.LBP_WORKER_URL){alert('Configura el Worker URL en Cloud & Sync para poder transcribir.');return;}navigator.mediaDevices.getUserMedia({audio:true}).then(function(stream){jRecStreamRef.current=stream;jRecChunksRef.current=[];var mime='';var cands=['audio/webm;codecs=opus','audio/webm','audio/mp4','audio/ogg'];for(var i=0;i<cands.length;i++){if(window.MediaRecorder.isTypeSupported&&window.MediaRecorder.isTypeSupported(cands[i])){mime=cands[i];break;}}var mr=mime?new MediaRecorder(stream,{mimeType:mime}):new MediaRecorder(stream);jRecMRRef.current=mr;mr.ondataavailable=function(e){if(e.data&&e.data.size>0)jRecChunksRef.current.push(e.data);};mr.onstop=function(){jRecFinishRef.current();};mr.start(5000);jRecRunRef.current=true;setJRecActive(true);setJRecFinal('');setJRecInterim('');setJRecElapsed(0);jRecTimerRef.current=setInterval(function(){setJRecElapsed(function(p){return p+1;});},1000);if(navigator.wakeLock){navigator.wakeLock.request('screen').then(function(wl){jRecWakeLockRef.current=wl;}).catch(function(){});}}).catch(function(err){alert('No se pudo acceder al micr\u00f3fono: '+(err&&err.message||err));});};
+  var jRecStop=function(){jRecRunRef.current=false;if(jRecTimerRef.current){clearInterval(jRecTimerRef.current);jRecTimerRef.current=null;}if(jRecChunksRef.current&&jRecChunksRef.current.length)setJRecTranscribing(true);if(jRecMRRef.current&&jRecMRRef.current.state!=='inactive'){try{jRecMRRef.current.stop();}catch(e){jRecFinishRef.current();}}setJRecActive(false);setJRecInterim('');setJRecSleepScreen(false);if(jRecWakeLockRef.current){try{jRecWakeLockRef.current.release();}catch(e){}jRecWakeLockRef.current=null;}};
   var jRecGenSummary=function(){if(!window.LBP_WORKER_URL||!jRecFinal.trim())return;setJRecSumLoad(true);setJRecSumRes(null);setJRecExtTasks(null);var en=jRecEntry||{};var isNote=(en.entryType||'journal')==='note';var ctx=(isNote?'Nota':'Diario')+': '+(en.title||en.date||'Sin t\u00edtulo')+(en.date?'\nFecha: '+en.date:'')+'\n\nGrabaci\u00f3n:\n'+jRecFinal;var sp=isNote?'Analiza esta grabaci\u00f3n de pensamientos e ideas. Resumen con:\n\uD83E\uDDE0 Ideas principales\n\uD83D\uDCA1 Insights clave\n\u2705 Acciones (si las hay)\n\uD83D\uDCDD Puntos para recordar\n\nSe conciso. Usa el idioma de la grabaci\u00f3n.':'Analiza esta grabaci\u00f3n de diario personal. Resumen con:\n\uD83D\uDCAD Reflexiones principales\n\uD83D\uDE0A Estado emocional detectado\n\uD83D\uDCA1 Insights y aprendizajes\n\u2705 Compromisos o acciones\n\uD83D\uDD1C Pr\u00f3ximos pasos\n\nSe emp\u00e1tico y conciso. Usa el idioma de la grabaci\u00f3n.';fetch(window.LBP_WORKER_URL+'/chat',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({messages:[{role:'user',content:ctx}],systemPrompt:sp})}).then(function(r){return r.json();}).then(function(res){setJRecSumLoad(false);setJRecSumRes(res.content||('Error: '+(res.error||'')));}).catch(function(){setJRecSumLoad(false);setJRecSumRes('Error de red');});};
   var jRecSaveEntry=function(){if(!jRecEntry||!jRecSumRes)return;var note='\n\n--- Resumen de Grabaci\u00f3n ---\n'+jRecSumRes;setData(function(d){return Object.assign({},d,{journal:(d.journal||[]).map(function(e){return e.id===jRecEntry.id?Object.assign({},e,{content:(e.content||'')+note}):e;})});});alert('\u2705 Resumen guardado en la entrada');};
   var jRecDoLink=function(){if(!jRecLinkId||!jRecLinkType||!jRecSumRes)return;var note='\n\n--- Resumen vinculado ---\n'+jRecSumRes;if(jRecLinkType==='task'){setData(function(d){return Object.assign({},d,{tasks:(d.tasks||[]).map(function(t){return t.id===jRecLinkId?Object.assign({},t,{description:(t.description||'')+note}):t;})});});alert('\u2705 Vinculado a la tarea');}else{setData(function(d){return Object.assign({},d,{projects:(d.projects||[]).map(function(p){return p.id===jRecLinkId?Object.assign({},p,{description:(p.description||'')+note}):p;})});});alert('\u2705 Vinculado al proyecto');}setJRecLinkId('');setJRecLinkType(null);};
@@ -7678,6 +7679,10 @@ var MeetingsScreen = function MeetingsScreen(_ref26) {
   var recRunRef=useRef(false);
   var recWakeLockRef=useRef(null);
   var _recSS1=useState(false),_recSS2=_slicedToArray(_recSS1,2),recSleepScreen=_recSS2[0],setRecSleepScreen=_recSS2[1];
+  // MediaRecorder + Whisper: graba audio en segundo plano (permite usar el celular libremente) y transcribe al detener
+  var recMRRef=useRef(null);var recChunksRef=useRef([]);var recStreamRef=useRef(null);var recTimerRef=useRef(null);
+  var _recTr1=useState(false),_recTr2=_slicedToArray(_recTr1,2),recTranscribing=_recTr2[0],setRecTranscribing=_recTr2[1];
+  var _recEl1=useState(0),_recEl2=_slicedToArray(_recEl1,2),recElapsed=_recEl2[0],setRecElapsed=_recEl2[1];
   // Wake lock robusto: el navegador lo LIBERA al ocultarse la pagina (bloqueo/cambio de app)
   // y NO lo re-adquiere solo. Al volver a estar visible, si seguimos grabando, lo re-pedimos
   // y ademas empujamos el reconocimiento por si se corto mientras estaba oculto.
@@ -7765,10 +7770,14 @@ var MeetingsScreen = function MeetingsScreen(_ref26) {
       });
     });
   };
-  var recOpen=function(m){setRecMeeting(m||null);setRecModal(true);setRecFinal('');setRecInterim('');setRecActive(false);setRecSumRes(null);setRecExtTasks(null);setRecExtSel([]);recRunRef.current=false;if(recSRRef.current){try{recSRRef.current.abort();}catch(e){}recSRRef.current=null;}};
-  var recClose=function(){recRunRef.current=false;if(recSRRef.current){try{recSRRef.current.abort();}catch(e){}recSRRef.current=null;}setRecActive(false);setRecModal(false);setRecMeeting(null);};
-  var recStart=function(){var SR=window.SpeechRecognition||window.webkitSpeechRecognition;if(!SR){alert('Grabación requiere Chrome o un navegador Chromium.');return;}if(recSRRef.current){try{recSRRef.current.abort();}catch(e){}}if(navigator.wakeLock){navigator.wakeLock.request('screen').then(function(wl){recWakeLockRef.current=wl;}).catch(function(){});}var sr=new SR();recSRRef.current=sr;sr.continuous=true;sr.interimResults=true;sr.lang=(localStorage.getItem('lbp_rec_lang')||'es-BO');sr.onresult=function(e){var fin='',intr='';for(var i=e.resultIndex;i<e.results.length;i++){if(e.results[i].isFinal)fin+=e.results[i][0].transcript+' ';else intr+=e.results[i][0].transcript;}if(fin)setRecFinal(function(p){return p+fin;});setRecInterim(intr);};sr.onend=function(){if(recRunRef.current){try{sr.start();}catch(e){}}else{setRecActive(false);setRecInterim('');}};sr.onerror=function(e){if(e.error!=='aborted')setRecInterim('[Error: '+e.error+']');};recRunRef.current=true;try{sr.start();}catch(e){alert('No se pudo iniciar la grabación: '+e.message);}setRecActive(true);};
-  var recStop=function(){recRunRef.current=false;if(recSRRef.current){try{recSRRef.current.stop();}catch(e){}recSRRef.current=null;}setRecInterim('');setRecSleepScreen(false);if(recWakeLockRef.current){try{recWakeLockRef.current.release();}catch(e){}recWakeLockRef.current=null;}};
+  var _recCleanup=function(){recRunRef.current=false;if(recTimerRef.current){clearInterval(recTimerRef.current);recTimerRef.current=null;}if(recMRRef.current&&recMRRef.current.state!=='inactive'){try{recMRRef.current.onstop=null;recMRRef.current.stop();}catch(e){}}recMRRef.current=null;if(recStreamRef.current){try{recStreamRef.current.getTracks().forEach(function(t){t.stop();});}catch(e){}recStreamRef.current=null;}recChunksRef.current=[];if(recWakeLockRef.current){try{recWakeLockRef.current.release();}catch(e){}recWakeLockRef.current=null;}};
+  var recOpen=function(m){_recCleanup();setRecMeeting(m||null);setRecModal(true);setRecFinal('');setRecInterim('');setRecActive(false);setRecTranscribing(false);setRecElapsed(0);setRecSumRes(null);setRecExtTasks(null);setRecExtSel([]);};
+  var recClose=function(){_recCleanup();setRecActive(false);setRecTranscribing(false);setRecSleepScreen(false);setRecModal(false);setRecMeeting(null);};
+  var recStart=function(){if(!window.MediaRecorder||!navigator.mediaDevices||!navigator.mediaDevices.getUserMedia){alert('Tu navegador no soporta grabación de audio. Usa Chrome.');return;}if(!window.LBP_WORKER_URL){alert('Configura el Worker URL en Cloud & Sync para poder transcribir.');return;}navigator.mediaDevices.getUserMedia({audio:true}).then(function(stream){recStreamRef.current=stream;recChunksRef.current=[];var mime='';var cands=['audio/webm;codecs=opus','audio/webm','audio/mp4','audio/ogg'];for(var i=0;i<cands.length;i++){if(window.MediaRecorder.isTypeSupported&&window.MediaRecorder.isTypeSupported(cands[i])){mime=cands[i];break;}}var mr=mime?new MediaRecorder(stream,{mimeType:mime}):new MediaRecorder(stream);recMRRef.current=mr;mr.ondataavailable=function(e){if(e.data&&e.data.size>0)recChunksRef.current.push(e.data);};mr.onstop=function(){recFinishRef.current();};mr.start(5000);recRunRef.current=true;setRecActive(true);setRecFinal('');setRecInterim('');setRecElapsed(0);recTimerRef.current=setInterval(function(){setRecElapsed(function(p){return p+1;});},1000);if(navigator.wakeLock){navigator.wakeLock.request('screen').then(function(wl){recWakeLockRef.current=wl;}).catch(function(){});}}).catch(function(err){alert('No se pudo acceder al micrófono: '+(err&&err.message||err));});};
+  // Al detener: arma el blob, sube a /transcribe (Whisper) y vuelca el texto en recFinal
+  var recFinishRef=useRef(function(){});
+  recFinishRef.current=function(){var chunks=recChunksRef.current||[];var stream=recStreamRef.current;if(stream){try{stream.getTracks().forEach(function(t){t.stop();});}catch(e){}recStreamRef.current=null;}if(!chunks.length){setRecTranscribing(false);return;}var type=(recMRRef.current&&recMRRef.current.mimeType)||chunks[0].type||'audio/webm';var blob=new Blob(chunks,{type:type});recChunksRef.current=[];if(blob.size>25*1024*1024){setRecTranscribing(false);setRecFinal('[La grabación superó 25MB (límite de Whisper). Graba en tramos más cortos.]');return;}var lang=(localStorage.getItem('lbp_rec_lang')||'es-BO').indexOf('en')===0?'en':'es';setRecTranscribing(true);fetch(window.LBP_WORKER_URL+'/transcribe?lang='+lang,{method:'POST',headers:{'Content-Type':type},body:blob}).then(function(r){return r.json();}).then(function(res){setRecTranscribing(false);if(res&&res.text){setRecFinal(res.text);}else{setRecFinal('[Error al transcribir: '+((res&&res.error)||'sin respuesta')+']');}}).catch(function(){setRecTranscribing(false);setRecFinal('[Error de red al transcribir]');});};
+  var recStop=function(){recRunRef.current=false;if(recTimerRef.current){clearInterval(recTimerRef.current);recTimerRef.current=null;}if(recChunksRef.current&&recChunksRef.current.length)setRecTranscribing(true);if(recMRRef.current&&recMRRef.current.state!=='inactive'){try{recMRRef.current.stop();}catch(e){recFinishRef.current();}}setRecActive(false);setRecInterim('');setRecSleepScreen(false);if(recWakeLockRef.current){try{recWakeLockRef.current.release();}catch(e){}recWakeLockRef.current=null;}};
   var recGenSummary=function(){if(!window.LBP_WORKER_URL||!recFinal.trim())return;setRecSumLoad(true);setRecSumRes(null);setRecExtTasks(null);var m=recMeeting||{};var ctx='Reunión: '+(m.title||'Sin título')+(m.date?'\nFecha: '+m.date:'')+(m.agenda?'\nAgenda: '+m.agenda:'')+'\n\nTranscripción:\n'+recFinal;fetch(window.LBP_WORKER_URL+'/chat',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({messages:[{role:'user',content:ctx}],systemPrompt:'Eres un asistente ejecutivo. Analiza la transcripción y genera un summary ejecutivo estructurado con estas secciones:\n📌 Puntos clave discutidos\n✅ Decisiones tomadas\n📋 Action items\n🔜 Próximos pasos\n⚠️ Temas pendientes\n\nSé conciso y específico. Usa el idioma de la transcripción.'})}).then(function(r){return r.json();}).then(function(res){setRecSumLoad(false);setRecSumRes(res.content||('Error: '+(res.error||'')));}).catch(function(){setRecSumLoad(false);setRecSumRes('Error de red');});};
   var recSaveNotes=function(){if(!recMeeting||!recSumRes)return;var note='\n\n--- Summary de Reunión ---\n'+recSumRes;setData(function(d){return Object.assign({},d,{meetings:(d.meetings||[]).map(function(m){return m.id===recMeeting.id?Object.assign({},m,{notes:(m.notes||'')+note}):m;})});});};
   var recExtractFromSummary=function(){if(!recSumRes||!window.LBP_WORKER_URL)return;setRecSumLoad(true);fetch(window.LBP_WORKER_URL+'/chat',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({messages:[{role:'user',content:'Extrae los action items de este summary:\n\n'+recSumRes}],systemPrompt:'Extrae los action items. Responde SOLO con JSON array de strings. Ejemplo: ["Enviar propuesta","Agendar call"]. Usa el idioma del texto.'})}).then(function(r){return r.json();}).then(function(res){setRecSumLoad(false);try{var t=res.content||'';var si=t.indexOf('[');var ei=t.lastIndexOf(']')+1;if(si>=0&&ei>si){var a=JSON.parse(t.slice(si,ei));setRecExtTasks(a);setRecExtSel(a.map(function(_,i){return i;}));}else{setRecExtTasks([]);}}catch(e){setRecExtTasks([]);}}).catch(function(){setRecSumLoad(false);});};
@@ -8094,9 +8103,9 @@ var MeetingsScreen = function MeetingsScreen(_ref26) {
         ?/*#__PURE__*/React.createElement('button',{className:'btn btn-primary',onClick:recStart},'▶ Iniciar')
         :/*#__PURE__*/React.createElement('button',{className:'btn btn-danger',onClick:recStop},'⏹ Detener'),
       recActive&&/*#__PURE__*/React.createElement(React.Fragment,null,
-        /*#__PURE__*/React.createElement('span',{style:{fontSize:12,color:'#ef4444',fontWeight:700,display:'flex',alignItems:'center',gap:4}},
+        /*#__PURE__*/React.createElement('span',{style:{fontSize:13,color:'#ef4444',fontWeight:700,display:'flex',alignItems:'center',gap:4,fontVariantNumeric:'tabular-nums'}},
           /*#__PURE__*/React.createElement('span',{style:{width:8,height:8,borderRadius:'50%',background:'#ef4444',display:'inline-block'}},''),
-          ' Grabando...'
+          ' '+Math.floor(recElapsed/60)+':'+('0'+(recElapsed%60)).slice(-2)
         ),
         /*#__PURE__*/React.createElement('button',{className:'btn btn-secondary btn-sm',style:{fontSize:11,marginLeft:4},title:'Apagar pantalla (sigue grabando)',onClick:function(){setRecSleepScreen(true);}},
           '\uD83C\uDF19 Pantalla oscura'
@@ -8105,12 +8114,13 @@ var MeetingsScreen = function MeetingsScreen(_ref26) {
       !recActive&&recFinal&&/*#__PURE__*/React.createElement('span',{style:{fontSize:11,color:'var(--text-dim)'}},Math.round(recFinal.trim().split(/\s+/).length)+' palabras')
     ),
     /*#__PURE__*/React.createElement('div',{style:{background:'var(--surface)',border:'1px solid var(--border)',borderRadius:8,padding:'8px 10px',minHeight:80,maxHeight:180,overflowY:'auto',fontSize:12,lineHeight:1.6,marginBottom:10,whiteSpace:'pre-wrap'}},
-      recFinal||recInterim
-        ?/*#__PURE__*/React.createElement(React.Fragment,null,
-            /*#__PURE__*/React.createElement('span',null,recFinal),
-            recInterim&&/*#__PURE__*/React.createElement('span',{style:{color:'var(--text-dim)',fontStyle:'italic'}},recInterim)
-          )
-        :/*#__PURE__*/React.createElement('span',{style:{color:'var(--text-dim)',fontStyle:'italic'}},'Presiona ▶ Iniciar y comienza a hablar...')
+      recTranscribing
+        ?/*#__PURE__*/React.createElement('span',{style:{color:'var(--purple-light)',fontStyle:'italic'}},'⏳ Transcribiendo el audio... (puede tardar según la duración)')
+        :recActive
+          ?/*#__PURE__*/React.createElement('span',{style:{color:'var(--text-dim)',fontStyle:'italic'}},'🎤 Grabando en segundo plano. Puedes salir de la app y usar el celular (WhatsApp, correo, calculadora) — el audio se sigue grabando. Al detener, se transcribe automáticamente. (Una llamada telefónica sí interrumpe el micrófono.)')
+          :recFinal
+            ?/*#__PURE__*/React.createElement('span',null,recFinal)
+            :/*#__PURE__*/React.createElement('span',{style:{color:'var(--text-dim)',fontStyle:'italic'}},'Presiona ▶ Iniciar. Puedes usar el celular mientras graba; al detener se transcribe.')
     ),
     recSumLoad&&/*#__PURE__*/React.createElement('div',{style:{textAlign:'center',padding:'10px 0',color:'var(--purple-light)',fontSize:13}},'⏳ Generando summary ejecutivo...'),
     recSumRes&&/*#__PURE__*/React.createElement('div',{style:{background:'rgba(107,63,160,0.08)',border:'1px solid var(--purple-light)',borderRadius:10,padding:'10px 12px',fontSize:12,lineHeight:1.7,whiteSpace:'pre-wrap',maxHeight:220,overflowY:'auto'}},
@@ -8661,6 +8671,12 @@ var JournalScreen = function JournalScreen(_ref31) {
   var _jRec21=useState(null),_jRec22=_slicedToArray(_jRec21,2),jRecLinkType=_jRec22[0],setJRecLinkType=_jRec22[1];
   var jRecSRRef=useRef(null);
   var jRecRunRef=useRef(false);
+  var jRecMRRef=useRef(null);var jRecChunksRef=useRef([]);var jRecStreamRef=useRef(null);var jRecTimerRef=useRef(null);var jRecWakeLockRef=useRef(null);var jRecFinishRef=useRef(function(){});
+  var _jRecTr1=useState(false),_jRecTr2=_slicedToArray(_jRecTr1,2),jRecTranscribing=_jRecTr2[0],setJRecTranscribing=_jRecTr2[1];
+  var _jRecEl1=useState(0),_jRecEl2=_slicedToArray(_jRecEl1,2),jRecElapsed=_jRecEl2[0],setJRecElapsed=_jRecEl2[1];
+  var _jRecSS1=useState(false),_jRecSS2=_slicedToArray(_jRecSS1,2),jRecSleepScreen=_jRecSS2[0],setJRecSleepScreen=_jRecSS2[1];
+  jRecFinishRef.current=function(){var chunks=jRecChunksRef.current||[];var stream=jRecStreamRef.current;if(stream){try{stream.getTracks().forEach(function(t){t.stop();});}catch(e){}jRecStreamRef.current=null;}if(!chunks.length){setJRecTranscribing(false);return;}var type=(jRecMRRef.current&&jRecMRRef.current.mimeType)||chunks[0].type||'audio/webm';var blob=new Blob(chunks,{type:type});jRecChunksRef.current=[];if(blob.size>25*1024*1024){setJRecTranscribing(false);setJRecFinal('[La grabación superó 25MB (límite de Whisper). Graba en tramos más cortos.]');return;}var lang=(localStorage.getItem('lbp_rec_lang')||'es-BO').indexOf('en')===0?'en':'es';setJRecTranscribing(true);fetch(window.LBP_WORKER_URL+'/transcribe?lang='+lang,{method:'POST',headers:{'Content-Type':type},body:blob}).then(function(r){return r.json();}).then(function(res){setJRecTranscribing(false);if(res&&res.text){setJRecFinal(res.text);}else{setJRecFinal('[Error al transcribir: '+((res&&res.error)||'sin respuesta')+']');}}).catch(function(){setJRecTranscribing(false);setJRecFinal('[Error de red al transcribir]');});};
+  useEffect(function(){var onVis=function(){if(document.visibilityState==='visible'&&jRecRunRef.current&&navigator.wakeLock&&(!jRecWakeLockRef.current||jRecWakeLockRef.current.released)){navigator.wakeLock.request('screen').then(function(wl){jRecWakeLockRef.current=wl;}).catch(function(){});}};document.addEventListener('visibilitychange',onVis);return function(){document.removeEventListener('visibilitychange',onVis);};},[]);
   var entries = _toConsumableArray(data.journal || []).sort(function (a, b) {
     return b.date.localeCompare(a.date);
   }).filter(function(e){
@@ -8915,6 +8931,14 @@ var JournalScreen = function JournalScreen(_ref31) {
       }
     }, "\uD83D\uDE4F ", e.gratitude));
   })),
+  jRecSleepScreen&&/*#__PURE__*/React.createElement('div',{
+    onClick:function(){setJRecSleepScreen(false);},
+    style:{position:'fixed',inset:0,background:'#000',zIndex:99999,display:'flex',flexDirection:'column',alignItems:'center',justifyContent:'center',cursor:'pointer',userSelect:'none'}
+  },
+    /*#__PURE__*/React.createElement('div',{style:{width:14,height:14,borderRadius:'50%',background:'#ef4444',marginBottom:20,animation:'lbp-rec-pulse 1.2s ease-in-out infinite'}}),
+    /*#__PURE__*/React.createElement('span',{style:{fontSize:12,color:'rgba(255,255,255,0.25)',letterSpacing:1}},'🎤 Grabando'),
+    /*#__PURE__*/React.createElement('span',{style:{fontSize:11,color:'rgba(255,255,255,0.15)',marginTop:40}},'Toca para volver')
+  ),
   jRecModal&&jRecEntry&&/*#__PURE__*/React.createElement(Modal,{
     title:'🎙️ '+(jRecEntry.entryType==='note'?'Nota':'Diario')+' — '+(jRecEntry.title||jRecEntry.date||'Nueva entrada'),
     onClose:jRecClose,
@@ -8936,19 +8960,23 @@ var JournalScreen = function JournalScreen(_ref31) {
       !jRecActive
         ?/*#__PURE__*/React.createElement('button',{className:'btn btn-primary',onClick:jRecStart},'\u25b6 Iniciar')
         :/*#__PURE__*/React.createElement('button',{className:'btn btn-danger',onClick:jRecStop},'\u23f9 Detener'),
-      jRecActive&&/*#__PURE__*/React.createElement('span',{style:{fontSize:12,color:'#ef4444',fontWeight:700,display:'flex',alignItems:'center',gap:4}},
-        /*#__PURE__*/React.createElement('span',{style:{width:8,height:8,borderRadius:'50%',background:'#ef4444',display:'inline-block'}},''),
-        ' Grabando...'
+      jRecActive&&/*#__PURE__*/React.createElement(React.Fragment,null,
+        /*#__PURE__*/React.createElement('span',{style:{fontSize:13,color:'#ef4444',fontWeight:700,display:'flex',alignItems:'center',gap:4,fontVariantNumeric:'tabular-nums'}},
+          /*#__PURE__*/React.createElement('span',{style:{width:8,height:8,borderRadius:'50%',background:'#ef4444',display:'inline-block'}},''),
+          ' '+Math.floor(jRecElapsed/60)+':'+('0'+(jRecElapsed%60)).slice(-2)
+        ),
+        /*#__PURE__*/React.createElement('button',{className:'btn btn-secondary btn-sm',style:{fontSize:11,marginLeft:4},title:'Apagar pantalla (sigue grabando)',onClick:function(){setJRecSleepScreen(true);}},'\ud83c\udf19 Pantalla oscura')
       ),
       !jRecActive&&jRecFinal&&/*#__PURE__*/React.createElement('span',{style:{fontSize:11,color:'var(--text-dim)'}},jRecFinal.trim().split(' ').filter(function(w){return w.length>0;}).length+' palabras')
     ),
     /*#__PURE__*/React.createElement('div',{style:{background:'var(--surface)',border:'1px solid var(--border)',borderRadius:8,padding:'8px 10px',minHeight:70,maxHeight:160,overflowY:'auto',fontSize:12,lineHeight:1.6,marginBottom:10,whiteSpace:'pre-wrap'}},
-      jRecFinal||jRecInterim
-        ?/*#__PURE__*/React.createElement(React.Fragment,null,
-            /*#__PURE__*/React.createElement('span',null,jRecFinal),
-            jRecInterim&&/*#__PURE__*/React.createElement('span',{style:{color:'var(--text-dim)',fontStyle:'italic'}},jRecInterim)
-          )
-        :/*#__PURE__*/React.createElement('span',{style:{color:'var(--text-dim)',fontStyle:'italic'}},'Presiona \u25b6 Iniciar y comienza a hablar...')
+      jRecTranscribing
+        ?/*#__PURE__*/React.createElement('span',{style:{color:'var(--purple-light)',fontStyle:'italic'}},'\u23f3 Transcribiendo el audio... (puede tardar seg\u00fan la duraci\u00f3n)')
+        :jRecActive
+          ?/*#__PURE__*/React.createElement('span',{style:{color:'var(--text-dim)',fontStyle:'italic'}},'\ud83c\udfa4 Grabando en segundo plano. Puedes usar el celular mientras graba; al detener se transcribe autom\u00e1ticamente.')
+          :jRecFinal
+            ?/*#__PURE__*/React.createElement('span',null,jRecFinal)
+            :/*#__PURE__*/React.createElement('span',{style:{color:'var(--text-dim)',fontStyle:'italic'}},'Presiona \u25b6 Iniciar. Puedes usar el celular mientras graba; al detener se transcribe.')
     ),
     jRecSumLoad&&/*#__PURE__*/React.createElement('div',{style:{textAlign:'center',padding:'10px 0',color:'var(--purple-light)',fontSize:13}},'⏳ Generando resumen...'),
     jRecSumRes&&/*#__PURE__*/React.createElement('div',{style:{background:'rgba(107,63,160,0.08)',border:'1px solid var(--purple-light)',borderRadius:10,padding:'10px 12px',fontSize:12,lineHeight:1.7,whiteSpace:'pre-wrap',maxHeight:200,overflowY:'auto',marginBottom:10}},
