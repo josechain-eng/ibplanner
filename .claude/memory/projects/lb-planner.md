@@ -1,6 +1,11 @@
 # Life & Business Planner 2026
 
-**Status:** Active, **v4.97**
+**Status:** Active, **v4.98**
+
+## Pantalla oscura + wake lock de grabación (v4.98, 6-ago-2026)
+- Grabador de reuniones (MeetingsScreen): tiene "🌙 Pantalla oscura" (`recSleepScreen`, overlay negro in-page con punto rojo pulsante + "Toca para volver") que mantiene la PAGINA activa (no bloquea el cel) para que la grabacion siga. Pide `navigator.wakeLock.request('screen')` en `recStart`, lo libera en `recStop`.
+- **Hueco corregido:** el Wake Lock API se libera solo al ocultarse la pagina (bloqueo/cambio de app) y NO se re-adquiere. Añadido `useEffect` con `visibilitychange`: al volver a visible mientras `recRunRef.current`, re-pide el wake lock (si `!current || .released`) y hace `recSRRef.current.start()` (nudge) por si el reconocimiento se corto. Meetings only por ahora; journal (jRecStart) NO tiene wake lock ni pantalla oscura (posible follow-up).
+- Limitacion Web Speech API: si el usuario BLOQUEA el cel (boton power), la pagina se oculta y el audio de ese lapso se pierde (la API no graba con pantalla bloqueada). Por eso hay que usar "Pantalla oscura" en vez del boton power. Solo Chrome/Chromium Android (S24 Ultra OK; iOS Safari no).
 
 ## Grabación de voz — idioma ES-BO / EN (v4.97, 6-ago-2026)
 - Transcripción = **Web Speech API del navegador** (`SpeechRecognition`, Chrome/Chromium), NO Claude. Claude solo resume después (`/chat`, prompts ya dicen "usa el idioma de la transcripción"). ⚠️ La Web Speech API maneja **UN idioma por sesión** — no transcribe ES+EN simultáneo/mezclado bien.
