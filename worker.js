@@ -270,6 +270,34 @@ async function handleRequest(request, env) {
       return json({ content });
     }
 
+    // POST /transcribe  ->  audio (blob en el body) -> OpenAI Whisper -> { text }
+    // Requiere secret OPENAI_API_KEY. Query ?lang=es|en mejora la precision.
+    if (p === '/transcribe' && request.method === 'POST') {
+      const key = env.OPENAI_API_KEY;
+      if (!key) return json({ error: 'OPENAI_API_KEY no configurada en el worker' }, 500);
+      const lang = url.searchParams.get('lang') || 'es';
+      const mime = request.headers.get('content-type') || 'audio/webm';
+      const buf = await request.arrayBuffer();
+      if (!buf || buf.byteLength === 0) return json({ error: 'audio vacio' }, 400);
+      if (buf.byteLength > 25 * 1024 * 1024) return json({ error: 'audio mayor a 25MB (limite de Whisper); grabar en tramos mas cortos' }, 413);
+      const ext = mime.indexOf('mp4') >= 0 ? 'mp4' : (mime.indexOf('ogg') >= 0 ? 'ogg' : (mime.indexOf('wav') >= 0 ? 'wav' : 'webm'));
+      const fd = new FormData();
+      fd.append('file', new File([buf], 'audio.' + ext, { type: mime }));
+      fd.append('model', 'whisper-1');
+      if (lang && lang !== 'auto') fd.append('language', lang);
+      fd.append('response_format', 'json');
+      try {
+        const r = await fetch('https://api.openai.com/v1/audio/transcriptions', {
+          method: 'POST',
+          headers: { 'Authorization': 'Bearer ' + key },
+          body: fd
+        });
+        const data = await r.json().catch(function(){ return null; });
+        if (!r.ok) return json({ error: 'whisper: ' + (data && data.error ? data.error.message : ('HTTP ' + r.status)) }, r.status);
+        return json({ text: (data && data.text) || '' });
+      } catch (e) { return json({ error: 'transcribe: ' + (e && e.message) }, 500); }
+    }
+
     // GET /briefing-ai?key=&date=  \u2192  returns today's AI-generated briefing from KV
     if (p === '/briefing-ai' && request.method === 'GET') {
       const syncKey = url.searchParams.get('key');
