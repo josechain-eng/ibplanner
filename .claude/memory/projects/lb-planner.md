@@ -2,6 +2,12 @@
 
 **Status:** Active, **v4.98**
 
+## Grabación en segundo plano — MediaRecorder + Whisper (EN CURSO, 6-ago-2026)
+- **Motivo:** Pepe necesita usar el cel (WhatsApp/correo/calc) MIENTRAS graba. La Web Speech API NO lo permite (se detiene al perder foreground). Se decidió opcion C: reemplazar el motor por **MediaRecorder** (captura audio a archivo, sobrevive al background) + transcripcion server-side con **OpenAI Whisper**.
+- **Recorder de journal:** codigo enredado — `jRecStart/Stop` definidos en ~4962 pero estados/render de JournalScreen en 8578+ (jRecModal 8650, jRecActive 8652, jRecSRRef 8662, modal render 8918). Estructura fragil; NO parchear el wake-lock ahi (se decidio ir directo a A que reemplaza todo). Se SALTO la parte B (wake lock journal).
+- **HECHO:** endpoint worker **`POST /transcribe`** (audio blob en el body -> OpenAI Whisper `whisper-1` -> `{text}`). Query `?lang=es|en`. Limite 25MB. Requiere secret **`OPENAI_API_KEY`**. CORS/OPTIONS ya OK. ⚠️ Requiere DEPLOY del worker + agregar el secret.
+- **PENDIENTE:** frontend MediaRecorder (capturar audio, permitir usar el cel, subir a /transcribe al parar, meter el texto en recFinal/jRecFinal y usar el flujo de summary existente). Limitacion inevitable: una LLAMADA telefonica le quita el mic al navegador.
+
 ## Pantalla oscura + wake lock de grabación (v4.98, 6-ago-2026)
 - Grabador de reuniones (MeetingsScreen): tiene "🌙 Pantalla oscura" (`recSleepScreen`, overlay negro in-page con punto rojo pulsante + "Toca para volver") que mantiene la PAGINA activa (no bloquea el cel) para que la grabacion siga. Pide `navigator.wakeLock.request('screen')` en `recStart`, lo libera en `recStop`.
 - **Hueco corregido:** el Wake Lock API se libera solo al ocultarse la pagina (bloqueo/cambio de app) y NO se re-adquiere. Añadido `useEffect` con `visibilitychange`: al volver a visible mientras `recRunRef.current`, re-pide el wake lock (si `!current || .released`) y hace `recSRRef.current.start()` (nudge) por si el reconocimiento se corto. Meetings only por ahora; journal (jRecStart) NO tiene wake lock ni pantalla oscura (posible follow-up).
