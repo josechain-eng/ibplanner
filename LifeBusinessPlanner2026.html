@@ -22,7 +22,7 @@
 <script>
 (function() {
   // ── Version ──────────────────────────────────────────────────────────────
-  window.LBP_VERSION = '4.99';
+  window.LBP_VERSION = '5.00';
 
   // ── PWA Install prompt ───────────────────────────────────────────────────
   window._installPrompt = null;
@@ -3474,13 +3474,50 @@ function _recentOccurrence(baseIso, rec, alarm, nowMs) {
   return prev;
 }
 
+// Estado (por carga de pagina) de entidades completadas ya canceladas, para no spamear DELETE
+var _lbpCanceledDone = (window._lbpCanceledDone = window._lbpCanceledDone || {});
+// Cancela en la nube TODAS las ocurrencias (y sus recordatorios) de una alarma recurrente/única
+function _cancelEntityCloudAlarms(entity, alarm) {
+  var eid = entity.id;
+  if (!eid) return;
+  var nowMs = Date.now();
+  var _baseMs = new Date(alarm.datetime).getTime();
+  if (isNaN(_baseMs)) return;
+  var _rec = alarm.recurrence || 'once';
+  // Recalcula la ventana de ocurrencias (los IDs son deterministas: eid_<occMs>)
+  var occ = (_rec === 'once') ? [_baseMs] : [_baseMs].concat(_futureOccurrences(alarm.datetime, _rec, alarm, nowMs));
+  var ids = [];
+  occ.forEach(function(ms){
+    ids.push(eid + '_' + ms);
+    if (alarm.repeatIntervals && Array.isArray(alarm.repeatIntervals)) {
+      alarm.repeatIntervals.forEach(function(_, idx){ ids.push(eid + '_' + ms + '_r' + (idx + 1)); });
+    }
+  });
+  ids.forEach(function(id){ if (window._cloudCancelAlarm) window._cloudCancelAlarm(id); });
+  // Purga también la cola local para que la deteccion de "missed" no las reviva
+  try {
+    var pend = JSON.parse(localStorage.getItem('lbp_pending_alarms') || '[]');
+    localStorage.setItem('lbp_pending_alarms', JSON.stringify(pend.filter(function(a){ return (a.alarmId || '').indexOf(eid + '_') !== 0; })));
+  } catch(_e) {}
+}
 var scheduleAlarms = function scheduleAlarms(entities, type, addToast) {
   var nowMs = Date.now();
   var oneDayMs = 24 * 60 * 60 * 1000;
   var typeLabel = _ALARM_TYPE_LABELS[type] || type;
   entities.forEach(function (entity) {
     var alarm = entity.alarm;
-    if (!alarm || !alarm.enabled || !alarm.datetime) return;
+    if (!alarm || !alarm.datetime) return;
+    // ── Entidad completada/cancelada/archivada: NO reprogramar y CANCELAR lo que quedó en la nube ──
+    var _done = entity.status === 'DONE' || entity.status === 'CANCELLED' || entity.status === 'ARCHIVED' || entity.completed === true || entity.done === true;
+    if (_done) {
+      if (entity.id && !_lbpCanceledDone[entity.id]) {
+        _lbpCanceledDone[entity.id] = true;
+        _cancelEntityCloudAlarms(entity, alarm);
+      }
+      return;
+    }
+    if (entity.id) delete _lbpCanceledDone[entity.id]; // reactivada: permitir re-cancelar si vuelve a completarse
+    if (!alarm.enabled) return;
     var _baseMs = new Date(alarm.datetime).getTime();
     if (isNaN(_baseMs)) return;
     var _rec = alarm.recurrence || 'once';
