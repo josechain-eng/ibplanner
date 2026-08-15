@@ -22,7 +22,7 @@
 <script>
 (function() {
   // ── Version ──────────────────────────────────────────────────────────────
-  window.LBP_VERSION = '5.00';
+  window.LBP_VERSION = '5.01';
 
   // ── PWA Install prompt ───────────────────────────────────────────────────
   window._installPrompt = null;
@@ -3647,7 +3647,10 @@ document.addEventListener('visibilitychange', function() {
       })();
       // App becoming visible: fire any missed alarms (4h window)
       var _shownSet;try{_shownSet=new Set(JSON.parse(localStorage.getItem('lbp_shown_alarms')||'[]').map(function(x){return x.k;}));}catch(_){_shownSet=new Set();}
-      var _missed = _pend.filter(function(a) { return a.triggerAt <= _now && (_now - a.triggerAt) < 14400000 && !_shownSet.has(a.alarmId) && !_shownSet.has(a.alarmId+'_missed'); });
+      // IDs de entidades completadas/canceladas/archivadas → no disparar sus "(Missed)"
+      var _deadIds=[];try{var _dd=JSON.parse(localStorage.getItem('lbp2026_data')||'{}');Object.keys(_dd).forEach(function(kk){if(Array.isArray(_dd[kk]))_dd[kk].forEach(function(en){if(en&&en.id&&(en.status==='DONE'||en.status==='CANCELLED'||en.status==='ARCHIVED'||en.completed===true||en.done===true))_deadIds.push(en.id);});});}catch(_){}
+      var _isDead=function(id){for(var i=0;i<_deadIds.length;i++){if((id||'').indexOf(_deadIds[i]+'_')===0)return true;}return false;};
+      var _missed = _pend.filter(function(a) { return a.triggerAt <= _now && (_now - a.triggerAt) < 14400000 && !_shownSet.has(a.alarmId) && !_shownSet.has(a.alarmId+'_missed') && !_isDead(a.alarmId); });
       if (_missed.length > 0 && 'serviceWorker' in navigator) {
         // Marcar como mostradas ANTES de disparar, para que el próximo refresh/foco no las repita
         try {
@@ -17509,6 +17512,7 @@ var App = function App() {
           (d[key] || []).forEach(function (entity) {
             var al = entity.alarm;
             if (!(al !== null && al !== void 0 && al.enabled) || !al.datetime) return;
+            if (entity.status === 'DONE' || entity.status === 'CANCELLED' || entity.status === 'ARCHIVED' || entity.completed === true || entity.done === true) return;
             var _recc = al.recurrence || 'once';
             var t = (_recc === 'once') ? new Date(al.datetime).getTime() : _recentOccurrence(al.datetime, _recc, al, _now);
             var k = (entity.id || '') + '_' + ((_recc === 'once') ? al.datetime : t);
@@ -17571,6 +17575,8 @@ var App = function App() {
       (data[k] || []).forEach(function(entity) {
         var al = entity.alarm;
         if (!al || !al.enabled || !al.datetime) return;
+        // No mostrar "(Missed)" de entidades ya completadas/canceladas/archivadas
+        if (entity.status === 'DONE' || entity.status === 'CANCELLED' || entity.status === 'ARCHIVED' || entity.completed === true || entity.done === true) return;
         var _recc = al.recurrence || 'once';
         var t = (_recc === 'once') ? new Date(al.datetime).getTime() : _recentOccurrence(al.datetime, _recc, al, nowMs2);
         var age = nowMs2 - t;
@@ -17596,6 +17602,7 @@ var App = function App() {
     _allSubtasks.forEach(function(entity) {
       var al = entity.alarm;
       if (!al || !al.enabled || !al.datetime) return;
+      if (entity.done === true || entity.completed === true) return;
       var t = new Date(al.datetime).getTime();
       var age = nowMs2 - t;
       if (age <= 0 || age > oneHour) return;
