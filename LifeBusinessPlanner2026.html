@@ -22,7 +22,7 @@
 <script>
 (function() {
   // ── Version ──────────────────────────────────────────────────────────────
-  window.LBP_VERSION = '5.01';
+  window.LBP_VERSION = '5.02';
 
   // ── PWA Install prompt ───────────────────────────────────────────────────
   window._installPrompt = null;
@@ -17621,6 +17621,35 @@ var App = function App() {
         }).catch(function(){});
       }
     });
+
+    // ── Reconciliación de alarmas huérfanas en la nube (una vez por sesión) ──
+    // Borra de Cloudflare cualquier alarma cuya entidad ya no exista o esté completada.
+    // Evita que tareas borradas/completadas antes de esta versión sigan disparando push.
+    if (!window._lbpReconciledAlarms && window.LBP_WORKER_URL) {
+      var _rsk = localStorage.getItem('lbp_sync_key');
+      if (_rsk) {
+        var _valid = {};
+        _types.forEach(function(k){ (data[k]||[]).forEach(function(en){ var a=en.alarm; if(a&&a.enabled&&a.datetime&&en.id&&!(en.status==='DONE'||en.status==='CANCELLED'||en.status==='ARCHIVED'||en.completed===true||en.done===true)) _valid[en.id]=true; }); });
+        _allSubtasks.forEach(function(en){ var a=en.alarm; if(a&&a.enabled&&a.datetime&&en.id&&!(en.done===true||en.completed===true)) _valid[en.id]=true; });
+        var _validIds = Object.keys(_valid);
+        // Seguridad: si no hay NINGUNA entidad válida cargada aún, no reconciliar (evita borrado masivo
+        // durante el arranque antes de que se carguen los datos).
+        if (_validIds.length > 0) {
+          window._lbpReconciledAlarms = true;
+          fetch(window.LBP_WORKER_URL + '/list-alarms?key=' + encodeURIComponent(_rsk)).then(function(r){return r.json();}).then(function(res){
+            var al = (res && res.alarms) || [];
+            var _removed = 0;
+            al.forEach(function(a){
+              var id = a.alarmId || '';
+              var owned = false;
+              for (var i=0;i<_validIds.length;i++){ if (id.indexOf(_validIds[i] + '_') === 0) { owned = true; break; } }
+              if (!owned) { _removed++; fetch(window.LBP_WORKER_URL + '/alarm?key=' + encodeURIComponent(_rsk) + '&id=' + encodeURIComponent(id), {method:'DELETE'}).catch(function(){}); }
+            });
+            if (_removed > 0) console.log('[LBP] reconciliación: ' + _removed + ' alarma(s) huérfana(s) eliminada(s) de la nube');
+          }).catch(function(){});
+        }
+      }
+    }
   }, [data]);
 
   var navigate = useCallback(function (p) {
