@@ -22,7 +22,7 @@
 <script>
 (function() {
   // ── Version ──────────────────────────────────────────────────────────────
-  window.LBP_VERSION = '5.02';
+  window.LBP_VERSION = '5.03';
 
   // ── PWA Install prompt ───────────────────────────────────────────────────
   window._installPrompt = null;
@@ -3592,6 +3592,40 @@ document.addEventListener('visibilitychange', function() {
   try {
     var _pend = JSON.parse(localStorage.getItem('lbp_pending_alarms') || '[]');
     var _now = Date.now();
+    // ── Purga de la cola local: quita ocurrencias de tareas completadas o inexistentes ──
+    // Evita que el re-sync a la nube (más abajo) o el envío al SW revivan alarmas muertas.
+    (function() {
+      try {
+        var _dd = JSON.parse(localStorage.getItem('lbp2026_data') || '{}');
+        var _loaded = Object.keys(_dd).some(function(k){ return Array.isArray(_dd[k]) && _dd[k].length > 0; });
+        if (!_loaded) return; // datos aún no cargados: no purgar (evita borrar válidas)
+        var _act = {};
+        var _consider = function(en){
+          if (!en || !en.id) return;
+          var a = en.alarm;
+          var done = en.status==='DONE'||en.status==='CANCELLED'||en.status==='ARCHIVED'||en.completed===true||en.done===true;
+          if (a && a.enabled && a.datetime && !done) _act[en.id] = true;
+          if (Array.isArray(en.subtasks)) en.subtasks.forEach(_consider);
+          if (Array.isArray(en.milestones)) en.milestones.forEach(_consider);
+        };
+        Object.keys(_dd).forEach(function(k){ if (Array.isArray(_dd[k])) _dd[k].forEach(_consider); });
+        var _actIds = Object.keys(_act);
+        var _owned = function(id){ for (var i=0;i<_actIds.length;i++){ if ((id||'').indexOf(_actIds[i]+'_')===0) return true; } return false; };
+        var _clean = _pend.filter(function(a){ return _owned(a.alarmId); });
+        if (_clean.length !== _pend.length) {
+          var _deadPend = _pend.filter(function(a){ return !_owned(a.alarmId); });
+          localStorage.setItem('lbp_pending_alarms', JSON.stringify(_clean));
+          _pend = _clean;
+          // Cancela en la nube las que quedaron muertas (por si un re-sync previo las subió)
+          var _skp = localStorage.getItem('lbp_sync_key');
+          if (_skp && window.LBP_WORKER_URL) {
+            _deadPend.forEach(function(a){
+              fetch(window.LBP_WORKER_URL + '/alarm?key=' + encodeURIComponent(_skp) + '&id=' + encodeURIComponent(a.alarmId), {method:'DELETE'}).catch(function(){});
+            });
+          }
+        }
+      } catch(_e) {}
+    })();
     if (document.visibilityState === 'hidden') {
       // App going to background: immediately push all future alarms to SW
       // so they are scheduled before Android can kill the SW
