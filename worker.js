@@ -1066,26 +1066,55 @@ async function scheduledHandler(event, env) {
     for (const syncKey of syncKeys) {
       const name = `alarms:${syncKey}`;
       const alarms = JSON.parse(await env.LBP_KV.get(name) || '[]');
-      const due = alarms.filter(a => a.triggerAt <= now && (now - a.triggerAt) < 6 * 60 * 1000);
-      if (!due.length) continue;
 
-      const subs = JSON.parse(await env.LBP_KV.get(`subs:${syncKey}`) || '[]');
-      for (const alarm of due) {
-        for (const sub of subs) {
-          try {
-            await sendPush(sub, { title: alarm.title, body: alarm.body, alarmId: alarm.alarmId, vibration: alarm.vibration || 'long' });
-          } catch (e) {
-            // Subscription expired \u2014 remove it
-            if (e.status === 404 || e.status === 410) {
-              const updated = subs.filter(s => s.endpoint !== sub.endpoint);
-              await env.LBP_KV.put(`subs:${syncKey}`, JSON.stringify(updated));
+      // Authoritative validation against the synced data blob: any alarm whose owning
+      // entity is completed/cancelled/archived is STALE (a stale client may keep
+      // re-registering it). Never fire it, and purge every occurrence from KV so it
+      // self-heals even if another device re-adds it. IDs are entityId + '_' + <ms>.
+      let deadIds = [];
+      try {
+        const draw = await env.LBP_KV.get(`data:${syncKey}`);
+        if (draw) {
+          const ddata = JSON.parse(draw);
+          const consider = (en) => {
+            if (!en || !en.id) return;
+            if (en.status === 'DONE' || en.status === 'CANCELLED' || en.status === 'ARCHIVED' || en.completed === true || en.done === true) deadIds.push(en.id);
+            if (Array.isArray(en.subtasks)) en.subtasks.forEach(consider);
+            if (Array.isArray(en.milestones)) en.milestones.forEach(consider);
+          };
+          Object.keys(ddata).forEach(k => { if (Array.isArray(ddata[k])) ddata[k].forEach(consider); });
+        }
+      } catch (e) { deadIds = []; }
+      const isDead = (alarmId) => {
+        for (let i = 0; i < deadIds.length; i++) { if (alarmId && alarmId.indexOf(deadIds[i] + '_') === 0) return true; }
+        return false;
+      };
+
+      const due = alarms.filter(a => a.triggerAt <= now && (now - a.triggerAt) < 6 * 60 * 1000 && !isDead(a.alarmId));
+      const hasDead = alarms.some(a => isDead(a.alarmId));
+
+      if (due.length) {
+        const subs = JSON.parse(await env.LBP_KV.get(`subs:${syncKey}`) || '[]');
+        for (const alarm of due) {
+          for (const sub of subs) {
+            try {
+              await sendPush(sub, { title: alarm.title, body: alarm.body, alarmId: alarm.alarmId, vibration: alarm.vibration || 'long' });
+            } catch (e) {
+              // Subscription expired \u2014 remove it
+              if (e.status === 404 || e.status === 410) {
+                const updated = subs.filter(s => s.endpoint !== sub.endpoint);
+                await env.LBP_KV.put(`subs:${syncKey}`, JSON.stringify(updated));
+              }
             }
           }
         }
       }
-      // Remove fired alarms
-      const remaining = alarms.filter(a => !due.find(d => d.alarmId === a.alarmId));
-      await env.LBP_KV.put(name, JSON.stringify(remaining));
+
+      // Remove fired alarms AND every stale (dead-owner) alarm.
+      if (due.length || hasDead) {
+        const remaining = alarms.filter(a => !due.find(d => d.alarmId === a.alarmId) && !isDead(a.alarmId));
+        await env.LBP_KV.put(name, JSON.stringify(remaining));
+      }
     }
 
     // === Smart Notifications ===
