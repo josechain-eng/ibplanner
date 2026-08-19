@@ -672,7 +672,7 @@ async function sendSmartNotif(env, syncKeys, type, todayStr, tomorrowStr) {
           body = (tcLine + pushBody).slice(0, 600);
           const fullBriefing = JSON.stringify({
             generated: new Date().toISOString(),
-            summary: stripMd(aiText),
+            summary: tcLine + stripMd(aiText),
             stats: { tareasHoy: todayTasks.length, reunionesHoy: meetings.length, vencidas: overdue.length, habitosPendientes: habits.length, proyectosActivos: projects.length },
             tareasHoy: todayTasks.slice(0, 5).map(t => t.title),
             reunionesHoy: meetings.map(m => ({ title: m.title, time: m.startTime || '', client: m.clientName || '' }))
@@ -1064,13 +1064,20 @@ async function scheduledHandler(event, env) {
     if (syncKeys.length === 0) return;
 
     for (const syncKey of syncKeys) {
+     try {
       const name = `alarms:${syncKey}`;
       const alarms = JSON.parse(await env.LBP_KV.get(name) || '[]');
 
-      // Authoritative validation against the synced data blob: any alarm whose owning
-      // entity is completed/cancelled/archived is STALE (a stale client may keep
-      // re-registering it). Never fire it, and purge every occurrence from KV so it
-      // self-heals even if another device re-adds it. IDs are entityId + '_' + <ms>.
+      // Time-due alarms first. If none, skip WITHOUT touching the data blob.
+      // (Fetching+parsing the full data blob every minute is expensive and, on the
+      // heavy 12:00 UTC tick that also refreshes rates + builds the AI briefing, it
+      // pushed the invocation over its limit and aborted the briefing send.)
+      const timeDue = alarms.filter(a => a.triggerAt <= now && (now - a.triggerAt) < 6 * 60 * 1000);
+      if (!timeDue.length) continue;
+
+      // Only NOW load the synced data to validate owners: an alarm whose entity is
+      // completed/cancelled/archived is STALE (a stale client keeps re-registering it).
+      // Never fire it, and purge its occurrences. IDs are entityId + '_' + <ms>.
       let deadIds = [];
       try {
         const draw = await env.LBP_KV.get(`data:${syncKey}`);
@@ -1090,8 +1097,7 @@ async function scheduledHandler(event, env) {
         return false;
       };
 
-      const due = alarms.filter(a => a.triggerAt <= now && (now - a.triggerAt) < 6 * 60 * 1000 && !isDead(a.alarmId));
-      const hasDead = alarms.some(a => isDead(a.alarmId));
+      const due = timeDue.filter(a => !isDead(a.alarmId));
 
       if (due.length) {
         const subs = JSON.parse(await env.LBP_KV.get(`subs:${syncKey}`) || '[]');
@@ -1111,10 +1117,11 @@ async function scheduledHandler(event, env) {
       }
 
       // Remove fired alarms AND every stale (dead-owner) alarm.
-      if (due.length || hasDead) {
-        const remaining = alarms.filter(a => !due.find(d => d.alarmId === a.alarmId) && !isDead(a.alarmId));
+      const remaining = alarms.filter(a => !due.find(d => d.alarmId === a.alarmId) && !isDead(a.alarmId));
+      if (remaining.length !== alarms.length) {
         await env.LBP_KV.put(name, JSON.stringify(remaining));
       }
+     } catch (e) { /* per-syncKey guard: never let one key abort the smart-notif block below */ }
     }
 
     // === Smart Notifications ===
