@@ -22,7 +22,7 @@
 <script>
 (function() {
   // ── Version ──────────────────────────────────────────────────────────────
-  window.LBP_VERSION = '5.03';
+  window.LBP_VERSION = '5.04';
 
   // ── PWA Install prompt ───────────────────────────────────────────────────
   window._installPrompt = null;
@@ -3592,40 +3592,11 @@ document.addEventListener('visibilitychange', function() {
   try {
     var _pend = JSON.parse(localStorage.getItem('lbp_pending_alarms') || '[]');
     var _now = Date.now();
-    // ── Purga de la cola local: quita ocurrencias de tareas completadas o inexistentes ──
-    // Evita que el re-sync a la nube (más abajo) o el envío al SW revivan alarmas muertas.
-    (function() {
-      try {
-        var _dd = JSON.parse(localStorage.getItem('lbp2026_data') || '{}');
-        var _loaded = Object.keys(_dd).some(function(k){ return Array.isArray(_dd[k]) && _dd[k].length > 0; });
-        if (!_loaded) return; // datos aún no cargados: no purgar (evita borrar válidas)
-        var _act = {};
-        var _consider = function(en){
-          if (!en || !en.id) return;
-          var a = en.alarm;
-          var done = en.status==='DONE'||en.status==='CANCELLED'||en.status==='ARCHIVED'||en.completed===true||en.done===true;
-          if (a && a.enabled && a.datetime && !done) _act[en.id] = true;
-          if (Array.isArray(en.subtasks)) en.subtasks.forEach(_consider);
-          if (Array.isArray(en.milestones)) en.milestones.forEach(_consider);
-        };
-        Object.keys(_dd).forEach(function(k){ if (Array.isArray(_dd[k])) _dd[k].forEach(_consider); });
-        var _actIds = Object.keys(_act);
-        var _owned = function(id){ for (var i=0;i<_actIds.length;i++){ if ((id||'').indexOf(_actIds[i]+'_')===0) return true; } return false; };
-        var _clean = _pend.filter(function(a){ return _owned(a.alarmId); });
-        if (_clean.length !== _pend.length) {
-          var _deadPend = _pend.filter(function(a){ return !_owned(a.alarmId); });
-          localStorage.setItem('lbp_pending_alarms', JSON.stringify(_clean));
-          _pend = _clean;
-          // Cancela en la nube las que quedaron muertas (por si un re-sync previo las subió)
-          var _skp = localStorage.getItem('lbp_sync_key');
-          if (_skp && window.LBP_WORKER_URL) {
-            _deadPend.forEach(function(a){
-              fetch(window.LBP_WORKER_URL + '/alarm?key=' + encodeURIComponent(_skp) + '&id=' + encodeURIComponent(a.alarmId), {method:'DELETE'}).catch(function(){});
-            });
-          }
-        }
-      } catch(_e) {}
-    })();
+    // NOTA: la purga/cancelación de alarmas "huérfanas" desde el cliente fue REMOVIDA.
+    // Un dispositivo con datos desactualizados (que aún no vio un task creado en otro
+    // device) borraba alarmas REALES de la nube. La validación de tareas completadas
+    // ahora la hace SOLO el worker (autoritativo, únicamente si el task está presente Y
+    // completado). El cliente jamás borra alarmas por "ausencia" de la entidad.
     if (document.visibilityState === 'hidden') {
       // App going to background: immediately push all future alarms to SW
       // so they are scheduled before Android can kill the SW
@@ -17656,34 +17627,12 @@ var App = function App() {
       }
     });
 
-    // ── Reconciliación de alarmas huérfanas en la nube (una vez por sesión) ──
-    // Borra de Cloudflare cualquier alarma cuya entidad ya no exista o esté completada.
-    // Evita que tareas borradas/completadas antes de esta versión sigan disparando push.
-    if (!window._lbpReconciledAlarms && window.LBP_WORKER_URL) {
-      var _rsk = localStorage.getItem('lbp_sync_key');
-      if (_rsk) {
-        var _valid = {};
-        _types.forEach(function(k){ (data[k]||[]).forEach(function(en){ var a=en.alarm; if(a&&a.enabled&&a.datetime&&en.id&&!(en.status==='DONE'||en.status==='CANCELLED'||en.status==='ARCHIVED'||en.completed===true||en.done===true)) _valid[en.id]=true; }); });
-        _allSubtasks.forEach(function(en){ var a=en.alarm; if(a&&a.enabled&&a.datetime&&en.id&&!(en.done===true||en.completed===true)) _valid[en.id]=true; });
-        var _validIds = Object.keys(_valid);
-        // Seguridad: si no hay NINGUNA entidad válida cargada aún, no reconciliar (evita borrado masivo
-        // durante el arranque antes de que se carguen los datos).
-        if (_validIds.length > 0) {
-          window._lbpReconciledAlarms = true;
-          fetch(window.LBP_WORKER_URL + '/list-alarms?key=' + encodeURIComponent(_rsk)).then(function(r){return r.json();}).then(function(res){
-            var al = (res && res.alarms) || [];
-            var _removed = 0;
-            al.forEach(function(a){
-              var id = a.alarmId || '';
-              var owned = false;
-              for (var i=0;i<_validIds.length;i++){ if (id.indexOf(_validIds[i] + '_') === 0) { owned = true; break; } }
-              if (!owned) { _removed++; fetch(window.LBP_WORKER_URL + '/alarm?key=' + encodeURIComponent(_rsk) + '&id=' + encodeURIComponent(id), {method:'DELETE'}).catch(function(){}); }
-            });
-            if (_removed > 0) console.log('[LBP] reconciliación: ' + _removed + ' alarma(s) huérfana(s) eliminada(s) de la nube');
-          }).catch(function(){});
-        }
-      }
-    }
+    // ── Reconciliación de alarmas huérfanas: REMOVIDA (era peligrosa) ──
+    // Borraba de Cloudflare alarmas cuya entidad no estuviera en los datos LOCALES.
+    // En multi-dispositivo, un device con datos desactualizados (que aún no sincronizó
+    // un task creado en otro) borraba alarmas REALES → alarmas que nunca sonaban.
+    // La limpieza de tareas COMPLETADAS ahora la hace SOLO el worker, de forma
+    // autoritativa (únicamente si el task está presente Y marcado completado).
   }, [data]);
 
   var navigate = useCallback(function (p) {
