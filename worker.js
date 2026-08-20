@@ -125,13 +125,23 @@ async function handleRequest(request, env) {
       return json({ ok: true });
     }
 
-    // POST /alarms/batch  \u2192  replace ALL alarms for a syncKey in ONE KV write (preferred)
+    // POST /alarms/batch  \u2192  MERGE (union by alarmId) alarms for a syncKey.
+    // NOT replace-all: a device with stale data must never wipe alarms that another
+    // device registered (that caused real alarms to vanish cross-device). Incoming
+    // wins on the same id; long-past alarms (>1h old, cron already handled them) are
+    // dropped to bound growth. Removal of a specific alarm goes through DELETE /alarm.
     if (p === '/alarms/batch' && request.method === 'POST') {
       const { syncKey, alarms } = await request.json();
       if (!syncKey || !Array.isArray(alarms)) return json({ error: 'missing fields' }, 400);
-      await env.LBP_KV.put(`alarms:${syncKey}`, JSON.stringify(alarms), { expirationTtl: 60 * 60 * 24 * 365 });
+      const now = Date.now();
+      const existing = JSON.parse(await env.LBP_KV.get(`alarms:${syncKey}`) || '[]');
+      const byId = {};
+      for (const a of existing) { if (a && a.alarmId) byId[a.alarmId] = a; }
+      for (const a of alarms) { if (a && a.alarmId) byId[a.alarmId] = a; }
+      const merged = Object.keys(byId).map(k => byId[k]).filter(a => a && typeof a.triggerAt === 'number' && a.triggerAt > now - 60 * 60 * 1000);
+      await env.LBP_KV.put(`alarms:${syncKey}`, JSON.stringify(merged), { expirationTtl: 60 * 60 * 24 * 365 });
       await registerSyncKey(env, syncKey);
-      return json({ ok: true });
+      return json({ ok: true, count: merged.length });
     }
 
     // DELETE /alarm?key=\u2026&id=\u2026  \u2192  cancel an alarm

@@ -22,7 +22,7 @@
 <script>
 (function() {
   // ── Version ──────────────────────────────────────────────────────────────
-  window.LBP_VERSION = '5.04';
+  window.LBP_VERSION = '5.05';
 
   // ── PWA Install prompt ───────────────────────────────────────────────────
   window._installPrompt = null;
@@ -912,7 +912,8 @@
     _workerFetch('/alarms/batch', {
       method: 'POST',
       headers: {'Content-Type':'application/json'},
-      body: JSON.stringify({syncKey: syncKey, alarms: alarms})
+      body: JSON.stringify({syncKey: syncKey, alarms: alarms}),
+      keepalive: true  // sobrevive al backgrounding/cierre de la app (crítico en Samsung)
     }).then(function(r) {
       if (!r) console.warn('[LBP] Cloud alarm batch: network error');
       else if (r.ok) console.log('[LBP] Cloud alarm batch OK, count:', alarms.length);
@@ -931,6 +932,11 @@
     if (_cloudAlarmFlushTimer) clearTimeout(_cloudAlarmFlushTimer);
     _cloudAlarmFlushTimer = setTimeout(_flushCloudAlarms, 800);
   };
+  // Vaciar el buffer de alarmas INMEDIATAMENTE al ocultar/cerrar la app (con keepalive),
+  // para que ninguna alarma se pierda si Samsung mata la app antes del debounce de 800ms.
+  var _flushAlarmsNow = function(){ if (_cloudAlarmBuffer.length){ if(_cloudAlarmFlushTimer){clearTimeout(_cloudAlarmFlushTimer);_cloudAlarmFlushTimer=null;} _flushCloudAlarms(); } };
+  document.addEventListener('visibilitychange', function(){ if (document.visibilityState==='hidden') _flushAlarmsNow(); });
+  window.addEventListener('pagehide', _flushAlarmsNow);
 
   // Cancel a cloud alarm
   window._cloudCancelAlarm = function(alarmId) {
