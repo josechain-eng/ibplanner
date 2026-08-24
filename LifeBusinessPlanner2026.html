@@ -22,7 +22,7 @@
 <script>
 (function() {
   // ── Version ──────────────────────────────────────────────────────────────
-  window.LBP_VERSION = '5.05';
+  window.LBP_VERSION = '5.06';
 
   // ── PWA Install prompt ───────────────────────────────────────────────────
   window._installPrompt = null;
@@ -873,7 +873,7 @@
           _push(merged);
         })
         .catch(function(e) { console.warn('[LBP SYNC] Pull failed, pushing anyway:', e); _push(toSync); });
-    }, 2000);
+    }, 800);
   };
 
   // Flush pending sync on tab close/hide — merges with last known cloud snapshot first
@@ -891,11 +891,11 @@
     localStorage.setItem('lbp_last_save', saveTime.toString());
     var stamped = Object.assign({}, toFlush, { _cloudSaveTime: saveTime });
     var payload = JSON.stringify({ syncKey: syncKey, data: stamped });
-    if (navigator.sendBeacon) {
-      navigator.sendBeacon(window.LBP_WORKER_URL + '/sync', new Blob([payload], { type: 'application/json' }));
-    } else {
-      fetch(window.LBP_WORKER_URL + '/sync', { method: 'POST', headers: {'Content-Type':'application/json'}, body: payload, keepalive: true }).catch(function(){});
-    }
+    // NO usar sendBeacon ni keepalive: ambos limitan el body a ~64KB y el blob es ~4MB,
+    // así que fallaban SIEMPRE (por eso el celular no sincronizaba al cambiar de app).
+    // Un fetch normal en visibilitychange:hidden alcanza a completar porque la página
+    // sigue viva en segundo plano unos segundos.
+    fetch(window.LBP_WORKER_URL + '/sync', { method: 'POST', headers: {'Content-Type':'application/json'}, body: payload }).catch(function(){});
   };
 
   // Batch-buffered cloud alarm scheduler — collects all alarms from a scheduleAlarms run
