@@ -22,7 +22,7 @@
 <script>
 (function() {
   // ── Version ──────────────────────────────────────────────────────────────
-  window.LBP_VERSION = '5.06';
+  window.LBP_VERSION = '5.07';
 
   // ── PWA Install prompt ───────────────────────────────────────────────────
   window._installPrompt = null;
@@ -2146,13 +2146,27 @@ var RichTextEditor = function RichTextEditor(_ref6) {
       }
     },
     onKeyUp: function onKeyUp() { tick(); },
-    onMouseUp: function onMouseUp() { tick(); }
+    onMouseUp: function onMouseUp() { tick(); },
+    onClick: function onClick(e) {
+      // Toggling a checkbox in a contenteditable only flips the DOM *property*,
+      // not the `checked` *attribute* that innerHTML serializes, and fires no
+      // 'input' event. Reflect property->attribute and persist via handleInput
+      // so the checked state survives Save. (fires after the box has toggled)
+      var _t = e.target;
+      if (_t && _t.tagName === 'INPUT' && _t.type === 'checkbox') {
+        if (_t.checked) { _t.setAttribute('checked', ''); }
+        else { _t.removeAttribute('checked'); }
+        handleInput(); tick();
+      }
+    }
   }));
 };
 
 // Render stored HTML safely
 var RichContent = function RichContent(_ref7) {
   var html = _ref7.html;
+  var onToggle = _ref7.onToggle; // optional: (newHtml) => persist checkbox toggles from read-only view
+  var _rcRef = React.useRef(null);
   if (!html) return null;
   // Simple text check
   if (!html.includes('<')) return /*#__PURE__*/React.createElement("div", {
@@ -2163,6 +2177,15 @@ var RichContent = function RichContent(_ref7) {
   }, html);
   return /*#__PURE__*/React.createElement("div", {
     className: "rte-render",
+    ref: _rcRef,
+    onClick: onToggle ? function(e) {
+      var _t = e.target;
+      if (_t && _t.tagName === 'INPUT' && _t.type === 'checkbox') {
+        if (_t.checked) { _t.setAttribute('checked', ''); }
+        else { _t.removeAttribute('checked'); }
+        if (_rcRef.current) onToggle(_rcRef.current.innerHTML);
+      }
+    } : undefined,
     dangerouslySetInnerHTML: {
       __html: html
     }
@@ -4774,7 +4797,7 @@ fhVisible&&(data.clients||[]).filter(function(c){var hasFr=(data.clients||[]).so
       viewTask.estimatedHours && /*#__PURE__*/React.createElement("span",{style:{fontSize:12,color:"var(--text-dim)"}}, "\u23F1 ",viewTask.estimatedHours,"h"),
       viewTask.alarm && viewTask.alarm.enabled && /*#__PURE__*/React.createElement("span",{style:{fontSize:13}},"\uD83D\uDD14")
     ),
-    viewTask.description && /*#__PURE__*/React.createElement("div", {style:{fontSize:13,lineHeight:1.6}}, /*#__PURE__*/React.createElement(RichContent,{html:viewTask.description})),
+    viewTask.description && /*#__PURE__*/React.createElement("div", {style:{fontSize:13,lineHeight:1.6}}, /*#__PURE__*/React.createElement(RichContent,{html:viewTask.description, onToggle:function(nh){ setViewTask(function(v){return v?Object.assign({},v,{description:nh}):v;}); setData(function(d){ return Object.assign({}, d, {tasks:(d.tasks||[]).map(function(x){return x.id===viewTask.id?Object.assign({},x,{description:nh}):x;})}); }); }})),
     viewTask.subtasks && viewTask.subtasks.length > 0 && /*#__PURE__*/React.createElement("div", {style:{marginTop:10}},
       /*#__PURE__*/React.createElement("div",{style:{fontSize:12,color:"var(--text-dim)",marginBottom:4}},"Subtasks"),
       viewTask.subtasks.map(function(st){return /*#__PURE__*/React.createElement("div",{key:st.id,style:{fontSize:12,padding:"3px 0",display:"flex",gap:6,alignItems:"center"}},
@@ -4803,7 +4826,7 @@ fhVisible&&(data.clients||[]).filter(function(c){var hasFr=(data.clients||[]).so
       ),
       /*#__PURE__*/React.createElement(Chip,{label:viewJournalEntry.mood||'',color:({'EXCELLENT':'#4CAF50','GOOD':'#8BC34A','NEUTRAL':'#FF9800','BAD':'#FF5722','TERRIBLE':'#F44336'})[viewJournalEntry.mood]||'#6B3FA0'})
     ),
-    viewJournalEntry.content && /*#__PURE__*/React.createElement("div",{style:{fontSize:13,lineHeight:1.6,marginBottom:8}}, /*#__PURE__*/React.createElement(RichContent,{html:viewJournalEntry.content})),
+    viewJournalEntry.content && /*#__PURE__*/React.createElement("div",{style:{fontSize:13,lineHeight:1.6,marginBottom:8}}, /*#__PURE__*/React.createElement(RichContent,{html:viewJournalEntry.content, onToggle:function(nh){ setViewJournalEntry(function(v){return v?Object.assign({},v,{content:nh}):v;}); setData(function(d){ return Object.assign({}, d, {journal:(d.journal||[]).map(function(x){return x.id===viewJournalEntry.id?Object.assign({},x,{content:nh}):x;})}); }); }})),
     viewJournalEntry.gratitude && /*#__PURE__*/React.createElement("div",{style:{background:"rgba(76,175,80,.1)",border:"1px solid rgba(76,175,80,.2)",borderRadius:8,padding:"8px 12px",fontSize:13}},
       "\uD83D\uDE4F ", /*#__PURE__*/React.createElement("strong",null,"Grateful: "), viewJournalEntry.gratitude)
   )),
@@ -4840,7 +4863,7 @@ fhVisible&&(data.clients||[]).filter(function(c){var hasFr=(data.clients||[]).so
     ),
     /*#__PURE__*/React.createElement(Progress, {value: (viewProject.status==='PLANNING'?25:viewProject.status==='IN_PROGRESS'?50:(viewProject.status==='CLIENT_REVIEW'||viewProject.status==='AWAITING_APPROVAL')?75:viewProject.status==='DONE'?100:0), color: '#4CAF50'}),
     /*#__PURE__*/React.createElement("div", {style:{fontSize:11,color:"var(--text-dim)",marginTop:2,marginBottom:10}}, (viewProject.status==='PLANNING'?25:viewProject.status==='IN_PROGRESS'?50:(viewProject.status==='CLIENT_REVIEW'||viewProject.status==='AWAITING_APPROVAL')?75:viewProject.status==='DONE'?100:0) + "% complete"),
-    viewProject.description && /*#__PURE__*/React.createElement("div", {style:{fontSize:13,lineHeight:1.6}}, /*#__PURE__*/React.createElement(RichContent,{html:viewProject.description})),
+    viewProject.description && /*#__PURE__*/React.createElement("div", {style:{fontSize:13,lineHeight:1.6}}, /*#__PURE__*/React.createElement(RichContent,{html:viewProject.description, onToggle:function(nh){ setViewProject(function(v){return v?Object.assign({},v,{description:nh}):v;}); setData(function(d){ return Object.assign({}, d, {projects:(d.projects||[]).map(function(x){return x.id===viewProject.id?Object.assign({},x,{description:nh}):x;})}); }); }})),
     (viewProject.attachments||[]).length > 0 && /*#__PURE__*/React.createElement("div", {style:{marginTop:12}},
       /*#__PURE__*/React.createElement("div", {style:{fontSize:12,color:'var(--text-dim)',marginBottom:6}}, '📎 Attachments (' + (viewProject.attachments||[]).length + ')'),
       /*#__PURE__*/React.createElement(ReadOnlyAttachments, { attachments: viewProject.attachments||[] })
@@ -5592,7 +5615,10 @@ var ProjectsScreen = function ProjectsScreen(_ref20) {
         marginBottom: 8
       }
     }, /*#__PURE__*/React.createElement(RichContent, {
-      html: p.description
+      html: p.description,
+      onToggle: function(newHtml) {
+        setData(function(d){ return Object.assign({}, d, { projects: (d.projects||[]).map(function(x){ return x.id===p.id ? Object.assign({}, x, { description: newHtml }) : x; }) }); });
+      }
     })), /*#__PURE__*/React.createElement(Progress, {
       value: statusToCompletion(p.status),
       color: c
