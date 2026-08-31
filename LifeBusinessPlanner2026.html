@@ -22,7 +22,7 @@
 <script>
 (function() {
   // ── Version ──────────────────────────────────────────────────────────────
-  window.LBP_VERSION = '5.08';
+  window.LBP_VERSION = '5.09';
 
   // ── PWA Install prompt ───────────────────────────────────────────────────
   window._installPrompt = null;
@@ -476,94 +476,154 @@
     var end = new Date(now); end.setHours(23,59,59,999);
     var start = new Date(now); start.setDate(start.getDate() - (_days - 1)); start.setHours(0,0,0,0);
     var startMs = start.getTime(), endMs = end.getTime();
+    var todayMs = new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime();
     var clients = data.clients || [];
     function clientOf(id) { return clients.find(function(c) { return c.id === id; }); }
-    function inWeek(ts) { return !!ts && ts >= startMs && ts <= endMs; }
+    function inWin(ts) { return !!ts && ts >= startMs && ts <= endMs; }
     function resolveClientId(item, text) { return item.clientId || window._detectClientId(text, clients); }
+    function dstr(v) { if (!v) return ''; var d = new Date(v); return isNaN(d) ? '' : d.toLocaleDateString('es-BO', { day:'numeric', month:'short' }); }
+    // Etiqueta corta de prioridad: se MUESTRA en vez de filtrar, para que nada se pierda
+    var PRIO = { URGENT:'URGENTE', HIGH:'ALTA', MEDIUM:'MEDIA', LOW:'BAJA' };
+    function prioTag(p) { return PRIO[p] || ''; }
+    // Extrae items de checklist (<li> con checkbox) del HTML de una descripcion
+    function parseChecklist(htmlStr) {
+      var out = { done: [], pending: [] };
+      var lis = (htmlStr || '').match(/<li[\s\S]*?<\/li>/gi) || [];
+      lis.forEach(function(li) {
+        if (!/<input[^>]*type=["']?checkbox/i.test(li)) return;
+        var txt = li.replace(/<[^>]+>/g, ' ').replace(/&nbsp;/gi, ' ').replace(/\s+/g, ' ').trim();
+        if (txt.length < 2) return;
+        if (/<input[^>]*checked/i.test(li)) out.done.push(txt); else out.pending.push(txt);
+      });
+      return out;
+    }
+
     var groups = {};
-    function group(clientId) {
-      if (!clientId) return null;
+    var unassigned = { done: [], progress: [], pending: [] };
+    function bucket(clientId) {
+      if (!clientId) return unassigned;
       var c = clientOf(clientId);
-      if (!c) return null;
-      if (!groups[clientId]) groups[clientId] = { client: c, done: [], progress: [] };
+      if (!c) return unassigned;
+      if (!groups[clientId]) groups[clientId] = { client: c, done: [], progress: [], pending: [] };
       return groups[clientId];
     }
+    function add(list, title, tag, meta) { list.push({ title: title, tag: tag || '', meta: meta || '' }); }
+
+    // ── TAREAS ──────────────────────────────────────────────────
     (data.tasks || []).forEach(function(t) {
-      if (t.status !== 'DONE' || !['URGENT','HIGH','MEDIUM'].includes(t.priority)) return;
-      if (!inWeek(t.completedAt)) return;
+      if (t.category === 'Personal') return; // informe = solo trabajo
       var cid = resolveClientId(t, (t.title || '') + ' ' + (t.description || ''));
-      var g = group(cid); if (g) g.done.push({ icon: 'DONE_TASK', title: t.title });
+      var b = bucket(cid);
+      var isDone = t.status === 'DONE';
+      if (isDone) {
+        if (!inWin(t.completedAt)) return;
+        add(b.done, t.title, prioTag(t.priority), dstr(t.completedAt));
+      } else {
+        var overdue = t.dueDate && new Date(t.dueDate).getTime() < todayMs;
+        var touched = inWin(t.updatedAt) || inWin(t.createdAt);
+        var active = ['IN_PROGRESS','HIGH_PRIORITY'].indexOf(t.status) !== -1;
+        if (active && touched) add(b.progress, t.title, prioTag(t.priority), t.dueDate ? 'vence ' + dstr(t.dueDate) : '');
+        else if (overdue) add(b.pending, t.title, prioTag(t.priority), 'VENCIDA ' + dstr(t.dueDate));
+        else if (touched || t.dueDate) add(b.pending, t.title, prioTag(t.priority), t.dueDate ? 'vence ' + dstr(t.dueDate) : 'pendiente');
+      }
+      // Checklist dentro de la descripcion de la tarea
+      var ck = parseChecklist(t.description);
+      ck.done.forEach(function(x) { add(b.done, x, 'CHECK', 'en: ' + t.title); });
+      if (!isDone) ck.pending.forEach(function(x) { add(b.pending, x, 'CHECK', 'en: ' + t.title); });
     });
+
+    // ── PROYECTOS ───────────────────────────────────────────────
     (data.projects || []).forEach(function(p) {
-      if (p.status !== 'DONE') return;
-      if (!inWeek(p.completedAt)) return;
       var cid = resolveClientId(p, (p.name || '') + ' ' + (p.description || ''));
-      var g = group(cid); if (g) g.done.push({ icon: 'DONE_PROJECT', title: 'Proyecto completado: ' + p.name });
-    });
-    (data.projects || []).forEach(function(p) {
-      var cid = resolveClientId(p, (p.name || '') + ' ' + (p.description || ''));
-      if (!cid) return;
-      var doneSubs = (p.subtasks || []).filter(function(s) {
-        if (!s.done) return false;
-        if (s.priority && !['URGENT','HIGH','MEDIUM'].includes(s.priority)) return false;
-        return inWeek(s.completedAt);
+      var b = bucket(cid);
+      var isDone = p.status === 'DONE';
+      if (isDone && inWin(p.completedAt)) add(b.done, 'Proyecto completado: ' + p.name, 'PROYECTO', dstr(p.completedAt));
+      // Subtareas
+      (p.subtasks || []).forEach(function(s) {
+        if (s.done) { if (inWin(s.completedAt)) add(b.done, s.title, 'SUBTAREA', p.name); }
+        else if (!isDone) add(b.pending, s.title, 'SUBTAREA', p.name);
       });
-      doneSubs.forEach(function(s) {
-        var g = group(cid); if (g) g.done.push({ icon: 'DONE_SUB', title: s.title + ' (' + p.name + ')' });
-      });
+      // Checklist de la descripcion del proyecto
+      var ck = parseChecklist(p.description);
+      ck.done.forEach(function(x) { add(b.done, x, 'CHECK', p.name); });
+      if (!isDone) ck.pending.forEach(function(x) { add(b.pending, x, 'CHECK', p.name); });
+      // Avance del proyecto
+      if (!isDone) {
+        var subsWeek = (p.subtasks || []).filter(function(s) { return s.done && inWin(s.completedAt); }).length;
+        if (subsWeek > 0) add(b.progress, 'Proyecto "' + p.name + '": ' + subsWeek + ' subtarea' + (subsWeek > 1 ? 's' : '') + ' completada' + (subsWeek > 1 ? 's' : ''), 'PROYECTO', p.status || '');
+        else if (inWin(p.updatedAt)) add(b.progress, 'Avance en proyecto: ' + p.name, 'PROYECTO', p.status || '');
+      }
     });
+
+    // ── REUNIONES ───────────────────────────────────────────────
+    var meetingsUpcoming = [];
     (data.meetings || []).forEach(function(m) {
-      var cid = resolveClientId(m, (m.title || '') + ' ' + (m.notes || ''));
-      if (!cid) return;
+      var cid = resolveClientId(m, (m.title || '') + ' ' + (m.notes || '') + ' ' + (m.contact || ''));
+      var b = bucket(cid);
       var mTs = m.date ? new Date(m.date).getTime() : null;
-      if (!inWeek(mTs)) return;
-      var g = group(cid); if (g) g.done.push({ icon: 'DONE_MEETING', title: 'Reunion: ' + m.title });
-    });
-    (data.tasks || []).forEach(function(t) {
-      if (t.status === 'DONE' || !['IN_PROGRESS','HIGH_PRIORITY'].includes(t.status)) return;
-      if (!['URGENT','HIGH','MEDIUM'].includes(t.priority)) return;
-      if (!inWeek(t.updatedAt)) return;
-      var cid = resolveClientId(t, (t.title || '') + ' ' + (t.description || ''));
-      var g = group(cid); if (g) g.progress.push({ icon: 'PROG_TASK', title: t.title });
-    });
-    (data.projects || []).forEach(function(p) {
-      if (p.status === 'DONE') return;
-      var cid = resolveClientId(p, (p.name || '') + ' ' + (p.description || ''));
-      if (!cid) return;
-      var subsDoneThisWeek = (p.subtasks || []).filter(function(s) { return s.done && inWeek(s.completedAt); }).length;
-      if (subsDoneThisWeek > 0) {
-        var g1 = group(cid);
-        if (g1) g1.progress.push({ icon: 'PROG_PROJECT', title: 'Proyecto "' + p.name + '": ' + subsDoneThisWeek + ' subtarea' + (subsDoneThisWeek > 1 ? 's' : '') + ' completada' + (subsDoneThisWeek > 1 ? 's' : '') + ' esta semana' });
-      } else if (inWeek(p.updatedAt)) {
-        var g2 = group(cid);
-        if (g2) g2.progress.push({ icon: 'PROG_PROJECT', title: 'Avance en proyecto: ' + p.name });
+      if (inWin(mTs)) add(b.done, 'Reunion: ' + m.title, 'REUNION', dstr(m.date) + (m.startTime ? ' ' + m.startTime : ''));
+      else if (mTs && mTs > endMs && mTs <= endMs + 7 * 86400000) {
+        meetingsUpcoming.push({ title: m.title, when: dstr(m.date) + (m.startTime ? ' ' + m.startTime : ''), client: cid ? (clientOf(cid) || {}).businessName || (clientOf(cid) || {}).name : '' });
       }
     });
-    // Despachos (Ship/imports) — siempre tienen clientId, se agrupan por franquicia como el resto
+
+    // ── DESPACHOS / IMPORTACIONES ───────────────────────────────
     (data.imports || []).forEach(function(imp) {
-      if (!imp.clientId) return;
-      var g = group(imp.clientId);
-      if (!g) return;
-      var label = (imp.items ? imp.items + ' — ' : '') + (imp.season || 'Despacho');
+      var b = bucket(imp.clientId);
+      var label = (imp.items ? imp.items + ' pzs - ' : '') + (imp.season || 'Despacho');
       if (imp.status === 'RECIBIDO') {
-        if (inWeek(imp.received ? new Date(imp.received).getTime() : null)) {
-          g.done.push({ icon: 'DONE_SHIP', title: 'Mercadería recibida: ' + label });
-        }
+        if (inWin(imp.received ? new Date(imp.received).getTime() : null)) add(b.done, 'Mercaderia recibida: ' + label, 'DESPACHO', dstr(imp.received));
       } else if (imp.status !== 'CANCELADO') {
-        g.progress.push({ icon: 'PROG_SHIP', title: 'Despacho en curso (' + imp.status + '): ' + label });
+        var eta = imp.etaAduana || imp.etaArica || imp.etaStorage;
+        add(b.progress, 'Despacho ' + imp.status + ': ' + label, 'DESPACHO', (imp.amount ? '$' + imp.amount : '') + (eta ? ' | ETA ' + dstr(eta) : ''));
       }
     });
+
     var byClient = Object.keys(groups).map(function(k) { return groups[k]; })
-      .sort(function(a, b) { return (b.done.length + b.progress.length) - (a.done.length + a.progress.length); });
-    // Campañas de marketing — no tienen clientId (son a nivel mall), van en una sección aparte
+      .sort(function(a, b) { return (b.done.length + b.progress.length + b.pending.length) - (a.done.length + a.progress.length + a.pending.length); });
+
+    // ── CAMPANAS ────────────────────────────────────────────────
     var campaignsDone = (data.campaigns || []).filter(function(c) {
-      return c.status === 'COMPLETED' && inWeek(c.endDate ? new Date(c.endDate).getTime() : null);
-    }).map(function(c) { return c.name + (c.platform ? ' (' + c.platform + ')' : ''); });
+      return c.status === 'COMPLETED' && inWin((c.dateEnd || c.endDate) ? new Date(c.dateEnd || c.endDate).getTime() : null);
+    }).map(function(c) { return c.name + (c.dateEnd ? ' (fin ' + dstr(c.dateEnd) + ')' : ''); });
     var campaignsActive = (data.campaigns || []).filter(function(c) {
-      return c.status === 'ACTIVE';
-    }).map(function(c) { return c.name + (c.platform ? ' (' + c.platform + ')' : ''); });
+      return c.status === 'ACTIVE' || c.status === 'EN_CURSO';
+    }).map(function(c) { return c.name + (c.dateStart ? ' (desde ' + dstr(c.dateStart) + ')' : ''); });
+
+    // ── FINANZAS DEL PERIODO ────────────────────────────────────
+    var finItems = [], finIn = 0, finOut = 0;
+    (data.transactions || []).forEach(function(tx) {
+      var ts = tx.date ? new Date(tx.date).getTime() : null;
+      if (!inWin(ts)) return;
+      var amt = parseFloat(tx.amount) || 0;
+      if (tx.type === 'INCOME' || tx.type === 'income') finIn += amt; else finOut += amt;
+      finItems.push({ title: tx.title || tx.category || 'Movimiento', tag: (tx.type || ''), meta: dstr(tx.date) + ' | $' + amt + (tx.isPaid ? '' : ' (impago)') });
+    });
+
+    // ── DOCUMENTOS AGREGADOS ────────────────────────────────────
+    var docs = (data.documents || []).filter(function(x) {
+      return inWin(x.createdAt) || inWin(x.date ? new Date(x.date).getTime() : null);
+    }).map(function(x) { return { title: x.name, tag: x.category || '', meta: dstr(x.date || x.createdAt) }; });
+
+    // ── VENCIMIENTOS PROXIMOS 7 DIAS ────────────────────────────
+    var dueSoon = (data.tasks || []).filter(function(t) {
+      if (t.status === 'DONE' || !t.dueDate) return false;
+      var dt = new Date(t.dueDate).getTime();
+      return dt > endMs && dt <= endMs + 7 * 86400000;
+    }).map(function(t) { return { title: t.title, tag: prioTag(t.priority), meta: dstr(t.dueDate) }; });
+
     function fmt(d) { return d.toLocaleDateString('es-BO', { day: 'numeric', month: 'short' }); }
-    return { weekStartLabel: fmt(start), weekEndLabel: fmt(end), days: _days, periodLabel: periodLabel || 'Semanal', byClient: byClient, campaignsDone: campaignsDone, campaignsActive: campaignsActive };
+    var totDone = byClient.reduce(function(s, g) { return s + g.done.length; }, 0) + unassigned.done.length;
+    var totProg = byClient.reduce(function(s, g) { return s + g.progress.length; }, 0) + unassigned.progress.length;
+    var totPend = byClient.reduce(function(s, g) { return s + g.pending.length; }, 0) + unassigned.pending.length;
+    return {
+      weekStartLabel: fmt(start), weekEndLabel: fmt(end), days: _days, periodLabel: periodLabel || 'Semanal',
+      byClient: byClient, unassigned: unassigned,
+      campaignsDone: campaignsDone, campaignsActive: campaignsActive,
+      finance: { income: finIn, expense: finOut, items: finItems },
+      documents: docs, meetingsUpcoming: meetingsUpcoming, dueSoon: dueSoon,
+      stats: { done: totDone, progress: totProg, pending: totPend, clients: byClient.length }
+    };
   };
 
   window._diagWeeklyReport = function(data) {
@@ -619,58 +679,112 @@
   };
 
   window._exportWeeklyReportDoc = function(rep) {
-    var rows = rep.byClient.map(function(g) {
-      var name = g.client.businessName || g.client.name;
-      var doneItems = g.done.map(function(it) {
-        return '<p style="font-size:11pt;margin:2px 0;color:#222;">&bull;&nbsp; ' + it.title + '</p><br/>';
-      }).join('');
-      var doneBlock = g.done.length ? (
-        '<p style="font-size:10pt;font-weight:bold;color:#2E7D32;margin:6px 0 2px 0;">COMPLETADO</p><br/>' + doneItems
-      ) : '';
-      var progItems = g.progress.map(function(it) {
-        return '<p style="font-size:10pt;margin:2px 0;color:#555;">&bull;&nbsp; ' + it.title + '</p><br/>';
-      }).join('');
-      var progBlock = g.progress.length ? (
-        '<p style="font-size:10pt;font-weight:bold;color:#B07D00;margin:6px 0 2px 0;">EN CURSO</p><br/>' + progItems
-      ) : '';
-      return '<br/><table width="100%" cellpadding="0" cellspacing="0" style="border-collapse:collapse;margin:16px 0 0 0;">' +
-        '<tr><td style="background:#6B3FA0;color:#ffffff;padding:7px 12px;font-size:12pt;font-weight:bold;border-radius:4px;">' + name + '</td></tr>' +
-        '</table><br/>' +
+    var PURPLE = '#6B3FA0', GREEN = '#2E7D32', AMBER = '#B07D00', GREY = '#666';
+    function esc(s) { return String(s == null ? '' : s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
+    // Color de la etiqueta segun urgencia, para escanear rapido
+    function tagChip(tag) {
+      if (!tag) return '';
+      var bg = '#EEE', fg = '#555';
+      if (tag === 'URGENTE') { bg = '#FFE0E0'; fg = '#C62828'; }
+      else if (tag === 'ALTA') { bg = '#FFF0DC'; fg = '#B07D00'; }
+      else if (tag === 'MEDIA') { bg = '#E8F0FE'; fg = '#1A5FB4'; }
+      else if (tag === 'BAJA') { bg = '#F0F0F0'; fg = '#777'; }
+      else if (tag === 'CHECK') { bg = '#EAF6EA'; fg = '#2E7D32'; }
+      else { bg = '#F3EDFA'; fg = PURPLE; }
+      return '<span style="background:' + bg + ';color:' + fg + ';font-size:7.5pt;padding:1px 5px;font-weight:bold;">' + esc(tag) + '</span>&nbsp;';
+    }
+    // Una linea de item: [etiqueta] texto — contexto
+    function line(it, color) {
+      var t = (typeof it === 'string') ? { title: it } : (it || {});
+      return '<p style="font-size:10.5pt;margin:1px 0;color:' + (color || '#222') + ';">' +
+        '&bull;&nbsp; ' + tagChip(t.tag) + esc(t.title) +
+        (t.meta ? '<span style="color:#999;font-size:9pt;"> &mdash; ' + esc(t.meta) + '</span>' : '') +
+        '</p>';
+    }
+    function block(label, items, color) {
+      if (!items || !items.length) return '';
+      return '<p style="font-size:9.5pt;font-weight:bold;color:' + color + ';margin:8px 0 2px 0;letter-spacing:0.5px;">' +
+        label + ' (' + items.length + ')</p>' + items.map(function(i) { return line(i); }).join('');
+    }
+    // Bloque de una franquicia (o de "sin asignar")
+    function section(name, g, headerBg) {
+      var body = block('COMPLETADO', g.done, GREEN) + block('EN CURSO', g.progress, AMBER) + block('PENDIENTE', g.pending, '#C62828');
+      if (!body) body = '<p style="font-size:10pt;color:#999;margin:6px 0;">Sin novedades en el periodo.</p>';
+      return '<table width="100%" cellpadding="0" cellspacing="0" style="border-collapse:collapse;margin:14px 0 0 0;">' +
+        '<tr><td style="background:' + headerBg + ';color:#ffffff;padding:6px 12px;font-size:12pt;font-weight:bold;">' + esc(name) +
+        '<span style="font-size:9pt;font-weight:normal;"> &nbsp;&nbsp;' + g.done.length + ' hechas &middot; ' + g.progress.length + ' en curso &middot; ' + g.pending.length + ' pendientes</span>' +
+        '</td></tr></table>' +
         '<table width="100%" cellpadding="0" cellspacing="0" style="border:1px solid #E0D5F0;border-top:none;">' +
-        '<tr><td style="padding:6px 12px 10px 12px;">' + (doneBlock || progBlock ? doneBlock + progBlock : '<p style="font-size:10pt;color:#999;margin:6px 0;">Sin novedades registradas.</p><br/>') + '</td></tr>' +
-        '</table><br/>';
+        '<tr><td style="padding:6px 12px 10px 12px;">' + body + '</td></tr></table>';
+    }
+    function kpi(label, value, color) {
+      return '<td width="25%" style="background:#F6F2FB;border:1px solid #E0D5F0;padding:8px 0;text-align:center;">' +
+        '<div style="font-size:20pt;font-weight:bold;color:' + (color || PURPLE) + ';">' + value + '</div>' +
+        '<div style="font-size:8pt;color:#666;text-transform:uppercase;letter-spacing:0.5px;">' + label + '</div></td>';
+    }
+    function h2(text) {
+      return '<h2 style="font-size:13pt;color:#333;margin:20px 0 2px 0;border-bottom:2px solid ' + PURPLE + ';padding-bottom:3px;">' + text + '</h2>';
+    }
+
+    var st = rep.stats || { done:0, progress:0, pending:0, clients:0 };
+    var clientSections = rep.byClient.map(function(g) {
+      return section(g.client.businessName || g.client.name, g, PURPLE);
     }).join('');
-    var totalDone = rep.byClient.reduce(function(s, g) { return s + g.done.length; }, 0);
-    var totalProg = rep.byClient.reduce(function(s, g) { return s + g.progress.length; }, 0);
-    var kpi = function(label, value) {
-      return '<td width="33%" style="background:#F6F2FB;border:1px solid #E0D5F0;padding:10px 0;text-align:center;">' +
-        '<div style="font-size:22pt;font-weight:bold;color:#6B3FA0;">' + value + '</div>' +
-        '<div style="font-size:9pt;color:#666;text-transform:uppercase;letter-spacing:0.5px;">' + label + '</div></td>';
-    };
+    var un = rep.unassigned || { done:[], progress:[], pending:[] };
+    var unassignedSection = (un.done.length || un.progress.length || un.pending.length)
+      ? section('SIN ASIGNAR A FRANQUICIA', un, '#555') : '';
+
+    var fin = rep.finance || { income:0, expense:0, items:[] };
+    var financeSection = fin.items.length ? (
+      h2('Finanzas del periodo') +
+      '<p style="font-size:10.5pt;margin:6px 0;">Ingresos: <b style="color:' + GREEN + ';">$' + fin.income + '</b> &nbsp;|&nbsp; Egresos: <b style="color:#C62828;">$' + fin.expense + '</b></p>' +
+      fin.items.map(function(i) { return line(i); }).join('')
+    ) : '';
+
+    var upcoming = (rep.meetingsUpcoming || []).map(function(m) {
+      return line({ title: m.title, tag: 'REUNION', meta: m.when + (m.client ? ' | ' + m.client : '') });
+    }).join('');
+    var dueSoon = (rep.dueSoon || []).map(function(t) { return line(t); }).join('');
+    var nextSection = (upcoming || dueSoon) ? (
+      h2('Proximos 7 dias') +
+      (upcoming ? '<p style="font-size:9.5pt;font-weight:bold;color:' + PURPLE + ';margin:8px 0 2px 0;">REUNIONES AGENDADAS</p>' + upcoming : '') +
+      (dueSoon ? '<p style="font-size:9.5pt;font-weight:bold;color:' + AMBER + ';margin:8px 0 2px 0;">VENCIMIENTOS</p>' + dueSoon : '')
+    ) : '';
+
+    var docsSection = (rep.documents || []).length ? (
+      h2('Documentos agregados') + rep.documents.map(function(d) { return line(d); }).join('')
+    ) : '';
+
+    var mktSection = h2('Marketing') + (
+      (rep.campaignsDone.length || rep.campaignsActive.length) ? (
+        (rep.campaignsDone.length ? '<p style="font-size:9.5pt;font-weight:bold;color:' + GREEN + ';margin:8px 0 2px 0;">CAMPANAS COMPLETADAS</p>' +
+          rep.campaignsDone.map(function(c) { return line(c); }).join('') : '') +
+        (rep.campaignsActive.length ? '<p style="font-size:9.5pt;font-weight:bold;color:' + AMBER + ';margin:8px 0 2px 0;">CAMPANAS ACTIVAS</p>' +
+          rep.campaignsActive.map(function(c) { return line(c); }).join('') : '')
+      ) : '<p style="font-size:10pt;color:#888;margin:6px 0;">Sin campanas registradas en el periodo.</p>'
+    );
+
     var _title = 'Informe ' + (rep.periodLabel || 'Semanal');
     var html = '<html xmlns:o="urn:schemas-microsoft-com:office:office" xmlns:w="urn:schemas-microsoft-com:office:word" xmlns="http://www.w3.org/TR/REC-html40">' +
       '<head><meta charset="utf-8"><title>' + _title + '</title></head>' +
       '<body style="font-family:Calibri,Arial,sans-serif;color:#222;">' +
-      '<h1 style="color:#6B3FA0;font-size:20pt;margin:0 0 2px 0;">' + _title + '</h1><br/>' +
-      '<p style="font-size:11pt;color:#666;margin:0 0 14px 0;">Período del ' + rep.weekStartLabel + ' al ' + rep.weekEndLabel + '</p><br/>' +
-      '<table width="100%" cellpadding="0" cellspacing="6" style="margin:0 0 6px 0;"><tr>' +
-      kpi('Acciones completadas', totalDone) + kpi('En curso', totalProg) + kpi('Franquicias atendidas', rep.byClient.length) +
-      '</tr></table><br/>' +
-      '<h2 style="font-size:15pt;color:#333;margin:18px 0 2px 0;border-bottom:2px solid #6B3FA0;padding-bottom:4px;">Logros por Franquicia</h2>' +
-      (rows || '<br/><p style="font-size:11pt;color:#888;">Sin acciones de alta/media prioridad vinculadas a clientes esta semana.</p>') +
-      '<br/><br/><h2 style="font-size:15pt;color:#333;margin:10px 0 2px 0;border-bottom:2px solid #6B3FA0;padding-bottom:4px;">Marketing</h2><br/>' +
-      (rep.campaignsDone.length || rep.campaignsActive.length ? (
-        (rep.campaignsDone.length ? '<p style="font-size:10pt;font-weight:bold;color:#2E7D32;margin:6px 0 2px 0;">CAMPAÑAS COMPLETADAS</p><br/>' +
-          rep.campaignsDone.map(function(c){ return '<p style="font-size:11pt;margin:2px 0;color:#222;">&bull;&nbsp; ' + c + '</p><br/>'; }).join('') : '') +
-        (rep.campaignsActive.length ? '<p style="font-size:10pt;font-weight:bold;color:#B07D00;margin:6px 0 2px 0;">CAMPAÑAS ACTIVAS</p><br/>' +
-          rep.campaignsActive.map(function(c){ return '<p style="font-size:10pt;margin:2px 0;color:#555;">&bull;&nbsp; ' + c + '</p><br/>'; }).join('') : '')
-      ) : '<p style="font-size:11pt;color:#888;">Sin campañas activas o completadas esta semana.</p><br/>') +
-      '<br/><h2 style="font-size:15pt;color:#333;margin:10px 0 2px 0;border-bottom:2px solid #6B3FA0;padding-bottom:4px;">Plan Próxima Semana</h2><br/>' +
-      '<table width="100%" cellpadding="0" cellspacing="0" style="border:1px dashed #ccc;"><tr><td style="padding:14px 12px;">' +
-      '<p style="font-size:11pt;color:#999;margin:0;">— Completar manualmente —</p>' +
+      '<h1 style="color:' + PURPLE + ';font-size:19pt;margin:0 0 2px 0;">' + _title + '</h1>' +
+      '<p style="font-size:10.5pt;color:#666;margin:0 0 12px 0;">Del ' + rep.weekStartLabel + ' al ' + rep.weekEndLabel + ' &nbsp;(' + rep.days + ' dias)</p>' +
+      '<table width="100%" cellpadding="0" cellspacing="5" style="margin:0 0 6px 0;"><tr>' +
+      kpi('Completado', st.done, GREEN) + kpi('En curso', st.progress, AMBER) +
+      kpi('Pendiente', st.pending, '#C62828') + kpi('Franquicias', st.clients, PURPLE) +
+      '</tr></table>' +
+      h2('Actividad por franquicia') +
+      (clientSections || '<p style="font-size:10.5pt;color:#888;">Sin actividad vinculada a franquicias en el periodo.</p>') +
+      (unassignedSection ? h2('Otras actividades (sin franquicia asignada)') + unassignedSection : '') +
+      mktSection + financeSection + docsSection + nextSection +
+      h2('Plan proxima semana') +
+      '<table width="100%" cellpadding="0" cellspacing="0" style="border:1px dashed #ccc;margin-top:6px;"><tr><td style="padding:14px 12px;">' +
+      '<p style="font-size:10.5pt;color:#999;margin:0;">&mdash; Completar manualmente &mdash;</p>' +
       '</td></tr></table>' +
       '</body></html>';
-    var blob = new Blob(['\ufeff', html], { type: 'application/msword' });
+
+    var blob = new Blob(['﻿', html], { type: 'application/msword' });
     var url = URL.createObjectURL(blob);
     var a = document.createElement('a');
     a.href = url;
