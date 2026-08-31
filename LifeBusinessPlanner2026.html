@@ -22,7 +22,7 @@
 <script>
 (function() {
   // ── Version ──────────────────────────────────────────────────────────────
-  window.LBP_VERSION = '5.11';
+  window.LBP_VERSION = '5.12';
 
   // ── PWA Install prompt ───────────────────────────────────────────────────
   window._installPrompt = null;
@@ -511,6 +511,9 @@
       return groups[clientId];
     }
     function add(list, title, tag, meta) { if (!list) return; list.push({ title: title, tag: tag || '', meta: meta || '' }); }
+    function itemBucket(text, fallbackCid) {
+      return bucket(window._detectClientId(text, clients) || fallbackCid);
+    }
 
     // ── TAREAS ──────────────────────────────────────────────────
     (data.tasks || []).forEach(function(t) {
@@ -531,8 +534,8 @@
       }
       // Checklist dentro de la descripcion de la tarea
       var ck = parseChecklist(t.description);
-      ck.done.forEach(function(x) { add(b.done, x, 'CHECK', 'en: ' + t.title); });
-      if (!isDone) ck.pending.forEach(function(x) { add(b.pending, x, 'CHECK', 'en: ' + t.title); });
+      ck.done.forEach(function(x) { add(itemBucket(x, cid).done, x, 'CHECK', 'en: ' + t.title); });
+      if (!isDone) ck.pending.forEach(function(x) { add(itemBucket(x, cid).pending, x, 'CHECK', 'en: ' + t.title); });
     });
 
     // ── PROYECTOS ───────────────────────────────────────────────
@@ -543,13 +546,13 @@
       if (isDone && inWin(p.completedAt)) add(b.done, 'Proyecto completado: ' + p.name, 'PROYECTO', dstr(p.completedAt));
       // Subtareas
       (p.subtasks || []).forEach(function(s) {
-        if (s.done) { if (inWin(s.completedAt)) add(b.done, s.title, 'SUBTAREA', p.name); }
-        else if (!isDone) add(b.pending, s.title, 'SUBTAREA', p.name);
+        if (s.done) { if (inWin(s.completedAt)) add(itemBucket(s.title, cid).done, s.title, 'SUBTAREA', p.name); }
+        else if (!isDone) add(itemBucket(s.title, cid).pending, s.title, 'SUBTAREA', p.name);
       });
       // Checklist de la descripcion del proyecto
       var ck = parseChecklist(p.description);
-      ck.done.forEach(function(x) { add(b.done, x, 'CHECK', p.name); });
-      if (!isDone) ck.pending.forEach(function(x) { add(b.pending, x, 'CHECK', p.name); });
+      ck.done.forEach(function(x) { add(itemBucket(x, cid).done, x, 'CHECK', p.name); });
+      if (!isDone) ck.pending.forEach(function(x) { add(itemBucket(x, cid).pending, x, 'CHECK', p.name); });
       // Avance del proyecto
       if (!isDone) {
         var subsWeek = (p.subtasks || []).filter(function(s) { return s.done && inWin(s.completedAt); }).length;
