@@ -22,7 +22,7 @@
 <script>
 (function() {
   // ── Version ──────────────────────────────────────────────────────────────
-  window.LBP_VERSION = '5.10';
+  window.LBP_VERSION = '5.11';
 
   // ── PWA Install prompt ───────────────────────────────────────────────────
   window._installPrompt = null;
@@ -682,6 +682,29 @@
     alert(msg);
   };
 
+  // Genera el informe: arma los datos locales, intenta enriquecerlos con las
+  // comunicaciones del correo de Ventura (Outlook via briefing) y exporta el .doc.
+  // Si el correo no responde, el informe igual se genera sin esa seccion.
+  window._generateReport = function(data, days, label) {
+    var rep = window._buildWeeklyReport(data, days, label);
+    var base = window.LBP_WORKER_URL;
+    var done = false;
+    function finish() {
+      if (done) return; done = true;
+      window._exportWeeklyReportDoc(rep);
+    }
+    if (!base) { finish(); return; }
+    // Tope de espera: el analisis con IA puede tardar, pero no bloqueamos para siempre.
+    var timer = setTimeout(function() {
+      rep.emailActions = { error: 'el analisis del correo tardo demasiado' };
+      finish();
+    }, 45000);
+    fetch(base + '/email-actions?days=' + days)
+      .then(function(r) { return r.json(); })
+      .then(function(res) { clearTimeout(timer); rep.emailActions = res; finish(); })
+      .catch(function(e) { clearTimeout(timer); rep.emailActions = { error: String(e && e.message || e) }; finish(); });
+  };
+
   window._exportWeeklyReportDoc = function(rep) {
     var PURPLE = '#6B3FA0', GREEN = '#2E7D32', AMBER = '#B07D00', GREY = '#666';
     function esc(s) { return String(s == null ? '' : s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
@@ -694,6 +717,10 @@
       else if (tag === 'MEDIA') { bg = '#E8F0FE'; fg = '#1A5FB4'; }
       else if (tag === 'BAJA') { bg = '#F0F0F0'; fg = '#777'; }
       else if (tag === 'CHECK') { bg = '#EAF6EA'; fg = '#2E7D32'; }
+      else if (tag === 'ACUERDO') { bg = '#E6F4EA'; fg = '#2E7D32'; }
+      else if (tag === 'NEGOCIACION') { bg = '#FFF4E0'; fg = '#B07D00'; }
+      else if (tag === 'PENDIENTE') { bg = '#FFE8E8'; fg = '#C62828'; }
+      else if (tag === 'ACCION') { bg = '#E8F0FE'; fg = '#1A5FB4'; }
       else { bg = '#F3EDFA'; fg = PURPLE; }
       return '<span style="background:' + bg + ';color:' + fg + ';font-size:7.5pt;padding:1px 5px;font-weight:bold;">' + esc(tag) + '</span>&nbsp;';
     }
@@ -767,6 +794,25 @@
       ) : '<p style="font-size:10pt;color:#888;margin:6px 0;">Sin campanas registradas en el periodo.</p>'
     );
 
+    // Comunicaciones con franquicias extraidas del correo de Ventura Mall (Outlook)
+    var ea = rep.emailActions;
+    var emailSection = '';
+    if (ea && ea.byClient && ea.byClient.length) {
+      var TIPOCOLOR = { ACUERDO:'#2E7D32', NEGOCIACION:'#B07D00', ACCION:'#1A5FB4', PENDIENTE:'#C62828', COMUNICACION:'#555' };
+      emailSection = h2('Comunicaciones con franquicias (correo)') +
+        '<p style="font-size:9pt;color:#888;margin:2px 0 8px 0;">Casilla Ventura Mall &middot; ' +
+        (ea.emails || 0) + ' correos analizados de los ultimos ' + (ea.days || 14) + ' dias</p>' +
+        ea.byClient.map(function(c) {
+          var items = (c.items || []).map(function(it) {
+            return line({ title: it.texto, tag: it.tipo || '', meta: it.fecha || '' });
+          }).join('');
+          return '<p style="font-size:11pt;font-weight:bold;color:' + PURPLE + ';margin:10px 0 2px 0;">' + esc(c.client) + '</p>' + items;
+        }).join('');
+    } else if (ea && ea.error) {
+      emailSection = h2('Comunicaciones con franquicias (correo)') +
+        '<p style="font-size:10pt;color:#C62828;margin:6px 0;">No se pudo leer el correo: ' + esc(ea.error) + '</p>';
+    }
+
     var _title = 'Informe ' + (rep.periodLabel || 'Semanal');
     var html = '<html xmlns:o="urn:schemas-microsoft-com:office:office" xmlns:w="urn:schemas-microsoft-com:office:word" xmlns="http://www.w3.org/TR/REC-html40">' +
       '<head><meta charset="utf-8"><title>' + _title + '</title></head>' +
@@ -780,7 +826,7 @@
       h2('Actividad por franquicia') +
       (clientSections || '<p style="font-size:10.5pt;color:#888;">Sin actividad vinculada a franquicias en el periodo.</p>') +
       (unassignedSection ? h2('Otras actividades (sin franquicia asignada)') + unassignedSection : '') +
-      mktSection + financeSection + docsSection + nextSection +
+      emailSection + mktSection + financeSection + docsSection + nextSection +
       h2('Plan proxima semana') +
       '<table width="100%" cellpadding="0" cellspacing="0" style="border:1px dashed #ccc;margin-top:6px;"><tr><td style="padding:14px 12px;">' +
       '<p style="font-size:10.5pt;color:#999;margin:0;">&mdash; Completar manualmente &mdash;</p>' +
@@ -18033,11 +18079,11 @@ var App = function App() {
     }));
   }),
   /*#__PURE__*/React.createElement("div", {className:"nav-section", style:{marginTop:8}}, "\uD83D\uDEE0\uFE0F Herramientas"),
-  /*#__PURE__*/React.createElement("div", {className:"nav-item", onClick:function(){setDrawerOpen(false);window._exportWeeklyReportDoc(window._buildWeeklyReport(data,7,'Semanal'));}},
+  /*#__PURE__*/React.createElement("div", {className:"nav-item", onClick:function(){setDrawerOpen(false);window._generateReport(data,7,'Semanal');}},
     React.createElement("span",{style:{fontSize:16}},"\uD83D\uDCCA"),React.createElement("span",null," Informe: 1 semana")),
-  /*#__PURE__*/React.createElement("div", {className:"nav-item", onClick:function(){setDrawerOpen(false);window._exportWeeklyReportDoc(window._buildWeeklyReport(data,21,'3 Semanas'));}},
+  /*#__PURE__*/React.createElement("div", {className:"nav-item", onClick:function(){setDrawerOpen(false);window._generateReport(data,21,'3 Semanas');}},
     React.createElement("span",{style:{fontSize:16}},"\uD83D\uDCCA"),React.createElement("span",null," Informe: 3 semanas")),
-  /*#__PURE__*/React.createElement("div", {className:"nav-item", onClick:function(){setDrawerOpen(false);window._exportWeeklyReportDoc(window._buildWeeklyReport(data,30,'Mensual'));}},
+  /*#__PURE__*/React.createElement("div", {className:"nav-item", onClick:function(){setDrawerOpen(false);window._generateReport(data,30,'Mensual');}},
     React.createElement("span",{style:{fontSize:16}},"\uD83D\uDCCA"),React.createElement("span",null," Informe: 1 mes")),
   /*#__PURE__*/React.createElement("div", {className:"nav-item", onClick:function(){setDrawerOpen(false);window._diagWeeklyReport(data);}},
     React.createElement("span",{style:{fontSize:16}},"\uD83D\uDD0D"),React.createElement("span",null," Diagn\u00F3stico")),
@@ -18127,9 +18173,9 @@ var App = function App() {
         key: route,
         className: "nav-item ".concat(page === route ? 'active' : ''),
         onClick: function onClick() {
-          if(route==='__informe1'){setDrawerOpen(false);window._exportWeeklyReportDoc(window._buildWeeklyReport(data,7,'Semanal'));return;}
-          if(route==='__informe3'){setDrawerOpen(false);window._exportWeeklyReportDoc(window._buildWeeklyReport(data,21,'3 Semanas'));return;}
-          if(route==='__informemes'){setDrawerOpen(false);window._exportWeeklyReportDoc(window._buildWeeklyReport(data,30,'Mensual'));return;}
+          if(route==='__informe1'){setDrawerOpen(false);window._generateReport(data,7,'Semanal');return;}
+          if(route==='__informe3'){setDrawerOpen(false);window._generateReport(data,21,'3 Semanas');return;}
+          if(route==='__informemes'){setDrawerOpen(false);window._generateReport(data,30,'Mensual');return;}
           if(route==='__diag'){setDrawerOpen(false);window._diagWeeklyReport(data);return;}
           if(route==='__autovinc'){setDrawerOpen(false);var _clients=data.clients||[];var _uT=0,_uP=0;var _nT=(data.tasks||[]).map(function(t){if(t.clientId)return t;var c=window._detectClientId((t.title||'')+' '+(t.description||''),_clients);if(c){_uT++;return Object.assign({},t,{clientId:c});}return t;});var _nP=(data.projects||[]).map(function(p){if(p.clientId)return p;var c=window._detectClientId((p.name||'')+' '+(p.description||''),_clients);if(c){_uP++;return Object.assign({},p,{clientId:c});}return p;});setData(function(d){return Object.assign({},d,{tasks:_nT,projects:_nP});});alert('Auto-vinculaci\u00F3n completada.\n\nTareas: '+_uT+'\nProyectos: '+_uP);return;}
           if(route==='__catwork'){setDrawerOpen(false);var _ls=['tasks','goals','journal','habits','resources','routines'];var _cnt={};var _pt={};_ls.forEach(function(k){var arr=data[k]||[];var n=0;var up=arr.map(function(i){if(i.category)return i;n++;return Object.assign({},i,{category:'Work'});});if(n>0){_pt[k]=up;_cnt[k]=n;}});var _pN=0,_sN=0;var _pj=(data.projects||[]).map(function(p){var ch=false;var np=p;if(!p.category){np=Object.assign({},np,{category:'Work'});ch=true;_pN++;}if(p.subtasks&&p.subtasks.length){var sc=false;var ss=p.subtasks.map(function(s){if(s.category)return s;sc=true;_sN++;return Object.assign({},s,{category:'Work'});});if(sc){np=Object.assign({},np,{subtasks:ss});ch=true;}}return ch?np:p;});if(_pN>0||_sN>0){_pt.projects=_pj;_cnt.projects=_pN;_cnt.subtareas=_sN;}setData(function(d){return Object.assign({},d,_pt);});alert('Categor\u00EDa "Work" aplicada:\n\n'+(Object.keys(_cnt).map(function(k){return k+': '+_cnt[k];}).join('\n')||'Nada para actualizar.'));return;}

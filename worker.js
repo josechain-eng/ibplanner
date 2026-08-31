@@ -271,6 +271,64 @@ async function handleRequest(request, env) {
     }
 
     // POST /chat  \u2192  proxy to Claude API (key stored as Worker secret ANTHROPIC_API_KEY)
+    // Trae los correos de Ventura Mall (Outlook, via el bridge del Briefing
+    // Diario) y hace que Claude extraiga acciones/acuerdos por franquicia.
+    // Se usa para la seccion de comunicaciones del informe de actividades.
+    if (p === '/email-actions' && request.method === 'GET') {
+      const days = Math.min(parseInt(url.searchParams.get('days') || '14', 10) || 14, 60);
+      const briefUrl = env.BRIEFING_URL || 'https://briefing-diario-pepe.josechain.workers.dev';
+      const briefKey = env.BRIEFING_KEY;
+      if (!briefKey) return json({ error: 'Falta el secreto BRIEFING_KEY en el worker', emails: 0, byClient: [] }, 200);
+      let payload;
+      try {
+        const r = await fetch(briefUrl + '/ventura-emails?key=' + encodeURIComponent(briefKey));
+        if (!r.ok) return json({ error: 'Briefing respondio ' + r.status, emails: 0, byClient: [] }, 200);
+        payload = await r.json();
+      } catch (err) {
+        return json({ error: 'No pude leer el briefing: ' + err.message, emails: 0, byClient: [] }, 200);
+      }
+      const all = Array.isArray(payload.emails) ? payload.emails : [];
+      const cutoff = Date.now() - days * 86400000;
+      const inWindow = all.filter(e => {
+        const t = e && e.date ? Date.parse(e.date) : NaN;
+        return !isNaN(t) && t >= cutoff;
+      });
+      if (!inWindow.length) {
+        return json({ ts: payload.ts || null, days, emails: 0, byClient: [], note: 'Sin correos en la ventana' }, 200);
+      }
+      // Compacta para el modelo: asunto, remitente, fecha, y cuerpo recortado.
+      const compact = inWindow.slice(0, 120).map((e, i) => (
+        '[' + (i + 1) + '] ' + (e.date || '').slice(0, 10) +
+        ' | DE: ' + String(e.from || '').slice(0, 80) +
+        ' | ASUNTO: ' + String(e.subject || '').slice(0, 140) +
+        (e.attended ? ' | (ya respondido)' : ' | (sin responder)') +
+        '\nCUERPO: ' + String(e.snippet || '').slice(0, 1200)
+      )).join('\n\n');
+      const system = 'Eres analista del gerente de Ventura Mall (La Paz, Bolivia). ' +
+        'Recibiras correos de su casilla corporativa. Tu tarea: extraer que ACCIONES, ' +
+        'NEGOCIACIONES, ACUERDOS y COMUNICACIONES relevantes hubo con cada franquicia o marca ' +
+        '(Mango, Calvin Klein/CK, Armani Exchange/AX, Hugo Boss, Chillibeans, Kids Delux, Tommy/TH, u otras). ' +
+        'REGLAS ESTRICTAS: usa SOLO lo que aparece en los correos, NO inventes ni supongas. ' +
+        'Ignora newsletters, promociones y avisos automaticos. Si un correo no se relaciona con ' +
+        'ninguna franquicia o marca, omitelo por completo. Se concreto y breve: cada item una linea, ' +
+        'redactado para un informe ejecutivo al dueno de la empresa. ' +
+        'Responde SOLO con JSON valido, sin texto alrededor, con esta forma exacta: ' +
+        '{"byClient":[{"client":"Mango","items":[{"tipo":"ACUERDO|NEGOCIACION|ACCION|COMUNICACION|PENDIENTE",' +
+        '"texto":"que paso, concreto","fecha":"YYYY-MM-DD"}]}]}';
+      const raw = await callClaude(env, [{ role: 'user', content: compact }], system, 4096);
+      let parsed = { byClient: [] };
+      try {
+        const m = String(raw || '').match(/\{[\s\S]*\}/);
+        if (m) parsed = JSON.parse(m[0]);
+      } catch (err) { /* si el modelo no devolvio JSON, se informa vacio */ }
+      return json({
+        ts: payload.ts || null,
+        days,
+        emails: inWindow.length,
+        byClient: Array.isArray(parsed.byClient) ? parsed.byClient : []
+      }, 200);
+    }
+
     if (p === '/chat' && request.method === 'POST') {
       const apiKey = env.ANTHROPIC_API_KEY;
       if (!apiKey) return json({ error: 'ANTHROPIC_API_KEY not set.' }, 500);
