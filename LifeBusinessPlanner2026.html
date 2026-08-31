@@ -22,7 +22,7 @@
 <script>
 (function() {
   // ── Version ──────────────────────────────────────────────────────────────
-  window.LBP_VERSION = '5.09';
+  window.LBP_VERSION = '5.10';
 
   // ── PWA Install prompt ───────────────────────────────────────────────────
   window._installPrompt = null;
@@ -499,15 +499,18 @@
     }
 
     var groups = {};
+    // Bucket descartable: lo que no pertenece a una franquicia/tienda NO va al informe
+    // (suele ser personal o transversal). Decision explicita del usuario.
     var unassigned = { done: [], progress: [], pending: [] };
+    var VOID = { done: [], progress: [], pending: [] };
     function bucket(clientId) {
-      if (!clientId) return unassigned;
+      if (!clientId) return VOID;
       var c = clientOf(clientId);
-      if (!c) return unassigned;
+      if (!c) return VOID;
       if (!groups[clientId]) groups[clientId] = { client: c, done: [], progress: [], pending: [] };
       return groups[clientId];
     }
-    function add(list, title, tag, meta) { list.push({ title: title, tag: tag || '', meta: meta || '' }); }
+    function add(list, title, tag, meta) { if (!list) return; list.push({ title: title, tag: tag || '', meta: meta || '' }); }
 
     // ── TAREAS ──────────────────────────────────────────────────
     (data.tasks || []).forEach(function(t) {
@@ -562,8 +565,8 @@
       var b = bucket(cid);
       var mTs = m.date ? new Date(m.date).getTime() : null;
       if (inWin(mTs)) add(b.done, 'Reunion: ' + m.title, 'REUNION', dstr(m.date) + (m.startTime ? ' ' + m.startTime : ''));
-      else if (mTs && mTs > endMs && mTs <= endMs + 7 * 86400000) {
-        meetingsUpcoming.push({ title: m.title, when: dstr(m.date) + (m.startTime ? ' ' + m.startTime : ''), client: cid ? (clientOf(cid) || {}).businessName || (clientOf(cid) || {}).name : '' });
+      else if (cid && mTs && mTs > endMs && mTs <= endMs + 7 * 86400000) {
+        meetingsUpcoming.push({ title: m.title, when: dstr(m.date) + (m.startTime ? ' ' + m.startTime : ''), client: (clientOf(cid) || {}).businessName || (clientOf(cid) || {}).name || '' });
       }
     });
 
@@ -607,7 +610,8 @@
 
     // ── VENCIMIENTOS PROXIMOS 7 DIAS ────────────────────────────
     var dueSoon = (data.tasks || []).filter(function(t) {
-      if (t.status === 'DONE' || !t.dueDate) return false;
+      if (t.status === 'DONE' || !t.dueDate || t.category === 'Personal') return false;
+      if (!resolveClientId(t, (t.title || '') + ' ' + (t.description || ''))) return false; // solo franquicias
       var dt = new Date(t.dueDate).getTime();
       return dt > endMs && dt <= endMs + 7 * 86400000;
     }).map(function(t) { return { title: t.title, tag: prioTag(t.priority), meta: dstr(t.dueDate) }; });
@@ -730,9 +734,8 @@
     var clientSections = rep.byClient.map(function(g) {
       return section(g.client.businessName || g.client.name, g, PURPLE);
     }).join('');
-    var un = rep.unassigned || { done:[], progress:[], pending:[] };
-    var unassignedSection = (un.done.length || un.progress.length || un.pending.length)
-      ? section('SIN ASIGNAR A FRANQUICIA', un, '#555') : '';
+    // El informe solo cubre franquicias/tiendas; lo no vinculado se descarta en el build.
+    var unassignedSection = '';
 
     var fin = rep.finance || { income:0, expense:0, items:[] };
     var financeSection = fin.items.length ? (
