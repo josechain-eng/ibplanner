@@ -280,9 +280,17 @@ async function handleRequest(request, env) {
       const briefKey = env.BRIEFING_KEY;
       if (!briefKey) return json({ error: 'Falta el secreto BRIEFING_KEY en el worker', emails: 0, byClient: [] }, 200);
       let payload;
+      const briefPath = '/ventura-emails?key=' + encodeURIComponent(briefKey);
       try {
-        const r = await fetch(briefUrl + '/ventura-emails?key=' + encodeURIComponent(briefKey));
-        if (!r.ok) return json({ error: 'Briefing respondio ' + r.status, emails: 0, byClient: [] }, 200);
+        // Preferimos el service binding: un fetch a la URL publica de
+        // workers.dev desde otro Worker de la misma cuenta devuelve 404.
+        let r;
+        if (env.BRIEFING_SERVICE) {
+          r = await env.BRIEFING_SERVICE.fetch(new Request('https://briefing.internal' + briefPath));
+        } else {
+          r = await fetch(briefUrl + briefPath);
+        }
+        if (!r.ok) return json({ error: 'Briefing respondio ' + r.status + (env.BRIEFING_SERVICE ? ' (binding)' : ' (http)'), emails: 0, byClient: [] }, 200);
         payload = await r.json();
       } catch (err) {
         return json({ error: 'No pude leer el briefing: ' + err.message, emails: 0, byClient: [] }, 200);

@@ -1,0 +1,21 @@
+name = "life-planner"
+main = "worker.js"
+compatibility_date = "2024-11-06"
+
+kv_namespaces = [
+  { binding = "LBP_KV", id = "308c3def2b0e468798011665598009a2" }
+]
+
+[[r2_buckets]]
+binding = "LBP_R2"
+bucket_name = "lbp-files"
+
+[triggers]
+crons = ["* * * * *"]
+
+# Llamada interna al worker del Briefing Diario (para leer los correos de
+# Ventura). Un fetch a su URL publica de workers.dev desde aca devuelve 404;
+# el service binding va worker-a-worker sin salir a internet.
+[[services]]
+binding = "BRIEFING_SERVICE"
+service = "briefing-diario-pepe"
