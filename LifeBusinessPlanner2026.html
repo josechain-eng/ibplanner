@@ -22,7 +22,7 @@
 <script>
 (function() {
   // ── Version ──────────────────────────────────────────────────────────────
-  window.LBP_VERSION = '5.13';
+  window.LBP_VERSION = '5.14';
 
   // ── PWA Install prompt ───────────────────────────────────────────────────
   window._installPrompt = null;
@@ -451,11 +451,21 @@
   // ── Weekly Report: collects high/medium priority client-linked completions ──
   // Detecta el clientId a partir del nombre/businessName/contactos mencionados en un texto.
   // Usa el match mas largo para evitar falsos positivos con nombres cortos/ambiguos.
+  // Nombres alternativos por cliente. Hugo y Boss son la misma empresa aunque
+  // sean tiendas distintas: los items conservan su proyecto de origen en el
+  // campo de contexto, asi que en el informe se sigue viendo de que tienda es.
+  window._LBP_CLIENT_ALIASES = {
+    'Boss': ['Hugo', 'Hugo Boss'],
+    'Kids Delux': ['Delux']
+  };
+
   window._detectClientId = function(text, clients) {
     if (!text) return null;
     var bestId = null, bestLen = 0;
     (clients || []).forEach(function(c) {
-      var candidates = [c.businessName, c.name].concat((c.contacts || []).map(function(x) { return x.name; }));
+      var _alias = (window._LBP_CLIENT_ALIASES || {})[c.businessName] ||
+                   (window._LBP_CLIENT_ALIASES || {})[c.name] || [];
+      var candidates = [c.businessName, c.name].concat(_alias).concat((c.contacts || []).map(function(x) { return x.name; }));
       candidates.forEach(function(cand) {
         if (!cand || cand.length < 2) return;
         // Word-boundary match so even short codes (e.g. "AX", "CK") don't false-positive
