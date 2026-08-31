@@ -22,7 +22,7 @@
 <script>
 (function() {
   // ── Version ──────────────────────────────────────────────────────────────
-  window.LBP_VERSION = '5.12';
+  window.LBP_VERSION = '5.13';
 
   // ── PWA Install prompt ───────────────────────────────────────────────────
   window._installPrompt = null;
@@ -511,8 +511,20 @@
       return groups[clientId];
     }
     function add(list, title, tag, meta) { if (!list) return; list.push({ title: title, tag: tag || '', meta: meta || '' }); }
-    function itemBucket(text, fallbackCid) {
-      return bucket(window._detectClientId(text, clients) || fallbackCid);
+    // Proyectos transversales (MARKETING Y VENTAS, PF CHANGS, RRHH...): no son de
+    // una franquicia. Sus items que tampoco nombran marca NO deben colgar de una
+    // franquicia; van a su propia seccion, agrupados por proyecto.
+    var general = {};
+    function generalBucket(projName) {
+      if (!general[projName]) general[projName] = { name: projName, done: [], progress: [], pending: [] };
+      return general[projName];
+    }
+    function itemBucket(text, fallbackCid, projName) {
+      var own = window._detectClientId(text, clients);
+      if (own) return bucket(own);
+      if (fallbackCid) return bucket(fallbackCid);
+      if (projName) return generalBucket(projName);
+      return VOID;
     }
 
     // ── TAREAS ──────────────────────────────────────────────────
@@ -534,25 +546,31 @@
       }
       // Checklist dentro de la descripcion de la tarea
       var ck = parseChecklist(t.description);
-      ck.done.forEach(function(x) { add(itemBucket(x, cid).done, x, 'CHECK', 'en: ' + t.title); });
-      if (!isDone) ck.pending.forEach(function(x) { add(itemBucket(x, cid).pending, x, 'CHECK', 'en: ' + t.title); });
+      ck.done.forEach(function(x) { add(itemBucket(x, cid, null).done, x, 'CHECK', 'en: ' + t.title); });
+      if (!isDone) ck.pending.forEach(function(x) { add(itemBucket(x, cid, null).pending, x, 'CHECK', 'en: ' + t.title); });
     });
 
     // ── PROYECTOS ───────────────────────────────────────────────
     (data.projects || []).forEach(function(p) {
-      var cid = resolveClientId(p, (p.name || '') + ' ' + (p.description || ''));
-      var b = bucket(cid);
+      // Un proyecto es "de marca" si su NOMBRE nombra una franquicia (CK, MANGO,
+      // Mango VSur...). Si la marca solo aparece en la descripcion, el proyecto es
+      // transversal y no debe arrastrar sus items genericos a esa franquicia.
+      var nameCid = window._detectClientId(p.name || '', clients);
+      var cid = nameCid || p.clientId || null;
+      var isTransversal = !nameCid;
+      var projFallback = isTransversal ? null : cid;
+      var b = isTransversal ? generalBucket(p.name) : bucket(cid);
       var isDone = p.status === 'DONE';
       if (isDone && inWin(p.completedAt)) add(b.done, 'Proyecto completado: ' + p.name, 'PROYECTO', dstr(p.completedAt));
       // Subtareas
       (p.subtasks || []).forEach(function(s) {
-        if (s.done) { if (inWin(s.completedAt)) add(itemBucket(s.title, cid).done, s.title, 'SUBTAREA', p.name); }
-        else if (!isDone) add(itemBucket(s.title, cid).pending, s.title, 'SUBTAREA', p.name);
+        if (s.done) { if (inWin(s.completedAt)) add(itemBucket(s.title, projFallback, p.name).done, s.title, 'SUBTAREA', p.name); }
+        else if (!isDone) add(itemBucket(s.title, projFallback, p.name).pending, s.title, 'SUBTAREA', p.name);
       });
       // Checklist de la descripcion del proyecto
       var ck = parseChecklist(p.description);
-      ck.done.forEach(function(x) { add(itemBucket(x, cid).done, x, 'CHECK', p.name); });
-      if (!isDone) ck.pending.forEach(function(x) { add(itemBucket(x, cid).pending, x, 'CHECK', p.name); });
+      ck.done.forEach(function(x) { add(itemBucket(x, projFallback, p.name).done, x, 'CHECK', p.name); });
+      if (!isDone) ck.pending.forEach(function(x) { add(itemBucket(x, projFallback, p.name).pending, x, 'CHECK', p.name); });
       // Avance del proyecto
       if (!isDone) {
         var subsWeek = (p.subtasks || []).filter(function(s) { return s.done && inWin(s.completedAt); }).length;
@@ -620,12 +638,17 @@
     }).map(function(t) { return { title: t.title, tag: prioTag(t.priority), meta: dstr(t.dueDate) }; });
 
     function fmt(d) { return d.toLocaleDateString('es-BO', { day: 'numeric', month: 'short' }); }
-    var totDone = byClient.reduce(function(s, g) { return s + g.done.length; }, 0) + unassigned.done.length;
-    var totProg = byClient.reduce(function(s, g) { return s + g.progress.length; }, 0) + unassigned.progress.length;
-    var totPend = byClient.reduce(function(s, g) { return s + g.pending.length; }, 0) + unassigned.pending.length;
+    var _gen = Object.keys(general).map(function(k) { return general[k]; });
+    function _sum(arr, f) { return arr.reduce(function(a, g) { return a + g[f].length; }, 0); }
+    var totDone = _sum(byClient, 'done') + unassigned.done.length + _sum(_gen, 'done');
+    var totProg = _sum(byClient, 'progress') + unassigned.progress.length + _sum(_gen, 'progress');
+    var totPend = _sum(byClient, 'pending') + unassigned.pending.length + _sum(_gen, 'pending');
     return {
       weekStartLabel: fmt(start), weekEndLabel: fmt(end), days: _days, periodLabel: periodLabel || 'Semanal',
       byClient: byClient, unassigned: unassigned,
+      general: Object.keys(general).map(function(k) { return general[k]; })
+        .filter(function(g) { return g.done.length || g.progress.length || g.pending.length; })
+        .sort(function(a, b) { return (b.done.length + b.progress.length + b.pending.length) - (a.done.length + a.progress.length + a.pending.length); }),
       campaignsDone: campaignsDone, campaignsActive: campaignsActive,
       finance: { income: finIn, expense: finOut, items: finItems },
       documents: docs, meetingsUpcoming: meetingsUpcoming, dueSoon: dueSoon,
@@ -767,6 +790,13 @@
     // El informe solo cubre franquicias/tiendas; lo no vinculado se descarta en el build.
     var unassignedSection = '';
 
+    // Marketing general y otras areas: proyectos que no son de una franquicia
+    var generalSection = '';
+    if (rep.general && rep.general.length) {
+      generalSection = h2('Marketing general y otras areas') +
+        rep.general.map(function(g) { return section(g.name, g, '#455A64'); }).join('');
+    }
+
     var fin = rep.finance || { income:0, expense:0, items:[] };
     var financeSection = fin.items.length ? (
       h2('Finanzas del periodo') +
@@ -829,7 +859,7 @@
       h2('Actividad por franquicia') +
       (clientSections || '<p style="font-size:10.5pt;color:#888;">Sin actividad vinculada a franquicias en el periodo.</p>') +
       (unassignedSection ? h2('Otras actividades (sin franquicia asignada)') + unassignedSection : '') +
-      emailSection + mktSection + financeSection + docsSection + nextSection +
+      generalSection + emailSection + mktSection + financeSection + docsSection + nextSection +
       h2('Plan proxima semana') +
       '<table width="100%" cellpadding="0" cellspacing="0" style="border:1px dashed #ccc;margin-top:6px;"><tr><td style="padding:14px 12px;">' +
       '<p style="font-size:10.5pt;color:#999;margin:0;">&mdash; Completar manualmente &mdash;</p>' +
