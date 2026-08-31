@@ -336,7 +336,11 @@ async function handleRequest(request, env) {
         return json({ ts: payload.ts || null, days, emails: 0, byClient: [], note: 'Sin correos en la ventana' }, 200);
       }
       // Compacta para el modelo: asunto, remitente, fecha, y cuerpo recortado.
-      const compact = inWindow.slice(0, 120).map((e, i) => (
+      // Tope de correos que van al modelo. Si se recorta, se informa en el .doc
+      // en vez de perderlos en silencio.
+      const MAX_ANALYZE = 200;
+      const analyzed = inWindow.slice(0, MAX_ANALYZE);
+      const compact = analyzed.map((e, i) => (
         '[' + (i + 1) + '] ' + (e.date || '').slice(0, 10) +
         ' | DE: ' + String(e.from || '').slice(0, 80) +
         ' | ASUNTO: ' + String(e.subject || '').slice(0, 140) +
@@ -357,7 +361,7 @@ async function handleRequest(request, env) {
         'Responde SOLO con JSON valido, sin texto alrededor, con esta forma exacta: ' +
         '{"byClient":[{"client":"Mango","items":[{"tipo":"ACUERDO|NEGOCIACION|ACCION|COMUNICACION|PENDIENTE",' +
         '"texto":"que paso, concreto","fecha":"YYYY-MM-DD"}]}]}';
-      const raw = await callClaude(env, [{ role: 'user', content: compact }], system, 4096);
+      const raw = await callClaude(env, [{ role: 'user', content: compact }], system, 8192);
       let parsed = { byClient: [] };
       try {
         const m = String(raw || '').match(/\{[\s\S]*\}/);
@@ -378,7 +382,7 @@ async function handleRequest(request, env) {
         if (ka !== kb) return ka - kb;
         return b.items.length - a.items.length;
       });
-      return json({ ts: payload.ts || null, days, emails: inWindow.length, byClient }, 200);
+      return json({ ts: payload.ts || null, days, emails: inWindow.length, analyzed: analyzed.length, byClient }, 200);
     }
 
     if (p === '/chat' && request.method === 'POST') {

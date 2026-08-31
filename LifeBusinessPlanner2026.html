@@ -22,7 +22,7 @@
 <script>
 (function() {
   // ── Version ──────────────────────────────────────────────────────────────
-  window.LBP_VERSION = '5.15';
+  window.LBP_VERSION = '5.16';
 
   // ── PWA Install prompt ───────────────────────────────────────────────────
   window._installPrompt = null;
@@ -848,7 +848,10 @@
       var TIPOCOLOR = { ACUERDO:'#2E7D32', NEGOCIACION:'#B07D00', ACCION:'#1A5FB4', PENDIENTE:'#C62828', COMUNICACION:'#555' };
       emailSection = h2('Comunicaciones con franquicias (correo)') +
         '<p style="font-size:9pt;color:#888;margin:2px 0 8px 0;">Casilla Ventura Mall &middot; ' +
-        (ea.emails || 0) + ' correos analizados de los ultimos ' + (ea.days || 14) + ' dias</p>' +
+        ((ea.analyzed && ea.analyzed < ea.emails)
+          ? (ea.analyzed + ' de ' + ea.emails + ' correos analizados (tope) de los ultimos ')
+          : ((ea.emails || 0) + ' correos analizados de los ultimos ')) +
+        (ea.days || 14) + ' dias</p>' +
         ea.byClient.map(function(c) {
           var items = (c.items || []).map(function(it) {
             return line({ title: it.texto, tag: it.tipo || '', meta: it.fecha || '' });
