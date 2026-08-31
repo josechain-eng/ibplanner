@@ -22,7 +22,7 @@
 <script>
 (function() {
   // ── Version ──────────────────────────────────────────────────────────────
-  window.LBP_VERSION = '5.07';
+  window.LBP_VERSION = '5.08';
 
   // ── PWA Install prompt ───────────────────────────────────────────────────
   window._installPrompt = null;
@@ -470,10 +470,11 @@
     return bestId;
   };
 
-  window._buildWeeklyReport = function(data) {
+  window._buildWeeklyReport = function(data, days, periodLabel) {
+    var _days = (typeof days === 'number' && days > 0) ? days : 7;
     var now = new Date();
     var end = new Date(now); end.setHours(23,59,59,999);
-    var start = new Date(now); start.setDate(start.getDate() - 6); start.setHours(0,0,0,0);
+    var start = new Date(now); start.setDate(start.getDate() - (_days - 1)); start.setHours(0,0,0,0);
     var startMs = start.getTime(), endMs = end.getTime();
     var clients = data.clients || [];
     function clientOf(id) { return clients.find(function(c) { return c.id === id; }); }
@@ -562,7 +563,7 @@
       return c.status === 'ACTIVE';
     }).map(function(c) { return c.name + (c.platform ? ' (' + c.platform + ')' : ''); });
     function fmt(d) { return d.toLocaleDateString('es-BO', { day: 'numeric', month: 'short' }); }
-    return { weekStartLabel: fmt(start), weekEndLabel: fmt(end), byClient: byClient, campaignsDone: campaignsDone, campaignsActive: campaignsActive };
+    return { weekStartLabel: fmt(start), weekEndLabel: fmt(end), days: _days, periodLabel: periodLabel || 'Semanal', byClient: byClient, campaignsDone: campaignsDone, campaignsActive: campaignsActive };
   };
 
   window._diagWeeklyReport = function(data) {
@@ -646,11 +647,12 @@
         '<div style="font-size:22pt;font-weight:bold;color:#6B3FA0;">' + value + '</div>' +
         '<div style="font-size:9pt;color:#666;text-transform:uppercase;letter-spacing:0.5px;">' + label + '</div></td>';
     };
+    var _title = 'Informe ' + (rep.periodLabel || 'Semanal');
     var html = '<html xmlns:o="urn:schemas-microsoft-com:office:office" xmlns:w="urn:schemas-microsoft-com:office:word" xmlns="http://www.w3.org/TR/REC-html40">' +
-      '<head><meta charset="utf-8"><title>Informe Semanal</title></head>' +
+      '<head><meta charset="utf-8"><title>' + _title + '</title></head>' +
       '<body style="font-family:Calibri,Arial,sans-serif;color:#222;">' +
-      '<h1 style="color:#6B3FA0;font-size:20pt;margin:0 0 2px 0;">Informe Semanal</h1><br/>' +
-      '<p style="font-size:11pt;color:#666;margin:0 0 14px 0;">Semana del ' + rep.weekStartLabel + ' al ' + rep.weekEndLabel + '</p><br/>' +
+      '<h1 style="color:#6B3FA0;font-size:20pt;margin:0 0 2px 0;">' + _title + '</h1><br/>' +
+      '<p style="font-size:11pt;color:#666;margin:0 0 14px 0;">Período del ' + rep.weekStartLabel + ' al ' + rep.weekEndLabel + '</p><br/>' +
       '<table width="100%" cellpadding="0" cellspacing="6" style="margin:0 0 6px 0;"><tr>' +
       kpi('Acciones completadas', totalDone) + kpi('En curso', totalProg) + kpi('Franquicias atendidas', rep.byClient.length) +
       '</tr></table><br/>' +
@@ -672,7 +674,7 @@
     var url = URL.createObjectURL(blob);
     var a = document.createElement('a');
     a.href = url;
-    a.download = 'Informe_Semanal_' + rep.weekStartLabel.replace(/\s/g,'') + '_' + rep.weekEndLabel.replace(/\s/g,'') + '.doc';
+    a.download = 'Informe_' + (rep.periodLabel || 'Semanal').replace(/\s/g,'') + '_' + rep.weekStartLabel.replace(/\s/g,'') + '_' + rep.weekEndLabel.replace(/\s/g,'') + '.doc';
     document.body.appendChild(a);
     a.click();
     document.body.removeChild(a);
@@ -17712,7 +17714,7 @@ var App = function App() {
     items: [['journal', '📓', 'Journal'], ['habits', '🔄', 'Habit Tracker'], ['workout', '🏋️', 'Workout Planner'], ['recipes', '🍽', 'Recipes & Groceries'], ['medication', '💊', 'Medication Tracker'], ['baby', '👶', 'Baby']]
   }, {
     label: '\uD83D\uDEE0\uFE0F Herramientas',
-    items: [['__informe', '\uD83D\uDCCA', 'Informe Semanal'], ['__diag', '\uD83D\uDD0D', 'Diagn\u00F3stico'], ['__autovinc', '\uD83D\uDD27', 'Auto-vincular clientes'], ['__catwork', '\uD83C\uDFF7\uFE0F', 'Categor\u00EDa Work a sin categor\u00EDa']]
+    items: [['__informe1', '\uD83D\uDCCA', 'Informe: 1 semana'], ['__informe3', '\uD83D\uDCCA', 'Informe: 3 semanas'], ['__informemes', '\uD83D\uDCCA', 'Informe: 1 mes'], ['__diag', '\uD83D\uDD0D', 'Diagn\u00F3stico'], ['__autovinc', '\uD83D\uDD27', 'Auto-vincular clientes'], ['__catwork', '\uD83C\uDFF7\uFE0F', 'Categor\u00EDa Work a sin categor\u00EDa']]
   }];
   var bottomTabs = [['home','home','Home'],['tasks','task','Tasks'],['meetings','calendar_month','Meetings'],['projects','business','Projects'],['journal','book','Journal'],['imports','archive','Ship']];
   var renderPage = function renderPage() {
@@ -17914,8 +17916,12 @@ var App = function App() {
     }));
   }),
   /*#__PURE__*/React.createElement("div", {className:"nav-section", style:{marginTop:8}}, "\uD83D\uDEE0\uFE0F Herramientas"),
-  /*#__PURE__*/React.createElement("div", {className:"nav-item", onClick:function(){setDrawerOpen(false);window._exportWeeklyReportDoc(window._buildWeeklyReport(data));}},
-    React.createElement("span",{style:{fontSize:16}},"\uD83D\uDCCA"),React.createElement("span",null," Informe Semanal")),
+  /*#__PURE__*/React.createElement("div", {className:"nav-item", onClick:function(){setDrawerOpen(false);window._exportWeeklyReportDoc(window._buildWeeklyReport(data,7,'Semanal'));}},
+    React.createElement("span",{style:{fontSize:16}},"\uD83D\uDCCA"),React.createElement("span",null," Informe: 1 semana")),
+  /*#__PURE__*/React.createElement("div", {className:"nav-item", onClick:function(){setDrawerOpen(false);window._exportWeeklyReportDoc(window._buildWeeklyReport(data,21,'3 Semanas'));}},
+    React.createElement("span",{style:{fontSize:16}},"\uD83D\uDCCA"),React.createElement("span",null," Informe: 3 semanas")),
+  /*#__PURE__*/React.createElement("div", {className:"nav-item", onClick:function(){setDrawerOpen(false);window._exportWeeklyReportDoc(window._buildWeeklyReport(data,30,'Mensual'));}},
+    React.createElement("span",{style:{fontSize:16}},"\uD83D\uDCCA"),React.createElement("span",null," Informe: 1 mes")),
   /*#__PURE__*/React.createElement("div", {className:"nav-item", onClick:function(){setDrawerOpen(false);window._diagWeeklyReport(data);}},
     React.createElement("span",{style:{fontSize:16}},"\uD83D\uDD0D"),React.createElement("span",null," Diagn\u00F3stico")),
   /*#__PURE__*/React.createElement("div", {className:"nav-item", onClick:function(){setDrawerOpen(false);
@@ -18004,7 +18010,9 @@ var App = function App() {
         key: route,
         className: "nav-item ".concat(page === route ? 'active' : ''),
         onClick: function onClick() {
-          if(route==='__informe'){setDrawerOpen(false);window._exportWeeklyReportDoc(window._buildWeeklyReport(data));return;}
+          if(route==='__informe1'){setDrawerOpen(false);window._exportWeeklyReportDoc(window._buildWeeklyReport(data,7,'Semanal'));return;}
+          if(route==='__informe3'){setDrawerOpen(false);window._exportWeeklyReportDoc(window._buildWeeklyReport(data,21,'3 Semanas'));return;}
+          if(route==='__informemes'){setDrawerOpen(false);window._exportWeeklyReportDoc(window._buildWeeklyReport(data,30,'Mensual'));return;}
           if(route==='__diag'){setDrawerOpen(false);window._diagWeeklyReport(data);return;}
           if(route==='__autovinc'){setDrawerOpen(false);var _clients=data.clients||[];var _uT=0,_uP=0;var _nT=(data.tasks||[]).map(function(t){if(t.clientId)return t;var c=window._detectClientId((t.title||'')+' '+(t.description||''),_clients);if(c){_uT++;return Object.assign({},t,{clientId:c});}return t;});var _nP=(data.projects||[]).map(function(p){if(p.clientId)return p;var c=window._detectClientId((p.name||'')+' '+(p.description||''),_clients);if(c){_uP++;return Object.assign({},p,{clientId:c});}return p;});setData(function(d){return Object.assign({},d,{tasks:_nT,projects:_nP});});alert('Auto-vinculaci\u00F3n completada.\n\nTareas: '+_uT+'\nProyectos: '+_uP);return;}
           if(route==='__catwork'){setDrawerOpen(false);var _ls=['tasks','goals','journal','habits','resources','routines'];var _cnt={};var _pt={};_ls.forEach(function(k){var arr=data[k]||[];var n=0;var up=arr.map(function(i){if(i.category)return i;n++;return Object.assign({},i,{category:'Work'});});if(n>0){_pt[k]=up;_cnt[k]=n;}});var _pN=0,_sN=0;var _pj=(data.projects||[]).map(function(p){var ch=false;var np=p;if(!p.category){np=Object.assign({},np,{category:'Work'});ch=true;_pN++;}if(p.subtasks&&p.subtasks.length){var sc=false;var ss=p.subtasks.map(function(s){if(s.category)return s;sc=true;_sN++;return Object.assign({},s,{category:'Work'});});if(sc){np=Object.assign({},np,{subtasks:ss});ch=true;}}return ch?np:p;});if(_pN>0||_sN>0){_pt.projects=_pj;_cnt.projects=_pN;_cnt.subtareas=_sN;}setData(function(d){return Object.assign({},d,_pt);});alert('Categor\u00EDa "Work" aplicada:\n\n'+(Object.keys(_cnt).map(function(k){return k+': '+_cnt[k];}).join('\n')||'Nada para actualizar.'));return;}
