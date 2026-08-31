@@ -295,6 +295,37 @@ async function handleRequest(request, env) {
       } catch (err) {
         return json({ error: 'No pude leer el briefing: ' + err.message, emails: 0, byClient: [] }, 200);
       }
+      // Nombres canonicos de las franquicias, leidos de los datos del usuario,
+      // para que el informe use SIEMPRE los mismos nombres que el resto del doc.
+      const syncKey = url.searchParams.get('key') || '';
+      let clients = [];
+      if (syncKey) {
+        try {
+          const blob = await env.LBP_KV.get('data:' + syncKey);
+          if (blob) {
+            const parsed = JSON.parse(blob);
+            clients = (parsed.clients || []).map(c => c.businessName || c.name).filter(Boolean);
+          }
+        } catch (err) { /* sin clientes, Claude usa los nombres que encuentre */ }
+      }
+      const ALIASES = { 'Boss': ['Hugo', 'Hugo Boss'], 'Kids Delux': ['Delux'] };
+      // Normaliza el nombre que devolvio el modelo al nombre canonico del cliente.
+      // "Calvin Klein (CK)" -> "CK", "Chilli Beans" -> "Chillibeans", "Hugo" -> "Boss".
+      function canonical(name) {
+        const raw = String(name || '').trim();
+        if (!raw) return raw;
+        const flat = raw.toLowerCase().replace(/[^a-z0-9]/g, '');
+        let best = null, bestLen = 0;
+        for (const c of clients) {
+          const cands = [c].concat(ALIASES[c] || []);
+          for (const cand of cands) {
+            const cf = String(cand).toLowerCase().replace(/[^a-z0-9]/g, '');
+            if (!cf) continue;
+            if ((flat.includes(cf) || cf.includes(flat)) && cf.length > bestLen) { best = c; bestLen = cf.length; }
+          }
+        }
+        return best || raw;
+      }
       const all = Array.isArray(payload.emails) ? payload.emails : [];
       const cutoff = Date.now() - days * 86400000;
       const inWindow = all.filter(e => {
@@ -320,6 +351,9 @@ async function handleRequest(request, env) {
         'Ignora newsletters, promociones y avisos automaticos. Si un correo no se relaciona con ' +
         'ninguna franquicia o marca, omitelo por completo. Se concreto y breve: cada item una linea, ' +
         'redactado para un informe ejecutivo al dueno de la empresa. ' +
+        (clients.length ? 'Usa EXACTAMENTE estos nombres para las franquicias conocidas: ' +
+          clients.join(', ') + '. Hugo pertenece a Boss. Delux pertenece a Kids Delux. ' +
+          'Si el correo es de otro local del mall que no esta en esa lista, usa su nombre comun. ' : '') +
         'Responde SOLO con JSON valido, sin texto alrededor, con esta forma exacta: ' +
         '{"byClient":[{"client":"Mango","items":[{"tipo":"ACUERDO|NEGOCIACION|ACCION|COMUNICACION|PENDIENTE",' +
         '"texto":"que paso, concreto","fecha":"YYYY-MM-DD"}]}]}';
@@ -329,12 +363,22 @@ async function handleRequest(request, env) {
         const m = String(raw || '').match(/\{[\s\S]*\}/);
         if (m) parsed = JSON.parse(m[0]);
       } catch (err) { /* si el modelo no devolvio JSON, se informa vacio */ }
-      return json({
-        ts: payload.ts || null,
-        days,
-        emails: inWindow.length,
-        byClient: Array.isArray(parsed.byClient) ? parsed.byClient : []
-      }, 200);
+      // Normaliza y fusiona: si el modelo devolvio "CK" y "Calvin Klein (CK)"
+      // por separado, quedan como una sola entrada.
+      const merged = {};
+      (Array.isArray(parsed.byClient) ? parsed.byClient : []).forEach(c => {
+        const name = canonical(c && c.client);
+        if (!name) return;
+        if (!merged[name]) merged[name] = { client: name, items: [] };
+        merged[name].items = merged[name].items.concat(Array.isArray(c.items) ? c.items : []);
+      });
+      const known = new Set(clients);
+      const byClient = Object.keys(merged).map(k => merged[k]).sort((a, b) => {
+        const ka = known.has(a.client) ? 0 : 1, kb = known.has(b.client) ? 0 : 1;
+        if (ka !== kb) return ka - kb;
+        return b.items.length - a.items.length;
+      });
+      return json({ ts: payload.ts || null, days, emails: inWindow.length, byClient }, 200);
     }
 
     if (p === '/chat' && request.method === 'POST') {

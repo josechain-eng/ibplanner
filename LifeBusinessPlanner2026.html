@@ -22,7 +22,7 @@
 <script>
 (function() {
   // ── Version ──────────────────────────────────────────────────────────────
-  window.LBP_VERSION = '5.14';
+  window.LBP_VERSION = '5.15';
 
   // ── PWA Install prompt ───────────────────────────────────────────────────
   window._installPrompt = null;
@@ -735,7 +735,11 @@
       rep.emailActions = { error: 'el analisis del correo tardo demasiado' };
       finish();
     }, 45000);
-    fetch(base + '/email-actions?days=' + days)
+    // Mandamos el syncKey para que el worker lea los nombres reales de las
+    // franquicias y normalice como los llama la IA.
+    var _sk = '';
+    try { _sk = localStorage.getItem('lbp_sync_key') || ''; } catch (e) {}
+    fetch(base + '/email-actions?days=' + days + (_sk ? '&key=' + encodeURIComponent(_sk) : ''))
       .then(function(r) { return r.json(); })
       .then(function(res) { clearTimeout(timer); rep.emailActions = res; finish(); })
       .catch(function(e) { clearTimeout(timer); rep.emailActions = { error: String(e && e.message || e) }; finish(); });
