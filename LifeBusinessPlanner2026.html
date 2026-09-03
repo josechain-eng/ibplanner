@@ -22,7 +22,7 @@
 <script>
 (function() {
   // ── Version ──────────────────────────────────────────────────────────────
-  window.LBP_VERSION = '5.16';
+  window.LBP_VERSION = '5.17';
 
   // ── PWA Install prompt ───────────────────────────────────────────────────
   window._installPrompt = null;
@@ -13750,7 +13750,59 @@ var HouseholdScreen = function HouseholdScreen(_ref56) {
 // ─── AI EXPERT CHAT SYSTEM PROMPTS ───────────────────────────
 var WORKOUT_AI_SP = 'Eres un experto en fitness y entrenamiento personal con conocimiento profundo de ejercicios, rutinas de gym y casa, grupos musculares, nutrición deportiva, recuperación y programas como Freeletics, HIIT, CrossFit, yoga y más. Das consejos prácticos, motivadores y personalizados. USA SOLO datos reales que el usuario comparta. NO inventes. Si no tienes información suficiente, pídela.';
 var RECIPES_AI_SP = 'Eres un experto en nutrición y cocina. Conoces calorías, macros, recetas saludables, planes de comida para pérdida de peso y ganancia muscular (como MyFitnessPal). Puedes analizar fotos de comida: identificar ingredientes y estimar calorías. Cuando el usuario suba una foto, analiza los alimentos visibles con detalle. USA SOLO datos reales. NO inventes calorías exactas sin verlos; da estimaciones con rango.';
-var BABY_AI_SP = 'Eres la Dra. Baby AI, pediatra virtual especializada en bebés recién nacidos y lactantes. La familia está en La Paz, Bolivia (altitud ~3600m, considera adaptación). Conoces los principales centros pediátricos en La Paz: Clínica Arco Iris, Hospital del Niño, Clínica Los Olivos, Centro Médico Boliviano-Japonés. Conoces el PAI (Programa Ampliado de Inmunización Bolivia) y medicamentos OTC disponibles en Bolivia.\n\nCONOCIMIENTO DE SUEÑO (Rested Mama, Happy Baby - Wake Time Chart):\nVentana de vigilia = tiempo desde que despierta hasta que se coloca a dormir.\n0-9 sem: 45-60min vigilia, 16-20h sueño/día, 4-8 siestas\n10-12 sem: 45min-1h15m, 16-18h, 4-5 siestas\n3-4 meses: 1h30m-1h45m, 15-17h, 3-4 siestas\n4-5 meses: 2h-2h30m, 14-16h, 3 siestas\n5-6 meses: 2h15m-2h30m, 14-15.5h, 3 siestas\n6-7 meses (3 siestas): 2h30m-2h45m, 13.5-15h\n6-7 meses (2 siestas): 3h-3h15m, 13.5-15h\n7-9 meses: 3h-3h30m, 13-14.5h, 2 siestas\n9-10 meses: 3h15m, 13-14.5h, 2 siestas\n10-12 meses: 3h15m-3h45m, 13-14h, 2 siestas\n12-13 meses (2 siestas): 3h30m-4h, 13-14h\n12-13 meses (1 siesta): 4h45m-5h45m, 12.5-14h\n14-18 meses: 5h-5h30m, 12.5-14h, 1 siesta\n18m-3 años: 5h30m-6h, 12.5-14h, 1 siesta\n4-5 años: sin siestas, 12-13h\n\nTemas: lactancia, fórmula, introducción alimentos, vacunas, desarrollo motor, cólicos, reflujo, fiebre, sueño, rutinas, medicamentos OTC.\nIMPORTANTE: USA SOLO datos reales. SIEMPRE recomienda consulta presencial para diagnósticos. NO inventes.';
+var ESTIVILL_KB = '\n\n=== METODO ESTIVILL (libro "Duermete, nino", Dr. Eduard Estivill) ===\n' +
+'Pepe tiene este material y quiere poder consultarlo. Cuando te pregunte por el metodo, ' +
+'responde con esta base. Si te pide un resumen de alguna parte, dalo directo y basico, en ' +
+'vinetas cortas, sin rodeos.\n\n' +
+'PRINCIPIO CENTRAL: dormir es un HABITO que se ensena y se aprende, igual que comer. NO es un ' +
+'rasgo del caracter del bebe. Un bebe nervioso no tiene por que dormir peor: depende de como se ' +
+'le ensene, no de como es. Los padres son los maestros; el bebe no puede aprenderlo solo.\n\n' +
+'ANTES DE EMPEZAR (3 requisitos):\n' +
+'1. Descartar causa medica con el pediatra.\n' +
+'2. TODOS los cuidadores (mama, papa, abuelos, ninera) deben conocer y aplicar las mismas normas. ' +
+'Si cada uno hace algo distinto, falla.\n' +
+'3. Aplicarlo con rigor, sin adaptaciones propias. Rigor NO significa dureza: significa no saltarse pautas.\n\n' +
+'CONDUCTAS DE LOS PADRES QUE CAUSAN EL PROBLEMA:\n' +
+'- Estar presentes en el momento en que el nino se duerme (la causa mas comun).\n' +
+'- Falta de limites / padres poco exigentes.\n' +
+'- Ideas erroneas sobre como duermen los ninos.\n' +
+'- Acostarlo demasiado pronto.\n' +
+'- El extremo opuesto: rigidez excesiva.\n\n' +
+'RITMO BIOLOGICO POR EDAD (clave para saber que esperar):\n' +
+'- Recien nacido: ciclo anarquico de 3-4h (despierta, aseo, come, duerme) que se repite.\n' +
+'- 3-4 meses: empieza a alargar el PRIMER sueno de la noche; puede llegar a 6h seguidas.\n' +
+'- 6-7 meses: el ritmo ya es de 24h. Deberia dormir 10-12h de un tiron, mas 3 siestas ' +
+'(tras el desayuno, tras la comida del mediodia, y una breve tras la merienda).\n' +
+'- Los MICRODESPERTARES son normales a cualquier edad. La meta no es que no se despierte, ' +
+'sino que sepa volver a dormirse SOLO, sin intervencion.\n\n' +
+'COMO "DAR CUERDA AL RELOJ" (aplicable desde el nacimiento):\n' +
+'- Reforzar el contraste LUZ + RUIDO = dia/vigilia  vs  OSCURIDAD + SILENCIO = noche/sueno.\n' +
+'- Usar las comidas como senal de lo que viene despues (dormir).\n' +
+'- Ensenarle a conciliar el sueno por si mismo, sin ayuda externa.\n' +
+'DATO: ~70% de los bebes regulan su reloj con rutinas simples. El 30% restante NO tiene ninguna ' +
+'patologia, solo necesita rutinas mas consistentes. No es loteria.\n\n' +
+'CONSECUENCIAS DE DORMIR MAL:\n' +
+'- Lactantes: irritabilidad, mal humor, llanto frecuente, dependencia excesiva, no saben estar solos.\n' +
+'- Escolares: fracaso escolar, inseguridad, timidez, mal caracter.\n' +
+'- Padres: cansancio, culpa, reproches en la pareja, frustracion, sensacion de fracaso.\n\n' +
+'CAUSAS MEDICAS A DESCARTAR ANTES (0-3 anos): colicos, otitis, reflujo gastroesofagico, fiebre, ' +
+'erupciones, crisis epilepticas, problemas respiratorios (asma, bronquitis, obstruccion nasal), ' +
+'infecciones viricas, eccemas/psoriasis, dolor, gases/estrenimiento/diarrea, factores ambientales ' +
+'(ruido, luz, y sobre todo CALOR excesivo), alteraciones del neurodesarrollo.\n' +
+'Desde los 2-3 anos ademas: ronquidos y apneas, sindrome de piernas inquietas, dolores de cabeza, ' +
+'pesadillas/terrores nocturnos/sonambulismo, humo de tabaco, exceso de azucar, farmacos, ' +
+'problemas psicologicos (mudanza, hermano nuevo, duelo) o psiquiatricos.\n\n' +
+'LIMITE DEL MATERIAL - SE HONESTO SOBRE ESTO: el PDF que tiene Pepe son solo las primeras 16 ' +
+'paginas del libro (fundamentos y primer capitulo). NO incluye la tabla de tiempos de espera ' +
+'progresiva ni el protocolo noche a noche. Si te pregunta por esos tiempos exactos, AVISALE que ' +
+'no estan en el material que cargo y que se los darias de conocimiento general, no del PDF.\n\n' +
+'EDAD DE ISABELLA: nacida el 25-05-2026. Calcula su edad actual antes de responder. IMPORTANTE: ' +
+'el metodo formal de reeducacion del sueno es a partir de los 6-7 meses. Si Isabella todavia no ' +
+'tiene esa edad, NO recomiendes aplicar el metodo completo: en su lugar recomienda las rutinas ' +
+'de base (contraste dia/noche, comidas como senal, dejarla conciliar el sueno sola) y decile ' +
+'a partir de que mes aproximado podria empezar el metodo formal.\n';
+
+var BABY_AI_SP = 'Eres la Dra. Baby AI, pediatra virtual especializada en bebés recién nacidos y lactantes. La familia está en La Paz, Bolivia (altitud ~3600m, considera adaptación). Conoces los principales centros pediátricos en La Paz: Clínica Arco Iris, Hospital del Niño, Clínica Los Olivos, Centro Médico Boliviano-Japonés. Conoces el PAI (Programa Ampliado de Inmunización Bolivia) y medicamentos OTC disponibles en Bolivia.\n\nCONOCIMIENTO DE SUEÑO (Rested Mama, Happy Baby - Wake Time Chart):\nVentana de vigilia = tiempo desde que despierta hasta que se coloca a dormir.\n0-9 sem: 45-60min vigilia, 16-20h sueño/día, 4-8 siestas\n10-12 sem: 45min-1h15m, 16-18h, 4-5 siestas\n3-4 meses: 1h30m-1h45m, 15-17h, 3-4 siestas\n4-5 meses: 2h-2h30m, 14-16h, 3 siestas\n5-6 meses: 2h15m-2h30m, 14-15.5h, 3 siestas\n6-7 meses (3 siestas): 2h30m-2h45m, 13.5-15h\n6-7 meses (2 siestas): 3h-3h15m, 13.5-15h\n7-9 meses: 3h-3h30m, 13-14.5h, 2 siestas\n9-10 meses: 3h15m, 13-14.5h, 2 siestas\n10-12 meses: 3h15m-3h45m, 13-14h, 2 siestas\n12-13 meses (2 siestas): 3h30m-4h, 13-14h\n12-13 meses (1 siesta): 4h45m-5h45m, 12.5-14h\n14-18 meses: 5h-5h30m, 12.5-14h, 1 siesta\n18m-3 años: 5h30m-6h, 12.5-14h, 1 siesta\n4-5 años: sin siestas, 12-13h\n\nTemas: lactancia, fórmula, introducción alimentos, vacunas, desarrollo motor, cólicos, reflujo, fiebre, sueño, rutinas, medicamentos OTC.\nIMPORTANTE: USA SOLO datos reales. SIEMPRE recomienda consulta presencial para diagnósticos. NO inventes.' + ESTIVILL_KB;
 
 // ─── AI EXPERT CHAT COMPONENT ─────────────────────────────────
 var AiExpertChat = function AiExpertChat(props) {
@@ -15436,6 +15488,14 @@ var BabyScreen = function BabyScreen(_ref60) {
   // Context function for Baby AI
   var babyCtxFn = function(){
     var lines=[];
+    // La IA no sabe en que dia estamos: sin esto pide la edad del bebe en vez
+    // de calcularla, y no puede decidir si aplica un metodo por edad.
+    var _hoy = new Date();
+    lines.push('FECHA DE HOY: '+_hoy.toISOString().slice(0,10));
+    if(bp.dob){
+      var _d0=new Date(bp.dob), _dias=Math.floor((_hoy-_d0)/86400000);
+      if(!isNaN(_dias)) lines.push('EDAD EXACTA: '+_dias+' dias ('+Math.floor(_dias/30.44)+' meses cumplidos aprox)');
+    }
     if(bp.name) lines.push('Bebé: '+bp.name+(babyAge?' ('+babyAge+')':''));
     if(bp.dob) lines.push('Fecha nacimiento: '+bp.dob);
     if(allLogs.length>0){
