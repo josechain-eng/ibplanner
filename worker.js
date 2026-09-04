@@ -200,6 +200,35 @@ async function handleRequest(request, env) {
     }
 
     // GET /debug-smart?key=  \u2192  shows what smart notifications would fire NOW (no push sent)
+    // GET /force-smart?key=&type=  ->  corre el MISMO camino que el cron, a demanda.
+    // Sirve para reproducir el envio del briefing sin esperar a las 12:00 UTC.
+    if (p === '/force-smart' && request.method === 'GET') {
+      const k = url.searchParams.get('key');
+      const t = url.searchParams.get('type') || 'briefing';
+      if (!k) return json({ error: 'missing key' }, 400);
+      const d0 = new Date();
+      const today = d0.toISOString().slice(0, 10);
+      const tmr = new Date(Date.now() + 86400000).toISOString().slice(0, 10);
+      // Borramos la marca del dia para que no se auto-salte.
+      const sk = 'smart:' + k + ':' + today + ':' + t;  // mismo formato que sendSmartNotif
+      await env.LBP_KV.delete(sk).catch(() => {});
+      try {
+        await sendSmartNotif(env, [k], t, today, tmr);
+      } catch (e) {
+        return json({ ok: false, threw: String(e && e.message || e) });
+      }
+      const log = JSON.parse(await env.LBP_KV.get('push_log:' + k) || '[]');
+      return json({ ok: true, type: t, last: log[0] || null });
+    }
+
+    // GET /push-log?key=  ->  ultimos resultados de envio de smart notifs
+    if (p === '/push-log' && request.method === 'GET') {
+      const k = url.searchParams.get('key');
+      if (!k) return json({ error: 'missing key' }, 400);
+      const log = JSON.parse(await env.LBP_KV.get('push_log:' + k) || '[]');
+      return json({ key: k, entries: log.length, log });
+    }
+
     if (p === '/debug-smart' && request.method === 'GET') {
       const syncKey = url.searchParams.get('key');
       if (!syncKey) return json({ error: 'missing key param' }, 400);
@@ -946,17 +975,32 @@ async function sendSmartNotif(env, syncKeys, type, todayStr, tomorrowStr) {
 
       if (!title) continue;
 
+      // Registro de resultados: antes cualquier error que no fuera 404/410 se
+      // tragaba en silencio y ademas se marcaba el dia como enviado, asi que un
+      // push fallido era indistinguible de uno entregado. Se guarda en KV
+      // (push_log, rolling) y se puede leer con GET /push-log?key=
+      let _ok = 0;
+      const _fails = [];
       for (const sub of subs) {
         try {
           await sendPush(sub, { title, body, alarmId: `smart_${type}_${todayStr}`, vibration: 'long' });
+          _ok++;
         } catch(e) {
+          _fails.push({ status: e && e.status, msg: String(e && e.message || e).slice(0, 140), ep: (sub.endpoint || '').slice(0, 60) });
           if (e.status === 404 || e.status === 410) {
             const updated = subs.filter(s => s.endpoint !== sub.endpoint);
             await env.LBP_KV.put(`subs:${syncKey}`, JSON.stringify(updated));
           }
         }
       }
-      await env.LBP_KV.put(sentKey, '1', { expirationTtl: 90000 }); // 25h TTL
+      try {
+        const _lk = 'push_log:' + syncKey;
+        const _log = JSON.parse(await env.LBP_KV.get(_lk) || '[]');
+        _log.unshift({ t: new Date().toISOString(), type, subs: subs.length, sent: _ok, failed: _fails.length, errors: _fails });
+        await env.LBP_KV.put(_lk, JSON.stringify(_log.slice(0, 40)), { expirationTtl: 1209600 });
+      } catch(_e) { /* el log nunca debe romper el envio */ }
+      // Solo marcamos el dia como enviado si al menos un device lo recibio.
+      if (_ok > 0) await env.LBP_KV.put(sentKey, '1', { expirationTtl: 90000 }); // 25h TTL
     } catch(e) {
       console.error('Smart notif error:', type, syncKey, e && e.message);
     }
@@ -1258,7 +1302,13 @@ async function scheduledHandler(event, env) {
     const tomorrowUTC = new Date(now + 86400000).toISOString().slice(0, 10);
 
     // Daily briefing: 12:00 UTC = 8am Bolivia (UTC-4, no DST)
-    if (utcH === 12 && utcM < 2) {
+    // Briefing 12:03 UTC (8:03am Bolivia), NO 12:00. A las 12:00 el mismo tick
+    // refresca el tipo de cambio (varios fetches externos, Jina incluido, que es
+    // lento e inestable). Juntar eso + generar el briefing con Opus 5 + firmar y
+    // enviar los push en UNA sola invocacion la sobrecargaba, y los envios ---que
+    // van al final--- morian. Con 3 minutos de separacion el briefing corre en su
+    // propia invocacion liviana y lee el TC ya cacheado en KV.
+    if (utcH === 12 && utcM >= 3 && utcM < 5) {
       await sendSmartNotif(env, syncKeys, 'briefing', todayUTC, tomorrowUTC);
     }
     // Habit reminder: 01:00 UTC = 9pm Bolivia (UTC-4)
