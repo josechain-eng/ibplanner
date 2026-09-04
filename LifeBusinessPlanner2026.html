@@ -22,7 +22,7 @@
 <script>
 (function() {
   // ── Version ──────────────────────────────────────────────────────────────
-  window.LBP_VERSION = '5.20';
+  window.LBP_VERSION = '5.21';
 
   // ── PWA Install prompt ───────────────────────────────────────────────────
   window._installPrompt = null;
@@ -15864,6 +15864,261 @@ var CategoryTagInput = function(props) {
 };
 
 // ─── CHAT CON TUS DATOS ──────────────────────────────────
+// ── Asistente de voz: dicta y crea tareas, reuniones, proyectos o journal ──
+// Solo CREA (nunca edita ni borra) y SIEMPRE pide confirmacion antes de guardar.
+// Reusa el mismo pipeline de audio del grabador de reuniones: MediaRecorder ->
+// /transcribe (Whisper) -> /chat (Claude) -> acciones estructuradas -> setData.
+var VOICE_SP = 'Eres el asistente de voz de LB Planner, la app de Pepe (gerente de Ventura Mall, La Paz, Bolivia). ' +
+'Recibes la TRANSCRIPCION de algo que Pepe dicto. Tu unica tarea es convertirlo en acciones de CREACION.\n\n' +
+'PUEDES CREAR SOLO ESTOS 4 TIPOS: task (tarea), meeting (reunion), project (proyecto), journal (nota).\n' +
+'NO puedes editar, completar ni borrar nada. Si Pepe pide eso, devuelve acciones vacias y explicalo en "pregunta".\n\n' +
+'REGLAS:\n' +
+'- USA SOLO lo que dijo. NO inventes datos. Si algo no se dijo, deja el campo vacio.\n' +
+'- Fechas SIEMPRE en formato YYYY-MM-DD, horas en HH:MM (24h). Calcula fechas relativas ' +
+'("manana", "el jueves", "en dos semanas") a partir de la FECHA DE HOY del contexto.\n' +
+'- Si menciona una franquicia o un proyecto que esta en el contexto, ponlo en clientName o projectName ' +
+'EXACTAMENTE como figura ahi. Si no lo menciona, deja vacio.\n' +
+'- Si pide un recordatorio o alarma, llena alarmDateTime con YYYY-MM-DDTHH:MM. "media hora antes" = ' +
+'la hora del evento menos 30 minutos.\n' +
+'- Si falta algo IMPRESCINDIBLE (por ejemplo una reunion sin fecha), NO lo inventes: deja acciones vacias ' +
+'y pregunta en "pregunta".\n' +
+'- Si dicto varias cosas, devuelve varias acciones.\n\n' +
+'RESPONDE SOLO CON JSON VALIDO, sin texto alrededor ni bloques de codigo, con esta forma exacta:\n' +
+'{"acciones":[{"tipo":"task|meeting|project|journal","resumen":"frase corta de que se va a crear","datos":{}}],"pregunta":null}\n\n' +
+'CAMPOS POR TIPO (omite los que no apliquen):\n' +
+'task: title, description, priority (URGENT|HIGH|MEDIUM|LOW), dueDate, projectName, clientName, alarmDateTime\n' +
+'meeting: title, date, startTime, endTime, location, notes, clientName, alarmDateTime\n' +
+'project: name, description, dueDate, clientName\n' +
+'journal: title, content, mood (EXCELLENT|GOOD|NEUTRAL|BAD|TERRIBLE)\n';
+
+var VoiceAssistant = function VoiceAssistant(props) {
+  var data = props.data, setData = props.setData;
+  var _a = useState(false), rec = _a[0], setRec = _a[1];
+  var _b = useState(''), phase = _b[0], setPhase = _b[1]; // '', 'transcribiendo', 'pensando'
+  var _c = useState(''), text = _c[0], setText = _c[1];
+  var _d = useState(null), draft = _d[0], setDraft = _d[1];
+  var _e = useState(''), err = _e[0], setErr = _e[1];
+  var _f = useState(0), secs = _f[0], setSecs = _f[1];
+  var mrRef = useRef(null), chunksRef = useRef([]), streamRef = useRef(null),
+      timerRef = useRef(null), finishRef = useRef(function(){});
+
+  var TIPOS = { task:{ic:'✅',n:'Tarea'}, meeting:{ic:'📅',n:'Reunión'},
+                project:{ic:'📁',n:'Proyecto'}, journal:{ic:'📓',n:'Nota'} };
+
+  var reset = function(){ setText(''); setDraft(null); setErr(''); setPhase(''); setSecs(0); };
+
+  var start = function(){
+    if (!window.MediaRecorder || !navigator.mediaDevices) { setErr('Tu navegador no soporta grabación. Usa Chrome.'); return; }
+    if (!window.LBP_WORKER_URL) { setErr('Configura el Worker URL en Cloud & Sync.'); return; }
+    reset();
+    navigator.mediaDevices.getUserMedia({audio:true}).then(function(stream){
+      streamRef.current = stream; chunksRef.current = [];
+      var mime = '', cands = ['audio/webm;codecs=opus','audio/webm','audio/mp4','audio/ogg'];
+      for (var i=0;i<cands.length;i++){ if (window.MediaRecorder.isTypeSupported && window.MediaRecorder.isTypeSupported(cands[i])) { mime = cands[i]; break; } }
+      var mr = mime ? new MediaRecorder(stream,{mimeType:mime}) : new MediaRecorder(stream);
+      mrRef.current = mr;
+      mr.ondataavailable = function(e){ if (e.data && e.data.size>0) chunksRef.current.push(e.data); };
+      mr.onstop = function(){ finishRef.current(); };
+      mr.start(5000); setRec(true);
+      timerRef.current = setInterval(function(){ setSecs(function(p){return p+1;}); },1000);
+    }).catch(function(e){ setErr('No se pudo acceder al micrófono: '+(e&&e.message||e)); });
+  };
+
+  var stop = function(){
+    if (timerRef.current) { clearInterval(timerRef.current); timerRef.current = null; }
+    setRec(false);
+    if (mrRef.current && mrRef.current.state !== 'inactive') { try { mrRef.current.stop(); } catch(e){ finishRef.current(); } }
+  };
+
+  finishRef.current = function(){
+    var chunks = chunksRef.current || [], stream = streamRef.current;
+    if (stream) { try { stream.getTracks().forEach(function(t){t.stop();}); } catch(e){} streamRef.current = null; }
+    if (!chunks.length) { setPhase(''); return; }
+    var type = (mrRef.current && mrRef.current.mimeType) || chunks[0].type || 'audio/webm';
+    var blob = new Blob(chunks,{type:type}); chunksRef.current = [];
+    setPhase('transcribiendo');
+    fetch(window.LBP_WORKER_URL+'/transcribe?lang=es',{method:'POST',headers:{'Content-Type':type},body:blob})
+      .then(function(r){return r.json();})
+      .then(function(res){
+        if (res && res.text) { setText(res.text); interpret(res.text); }
+        else { setPhase(''); setErr('No se entendió el audio: '+((res&&res.error)||'sin respuesta')); }
+      })
+      .catch(function(){ setPhase(''); setErr('Error de red al transcribir'); });
+  };
+
+  // Le damos a Claude la fecha de hoy y los nombres reales para que pueda vincular
+  var buildCtx = function(){
+    var d = new Date();
+    var hoy = d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0');
+    var dias = ['domingo','lunes','martes','miércoles','jueves','viernes','sábado'];
+    var cl = (data.clients||[]).map(function(c){return c.businessName||c.name;}).filter(Boolean);
+    var pj = (data.projects||[]).filter(function(p){return p.status!=='DONE';}).map(function(p){return p.name;}).filter(Boolean);
+    return 'FECHA DE HOY: '+hoy+' ('+dias[d.getDay()]+')\n'+
+           'FRANQUICIAS: '+(cl.join(', ')||'ninguna')+'\n'+
+           'PROYECTOS ACTIVOS: '+(pj.slice(0,25).join(', ')||'ninguno');
+  };
+
+  var interpret = function(t){
+    setPhase('pensando');
+    fetch(window.LBP_WORKER_URL+'/chat',{
+      method:'POST', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({ messages:[{role:'user',content:t}], systemPrompt: VOICE_SP+'\n\nCONTEXTO:\n'+buildCtx() })
+    }).then(function(r){return r.json();}).then(function(res){
+      setPhase('');
+      var raw = (res && res.content) || '';
+      try {
+        var m = raw.match(/\{[\s\S]*\}/);
+        var parsed = m ? JSON.parse(m[0]) : null;
+        if (!parsed) { setErr('No pude interpretar la respuesta.'); return; }
+        var acts = (parsed.acciones||[]).filter(function(a){ return a && TIPOS[a.tipo]; });
+        if (!acts.length) { setErr(parsed.pregunta || 'No identifiqué nada para crear.'); return; }
+        setDraft({ acciones: acts, pregunta: parsed.pregunta || null });
+      } catch(e) { setErr('Respuesta no válida de la IA.'); }
+    }).catch(function(){ setPhase(''); setErr('Error de red al interpretar'); });
+  };
+
+  // Resuelve nombre -> id contra los datos reales (la IA solo devuelve nombres)
+  var findClient = function(n){
+    if (!n) return '';
+    var c = (data.clients||[]).find(function(x){
+      var a=(x.businessName||'').toLowerCase(), b=(x.name||'').toLowerCase(), s=n.toLowerCase();
+      return a===s||b===s||a.indexOf(s)>=0||b.indexOf(s)>=0;
+    });
+    return c ? c.id : '';
+  };
+  var findProject = function(n){
+    if (!n) return '';
+    var p = (data.projects||[]).find(function(x){
+      var a=(x.name||'').toLowerCase(), s=n.toLowerCase();
+      return a===s||a.indexOf(s)>=0;
+    });
+    return p ? p.id : '';
+  };
+  var mkAlarm = function(dt, label){
+    var al = defaultAlarm();
+    if (dt) { al.enabled = true; al.datetime = dt; al.label = label || ''; }
+    return al;
+  };
+
+  var setField = function(i, k, v){
+    setDraft(function(d){
+      var acts = d.acciones.map(function(a,j){
+        if (j!==i) return a;
+        var nd = Object.assign({}, a.datos); nd[k]=v;
+        return Object.assign({}, a, {datos:nd});
+      });
+      return Object.assign({}, d, {acciones:acts});
+    });
+  };
+  var drop = function(i){
+    setDraft(function(d){
+      var acts = d.acciones.filter(function(_,j){return j!==i;});
+      return acts.length ? Object.assign({},d,{acciones:acts}) : null;
+    });
+  };
+
+  var save = function(){
+    if (!draft) return;
+    var ts = now(), creados = [];
+    var add = { tasks:[], meetings:[], projects:[], journal:[] };
+    draft.acciones.forEach(function(a){
+      var v = a.datos || {};
+      if (a.tipo === 'task') {
+        add.tasks.push({ id:uid(), title:v.title||'(sin título)', description:v.description||'',
+          status:'INBOX', priority:v.priority||'MEDIUM', dueDate:v.dueDate||'', estimatedHours:'',
+          projectId:findProject(v.projectName), clientId:findClient(v.clientName),
+          category:'Work', tags:[], attachments:[], alarm:mkAlarm(v.alarmDateTime, v.title),
+          createdAt:ts, updatedAt:ts });
+      } else if (a.tipo === 'meeting') {
+        add.meetings.push({ id:uid(), title:v.title||'(sin título)', date:v.date||'',
+          startTime:v.startTime||'', endTime:v.endTime||'', location:v.location||'',
+          notes:v.notes||'', agenda:'', status:'SCHEDULED', isOnline:false, contact:'',
+          clientId:findClient(v.clientName), alarm:mkAlarm(v.alarmDateTime, v.title),
+          createdAt:ts, updatedAt:ts });
+      } else if (a.tipo === 'project') {
+        add.projects.push({ id:uid(), name:v.name||'(sin nombre)', description:v.description||'',
+          type:'OTHER', status:'PLANNING', dueDate:v.dueDate||'', clientId:findClient(v.clientName),
+          category:'Work', tags:[], subtasks:[], attachments:[], alarm:defaultAlarm(),
+          createdAt:ts, updatedAt:ts });
+      } else if (a.tipo === 'journal') {
+        var dd = today();
+        add.journal.push({ id:uid(), title:v.title||'', content:v.content||'', entryType:'note',
+          mood:v.mood||'NEUTRAL', gratitude:'', topWins:'', challenges:'', tomorrowFocus:'',
+          affirmations:'', attachments:[], category:'Personal', tags:[], links:[],
+          alarm:defaultAlarm(), date:dd, month:dd.slice(0,7), year:dd.slice(0,4),
+          createdAt:ts, updatedAt:ts });
+      }
+      creados.push(TIPOS[a.tipo].n);
+    });
+    setData(function(d){
+      return Object.assign({}, d, {
+        tasks:(d.tasks||[]).concat(add.tasks),
+        meetings:(d.meetings||[]).concat(add.meetings),
+        projects:(d.projects||[]).concat(add.projects),
+        journal:(d.journal||[]).concat(add.journal)
+      });
+    });
+    reset();
+    alert('✅ Creado: '+creados.join(', '));
+  };
+
+  var mm = String(Math.floor(secs/60)).padStart(2,'0')+':'+String(secs%60).padStart(2,'0');
+  var busy = phase !== '';
+
+  return React.createElement('div', {style:{border:'1px solid var(--border)',borderRadius:12,padding:14,marginBottom:14,background:'var(--card)'}},
+    React.createElement('div',{style:{display:'flex',alignItems:'center',gap:10,marginBottom:draft||text||err?10:0}},
+      React.createElement('button',{
+        className:'btn '+(rec?'btn-danger':'btn-primary'),
+        disabled:busy, onClick:rec?stop:start,
+        style:{minWidth:150}
+      }, rec ? '⏹ Detener  '+mm : '🎤 Dictar'),
+      React.createElement('span',{style:{fontSize:12,color:'var(--text-dim)'}},
+        rec ? 'Grabando… dictá qué querés crear'
+            : phase==='transcribiendo' ? 'Transcribiendo…'
+            : phase==='pensando' ? 'Interpretando…'
+            : 'Creá tareas, reuniones, proyectos o notas por voz')
+    ),
+    text && React.createElement('div',{style:{fontSize:12,color:'var(--text-dim)',fontStyle:'italic',marginBottom:8}}, '“'+text+'”'),
+    err && React.createElement('div',{style:{fontSize:13,color:'#fc8181',padding:'8px 10px',background:'rgba(252,129,129,.1)',borderRadius:8}}, err),
+    draft && React.createElement('div',null,
+      draft.pregunta && React.createElement('div',{style:{fontSize:12,color:'#f6ad55',marginBottom:8}}, '⚠ '+draft.pregunta),
+      draft.acciones.map(function(a,i){
+        var v=a.datos||{}, T=TIPOS[a.tipo];
+        var detalles=[];
+        if (v.date) detalles.push('📅 '+v.date+(v.startTime?' '+v.startTime:''));
+        if (v.dueDate) detalles.push('📅 vence '+v.dueDate);
+        if (v.location) detalles.push('📍 '+v.location);
+        if (v.clientName) detalles.push('🏪 '+v.clientName);
+        if (v.projectName) detalles.push('📁 '+v.projectName);
+        if (v.priority) detalles.push('⚡ '+v.priority);
+        if (v.alarmDateTime) detalles.push('🔔 '+v.alarmDateTime.replace('T',' '));
+        return React.createElement('div',{key:i,style:{border:'1px solid var(--border)',borderRadius:10,padding:10,marginBottom:8,background:'var(--surface)'}},
+          React.createElement('div',{style:{display:'flex',alignItems:'center',gap:6,marginBottom:6}},
+            React.createElement('span',{style:{fontSize:15}},T.ic),
+            React.createElement('span',{style:{fontSize:11,fontWeight:700,color:'var(--purple-light)',textTransform:'uppercase'}},T.n),
+            React.createElement('button',{onClick:function(){drop(i);},
+              style:{marginLeft:'auto',background:'none',border:'none',color:'var(--text-dim)',cursor:'pointer',fontSize:16}},'×')
+          ),
+          // Titulo editable: Whisper se equivoca seguido con nombres propios
+          React.createElement('input',{
+            value:(a.tipo==='project'?v.name:v.title)||'',
+            onChange:function(e){ setField(i, a.tipo==='project'?'name':'title', e.target.value); },
+            style:{width:'100%',padding:'6px 8px',fontSize:13,fontWeight:600,borderRadius:6,
+                   border:'1px solid var(--border)',background:'var(--card)',color:'var(--text)'}
+          }),
+          detalles.length>0 && React.createElement('div',{style:{fontSize:11,color:'var(--text-dim)',marginTop:6,display:'flex',flexWrap:'wrap',gap:8}},
+            detalles.map(function(x,k){return React.createElement('span',{key:k},x);})),
+          (v.description||v.content||v.notes) && React.createElement('div',{style:{fontSize:11,color:'var(--text-dim)',marginTop:5}}, v.description||v.content||v.notes)
+        );
+      }),
+      React.createElement('div',{style:{display:'flex',gap:8,marginTop:4}},
+        React.createElement('button',{className:'btn btn-primary',onClick:save,style:{flex:1}},'✓ Guardar'),
+        React.createElement('button',{className:'btn btn-secondary',onClick:reset},'Descartar')
+      )
+    )
+  );
+};
+
 var ChatScreen=function ChatScreen(_rc){var data=_rc.data;
 var _c1=useState([]),_c2=_slicedToArray(_c1,2),ch=_c2[0],setCh=_c2[1];
 var _c3=useState(''),_c4=_slicedToArray(_c3,2),ci=_c4[0],setCi=_c4[1];
@@ -15889,6 +16144,7 @@ return /*#__PURE__*/React.createElement('div',null,
     /*#__PURE__*/React.createElement('h1',null,'\uD83D\uDCAC Asistente'),
     ch.length>0&&/*#__PURE__*/React.createElement('button',{className:'btn btn-secondary btn-sm',onClick:function(){setCh([]);}}, 'Limpiar')
   ),
+  /*#__PURE__*/React.createElement(VoiceAssistant,{data:data,setData:_rc.setData}),
   /*#__PURE__*/React.createElement('div',{className:'page-content'},
     ch.length===0&&/*#__PURE__*/React.createElement('div',{style:{marginBottom:14}},
       /*#__PURE__*/React.createElement('div',{style:{fontSize:12,color:'var(--text-dim)',marginBottom:10,textAlign:'center'}},'Pr\u00e9guntame sobre tu negocio'),
