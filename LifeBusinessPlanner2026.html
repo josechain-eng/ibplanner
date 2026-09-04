@@ -22,7 +22,7 @@
 <script>
 (function() {
   // ── Version ──────────────────────────────────────────────────────────────
-  window.LBP_VERSION = '5.21';
+  window.LBP_VERSION = '5.23';
 
   // ── PWA Install prompt ───────────────────────────────────────────────────
   window._installPrompt = null;
@@ -1969,6 +1969,7 @@ var Modal = function Modal(_ref2) {
   var title = _ref2.title,
     onClose = _ref2.onClose,
     children = _ref2.children,
+    headerExtra = _ref2.headerExtra,
     footer = _ref2.footer;
   return /*#__PURE__*/React.createElement("div", {
     className: "modal-bg",
@@ -1984,7 +1985,7 @@ var Modal = function Modal(_ref2) {
     onClick: onClose
   }, "\xD7")), /*#__PURE__*/React.createElement("div", {
     className: "modal-body"
-  }, children), footer && /*#__PURE__*/React.createElement("div", {
+  }, headerExtra, children), footer && /*#__PURE__*/React.createElement("div", {
     className: "modal-footer"
   }, footer)));
 };
@@ -5897,6 +5898,7 @@ var ProjectsScreen = function ProjectsScreen(_ref20) {
     onClick: function onClick() { setEditItem(null); setModal(true); }
   }, "+ New Project"))), modal && /*#__PURE__*/React.createElement(Modal, {
     title: editItem ? "Edit Project" : "New Project",
+    headerExtra: /*#__PURE__*/React.createElement(VoiceEdit, {tipo:"project", form:form, setForm:setForm}),
     onClose: function onClose() {
       setModal(false); setEditItem(null);
     },
@@ -6451,6 +6453,7 @@ var TasksScreen = function TasksScreen(_ref21) {
     }, "\uD83D\uDDD1")));
   })), modal && /*#__PURE__*/React.createElement(Modal, {
     title: editItem ? "Edit Task" : "New Task",
+    headerExtra: /*#__PURE__*/React.createElement(VoiceEdit, {tipo:"task", form:form, setForm:setForm}),
     onClose: function onClose() {
       setModal(false); setEditItem(null);
     },
@@ -8188,6 +8191,7 @@ var MeetingsScreen = function MeetingsScreen(_ref26) {
     onClick: function onClick() { setEditItem(null); setModal(true); }
   }, "+ Schedule Meeting"))), modal && /*#__PURE__*/React.createElement(Modal, {
     title: editItem ? "Edit Meeting / Event" : "New Meeting / Event",
+    headerExtra: /*#__PURE__*/React.createElement(VoiceEdit, {tipo:"meeting", form:form, setForm:setForm}),
     onClose: function onClose() {
       setModal(false); setEditItem(null);
     },
@@ -9401,6 +9405,7 @@ var JournalScreen = function JournalScreen(_ref31) {
       resetForm(); setEditEntry(null);
       setModal(false);
     },
+    headerExtra: /*#__PURE__*/React.createElement(VoiceEdit, {tipo:"journal", form:form, setForm:setForm}),
     footer: /*#__PURE__*/React.createElement(React.Fragment, null, /*#__PURE__*/React.createElement("button", {
       className: "btn btn-secondary",
       onClick: function onClick() {
@@ -15864,6 +15869,217 @@ var CategoryTagInput = function(props) {
 };
 
 // ─── CHAT CON TUS DATOS ──────────────────────────────────
+// ── Edicion por voz DENTRO de una tarjeta abierta ──────────────────────────
+// La ventaja de estar adentro: no hay ambiguedad. La IA ya sabe el tipo de
+// entidad y sus valores actuales, asi que puede tocar campos concretos.
+// Igual que al crear, nunca aplica nada sin confirmacion.
+var VE_CAMPOS = {
+  task:    'title, description (HTML), status (INBOX|DONE), priority (URGENT|HIGH|MEDIUM|LOW), dueDate (YYYY-MM-DD), estimatedHours, category',
+  meeting: 'title, date (YYYY-MM-DD), startTime (HH:MM), endTime (HH:MM), location, notes (HTML), agenda (HTML), status (SCHEDULED|DONE|CANCELLED), isOnline (true/false)',
+  project: 'name, description (HTML), status (PLANNING|IN_PROGRESS|CLIENT_REVIEW|AWAITING_APPROVAL|ON_HOLD|DONE), dueDate (YYYY-MM-DD), type, campaignBudget',
+  journal: 'title, content (HTML), mood (EXCELLENT|GOOD|NEUTRAL|BAD|TERRIBLE), gratitude, topWins, challenges, tomorrowFocus, affirmations'
+};
+var VE_NOMBRE = { task:'tarea', meeting:'reunión', project:'proyecto', journal:'nota' };
+
+var _veEsc = function(t){
+  return String(t==null?'':t).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+};
+
+// Construye el nuevo form a partir de lo que devolvio la IA. Nunca borra:
+// solo pisa campos que vengan con valor y agrega a las listas.
+// Campo de texto largo real de cada tipo. El modelo a veces inventa uno que no
+// existe (ej. "notes" en una tarea), asi que lo forzamos nosotros.
+var VE_CAMPO_TEXTO = { task:'description', project:'description', meeting:'notes', journal:'content' };
+// Campos que la voz puede tocar. Todo lo que no este aca se descarta.
+var VE_PERMITIDO = {
+  task:    ['title','description','status','priority','dueDate','estimatedHours','category'],
+  meeting: ['title','date','startTime','endTime','location','notes','agenda','status','isOnline'],
+  project: ['name','description','status','dueDate','type','campaignBudget','category'],
+  journal: ['title','content','mood','gratitude','topWins','challenges','tomorrowFocus','affirmations']
+};
+// El modelo devuelve a veces "YYYY-MM-DD HH:MM"; las alarmas necesitan la T.
+var _veFechaHora = function(v){
+  var t = String(v||'').trim().replace(' ', 'T');
+  return /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}/.test(t) ? t.slice(0,16) : '';
+};
+
+var applyVoicePatch = function(tipo, form, r) {
+  var f = Object.assign({}, form);
+  var permitido = VE_PERMITIDO[tipo] || [];
+  if (r.cambios) Object.keys(r.cambios).forEach(function(k){
+    var v = r.cambios[k];
+    if (permitido.indexOf(k) < 0) return;            // campo inventado: se ignora
+    if (v !== '' && v !== null && v !== undefined) f[k] = v;
+  });
+  if (r.alarma) {
+    var dt = _veFechaHora(r.alarma.datetime);
+    if (dt) {
+      f.alarm = Object.assign({}, f.alarm || defaultAlarm(), r.alarma, { datetime: dt, enabled: true });
+    }
+  }
+  if (r.agregarSubtasks && r.agregarSubtasks.length && (tipo === 'task' || tipo === 'project')) {
+    var subs = (f.subtasks || []).slice();
+    r.agregarSubtasks.forEach(function(t){
+      subs.push(Object.assign(defaultSubtaskForm(), { id: uid(), title: String(t) }));
+    });
+    f.subtasks = subs;
+  }
+  if (r.agregarLista && r.agregarLista.items && r.agregarLista.items.length) {
+    // Ignoramos el campo que propuso el modelo si no corresponde a este tipo.
+    var campo = (permitido.indexOf(r.agregarLista.campo) >= 0)
+      ? r.agregarLista.campo : VE_CAMPO_TEXTO[tipo];
+    var chk = r.agregarLista.tipo === 'checklist';
+    var html = '<ul' + (chk ? ' class="rte-checklist"' : '') + '>' +
+      r.agregarLista.items.map(function(x){
+        return '<li>' + (chk ? '<input type="checkbox" contenteditable="false">&nbsp;' : '') + _veEsc(x) + '</li>';
+      }).join('') + '</ul>';
+    f[campo] = (f[campo] || '') + html;
+  }
+  return f;
+};
+
+var VoiceEdit = function VoiceEdit(props) {
+  var tipo = props.tipo, form = props.form, setForm = props.setForm;
+  var _a = useState(false), rec = _a[0], setRec = _a[1];
+  var _b = useState(''), phase = _b[0], setPhase = _b[1];
+  var _c = useState(null), res = _c[0], setRes = _c[1];
+  var _d = useState(''), err = _d[0], setErr = _d[1];
+  var _e = useState(0), secs = _e[0], setSecs = _e[1];
+  var _f = useState(''), heard = _f[0], setHeard = _f[1];
+  var mrRef = useRef(null), chunksRef = useRef([]), streamRef = useRef(null),
+      timerRef = useRef(null), finishRef = useRef(function(){});
+
+  var reset = function(){ setRes(null); setErr(''); setPhase(''); setSecs(0); setHeard(''); };
+
+  var start = function(){
+    if (!window.MediaRecorder || !navigator.mediaDevices) { setErr('Tu navegador no soporta grabación. Usa Chrome.'); return; }
+    if (!window.LBP_WORKER_URL) { setErr('Configura el Worker URL en Cloud & Sync.'); return; }
+    reset();
+    navigator.mediaDevices.getUserMedia({audio:true}).then(function(stream){
+      streamRef.current = stream; chunksRef.current = [];
+      var mime = '', cands = ['audio/webm;codecs=opus','audio/webm','audio/mp4','audio/ogg'];
+      for (var i=0;i<cands.length;i++){ if (window.MediaRecorder.isTypeSupported && window.MediaRecorder.isTypeSupported(cands[i])) { mime = cands[i]; break; } }
+      var mr = mime ? new MediaRecorder(stream,{mimeType:mime}) : new MediaRecorder(stream);
+      mrRef.current = mr;
+      mr.ondataavailable = function(e){ if (e.data && e.data.size>0) chunksRef.current.push(e.data); };
+      mr.onstop = function(){ finishRef.current(); };
+      mr.start(5000); setRec(true);
+      timerRef.current = setInterval(function(){ setSecs(function(p){return p+1;}); },1000);
+    }).catch(function(e){ setErr('No se pudo acceder al micrófono: '+(e&&e.message||e)); });
+  };
+
+  var stop = function(){
+    if (timerRef.current) { clearInterval(timerRef.current); timerRef.current = null; }
+    setRec(false);
+    if (mrRef.current && mrRef.current.state !== 'inactive') { try { mrRef.current.stop(); } catch(e){ finishRef.current(); } }
+  };
+
+  finishRef.current = function(){
+    var chunks = chunksRef.current || [], stream = streamRef.current;
+    if (stream) { try { stream.getTracks().forEach(function(t){t.stop();}); } catch(e){} streamRef.current = null; }
+    if (!chunks.length) { setPhase(''); return; }
+    var type = (mrRef.current && mrRef.current.mimeType) || chunks[0].type || 'audio/webm';
+    var blob = new Blob(chunks,{type:type}); chunksRef.current = [];
+    setPhase('transcribiendo');
+    fetch(window.LBP_WORKER_URL+'/transcribe?lang=es',{method:'POST',headers:{'Content-Type':type},body:blob})
+      .then(function(r){return r.json();})
+      .then(function(r){
+        if (r && r.text) { setHeard(r.text); interpret(r.text); }
+        else { setPhase(''); setErr('No se entendió el audio.'); }
+      })
+      .catch(function(){ setPhase(''); setErr('Error de red al transcribir'); });
+  };
+
+  var interpret = function(t){
+    setPhase('pensando');
+    var d = new Date();
+    var hoy = d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0');
+    var dias = ['domingo','lunes','martes','miércoles','jueves','viernes','sábado'];
+    // Le pasamos los valores actuales para que pueda razonar sobre ellos
+    var actual = {};
+    ['title','name','description','notes','agenda','content','status','priority','dueDate',
+     'date','startTime','endTime','location','mood','type','estimatedHours'].forEach(function(k){
+      if (form[k] !== undefined && form[k] !== '') actual[k] = String(form[k]).slice(0,300);
+    });
+    var al = form.alarm || {};
+    var sp =
+      'Eres el asistente de edición por voz de LB Planner. Pepe tiene ABIERTA una tarjeta de tipo "'+tipo+'" ('+VE_NOMBRE[tipo]+') '+
+      'y dictó un cambio. Convertilo en modificaciones concretas de ESA tarjeta.\n\n'+
+      'FECHA DE HOY: '+hoy+' ('+dias[d.getDay()]+')\n'+
+      'CAMPOS EDITABLES: '+VE_CAMPOS[tipo]+'\n'+
+      (tipo==='task'||tipo==='project' ? 'Esta tarjeta admite SUBTAREAS.\n' : '')+
+      'VALORES ACTUALES: '+JSON.stringify(actual)+'\n'+
+      'ALARMA ACTUAL: '+JSON.stringify({enabled:!!al.enabled, datetime:al.datetime||'', recurrence:al.recurrence||'once'})+'\n\n'+
+      'REGLAS:\n'+
+      '- USA SOLO lo que dijo. NO inventes. Solo devolvé los campos que hay que cambiar.\n'+
+      '- Fechas YYYY-MM-DD, horas HH:MM (24h). Calculá fechas relativas desde HOY.\n'+
+      '- Si pide agregar puntos, viñetas o una lista a un texto, usá "agregarLista" (NO reescribas el campo entero).\n'+
+      '- Si pide agregar subtareas, usá "agregarSubtasks" con los títulos.\n'+
+      '- Si pide alarma o recordatorio, usá "alarma".\n'+
+      '- Si te pide borrar la tarjeta o algo que no está en los campos editables, no lo hagas: explicalo en "pregunta".\n\n'+
+      'RESPONDÉ SOLO JSON válido, sin texto alrededor:\n'+
+      '{"cambios":{},"alarma":null,"agregarSubtasks":[],"agregarLista":null,"resumen":"qué vas a cambiar, en una frase","pregunta":null}\n'+
+      'IMPORTANTE: alarma.datetime SIEMPRE con T entre fecha y hora: "YYYY-MM-DDTHH:MM".\n'+
+      'agregarLista tiene la forma {"campo":"description|notes|content","tipo":"bullet|checklist","items":["..."]}';
+    fetch(window.LBP_WORKER_URL+'/chat',{
+      method:'POST', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({ messages:[{role:'user',content:t}], systemPrompt: sp })
+    }).then(function(r){return r.json();}).then(function(o){
+      setPhase('');
+      var raw = (o && o.content) || '';
+      try {
+        var m = raw.match(/\{[\s\S]*\}/);
+        var p = m ? JSON.parse(m[0]) : null;
+        if (!p) { setErr('No pude interpretar la respuesta.'); return; }
+        var vacio = (!p.cambios || !Object.keys(p.cambios).length) && !p.alarma &&
+                    (!p.agregarSubtasks || !p.agregarSubtasks.length) && !p.agregarLista;
+        if (vacio) { setErr(p.pregunta || 'No identifiqué ningún cambio.'); return; }
+        setRes(p);
+      } catch(e) { setErr('Respuesta no válida de la IA.'); }
+    }).catch(function(){ setPhase(''); setErr('Error de red al interpretar'); });
+  };
+
+  var apply = function(){
+    if (!res) return;
+    setForm(function(f){ return applyVoicePatch(tipo, f, res); });
+    reset();
+  };
+
+  var mm = String(Math.floor(secs/60)).padStart(2,'0')+':'+String(secs%60).padStart(2,'0');
+  var busy = phase !== '';
+
+  // Resumen legible de lo que se va a cambiar
+  var detalle = [];
+  if (res) {
+    Object.keys(res.cambios||{}).forEach(function(k){ detalle.push(k+': '+res.cambios[k]); });
+    if (res.alarma) detalle.push('alarma: '+(res.alarma.datetime||'').replace('T',' '));
+    if (res.agregarSubtasks && res.agregarSubtasks.length) detalle.push('+'+res.agregarSubtasks.length+' subtarea(s)');
+    if (res.agregarLista) detalle.push('+'+(res.agregarLista.items||[]).length+' punto(s) en '+res.agregarLista.campo);
+  }
+
+  return React.createElement('div', {style:{marginBottom: (res||err||heard) ? 10 : 0}},
+    React.createElement('div',{style:{display:'flex',alignItems:'center',gap:8,justifyContent:'flex-end'}},
+      React.createElement('button',{
+        type:'button', className:'btn btn-sm '+(rec?'btn-danger':'btn-secondary'),
+        disabled:busy, onClick:rec?stop:start
+      }, rec ? '⏹ '+mm : '🎤 Editar por voz'),
+      busy && React.createElement('span',{style:{fontSize:11,color:'var(--text-dim)'}},
+        phase==='transcribiendo'?'Transcribiendo…':'Interpretando…'),
+      rec && React.createElement('span',{style:{fontSize:11,color:'var(--text-dim)'}},'Decí qué querés cambiar')
+    ),
+    heard && React.createElement('div',{style:{fontSize:11,color:'var(--text-dim)',fontStyle:'italic',marginTop:6}}, '“'+heard+'”'),
+    err && React.createElement('div',{style:{fontSize:12,color:'#fc8181',marginTop:6}}, err),
+    res && React.createElement('div',{style:{marginTop:8,padding:10,borderRadius:8,border:'1px solid var(--purple)',background:'var(--surface)'}},
+      React.createElement('div',{style:{fontSize:12,fontWeight:600,marginBottom:6}}, res.resumen || 'Cambios propuestos'),
+      React.createElement('div',{style:{fontSize:11,color:'var(--text-dim)',marginBottom:8,display:'flex',flexWrap:'wrap',gap:8}},
+        detalle.map(function(x,i){return React.createElement('span',{key:i},'• '+x);})),
+      React.createElement('div',{style:{display:'flex',gap:8}},
+        React.createElement('button',{type:'button',className:'btn btn-primary btn-sm',onClick:apply,style:{flex:1}},'✓ Aplicar'),
+        React.createElement('button',{type:'button',className:'btn btn-secondary btn-sm',onClick:reset},'Descartar'))
+    )
+  );
+};
+
 // ── Asistente de voz: dicta y crea tareas, reuniones, proyectos o journal ──
 // Solo CREA (nunca edita ni borra) y SIEMPRE pide confirmacion antes de guardar.
 // Reusa el mismo pipeline de audio del grabador de reuniones: MediaRecorder ->
@@ -16060,6 +16276,7 @@ var VoiceAssistant = function VoiceAssistant(props) {
     });
     reset();
     alert('✅ Creado: '+creados.join(', '));
+    if (props.onDone) props.onDone();
   };
 
   var mm = String(Math.floor(secs/60)).padStart(2,'0')+':'+String(secs%60).padStart(2,'0');
@@ -17974,6 +18191,11 @@ var App = function App() {
     _useState230 = _slicedToArray(_useState229, 2),
     drawerOpen = _useState230[0],
     setDrawerOpen = _useState230[1];
+  // Modal del asistente de voz, accesible desde la barra de titulo en cualquier pantalla
+  var _useStateVoice = useState(false),
+    _useStateVoice2 = _slicedToArray(_useStateVoice, 2),
+    voiceOpen = _useStateVoice2[0],
+    setVoiceOpen = _useStateVoice2[1];
   var _useState231 = useState(null),
     _useState232 = _slicedToArray(_useState231, 2),
     activeAlarm = _useState232[0],
@@ -18484,6 +18706,11 @@ var App = function App() {
     }
   }, "\uD83D\uDD0D"), /*#__PURE__*/React.createElement("button", {
     className: "btn btn-secondary btn-sm",
+    style: {marginRight: 4},
+    title: "Crear por voz",
+    onClick: function onClick() { setVoiceOpen(true); }
+  }, "\uD83C\uDFA4"), /*#__PURE__*/React.createElement("button", {
+    className: "btn btn-secondary btn-sm",
     onClick: function onClick() {
       return navigate('profile');
     }
@@ -18585,7 +18812,12 @@ var App = function App() {
   })), /*#__PURE__*/React.createElement(NotifToasts, {
     toasts: toasts,
     dismiss: dismissToast
-  }), drawerOpen && /*#__PURE__*/React.createElement("div", {
+  }), voiceOpen && /*#__PURE__*/React.createElement(Modal, {
+    title: "\uD83C\uDFA4 Crear por voz",
+    onClose: function() { setVoiceOpen(false); }
+  }, /*#__PURE__*/React.createElement(VoiceAssistant, {
+    data: data, setData: setData, onDone: function() { setVoiceOpen(false); }
+  })), drawerOpen && /*#__PURE__*/React.createElement("div", {
     className: "nav-drawer-overlay",
     onClick: function onClick() {
       return setDrawerOpen(false);
