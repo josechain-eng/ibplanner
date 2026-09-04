@@ -22,7 +22,7 @@
 <script>
 (function() {
   // ── Version ──────────────────────────────────────────────────────────────
-  window.LBP_VERSION = '5.23';
+  window.LBP_VERSION = '5.24';
 
   // ── PWA Install prompt ───────────────────────────────────────────────────
   window._installPrompt = null;
@@ -1699,6 +1699,8 @@
   /* Native-list checklist: checkbox absolutely positioned, text indented — reliable on all mobile browsers */
   /* Checklist shared */
   .rte-body .rte-checklist, .rte-render .rte-checklist { list-style:none!important; padding-left:0!important; margin:4px 0; }
+  /* Checklist anidado (Tab): recupera la sangria que la regla de arriba anula */
+  .rte-body .rte-checklist .rte-checklist, .rte-render .rte-checklist .rte-checklist { padding-left:24px!important; margin:2px 0; }
   /* Render view (static HTML, flex is reliable on all desktop/mobile browsers) */
   .rte-render .rte-checklist li { display:flex!important; align-items:flex-start!important; gap:6px!important; position:static!important; padding-left:0!important; margin:3px 0!important; white-space:normal!important; word-break:break-word!important; overflow-wrap:break-word!important; line-height:1.6; min-height:20px; box-sizing:border-box; }
   .rte-render .rte-checklist li input[type=checkbox] { position:static!important; flex-shrink:0!important; width:15px!important; height:15px!important; margin-top:3px!important; accent-color:var(--purple-light); cursor:pointer; }
@@ -2116,11 +2118,23 @@ var RichTextEditor = function RichTextEditor(_ref6) {
       _sel.addRange(_r);
     } catch(e2) {}
   };
+  // execCommand('indent') crea un <ul> anidado SIN la clase, y toda la logica del
+  // checklist depende de ella: sin esto, la linea siguiente pierde el checkbox y el
+  // boton Checklist cree que estas fuera de la lista (y al togglear borra el indent).
+  var _normalizeChecklists = function() {
+    if (!ref.current) return;
+    Array.from(ref.current.querySelectorAll('.rte-checklist ul')).forEach(function(u) {
+      if (!u.classList.contains('rte-checklist')) u.classList.add('rte-checklist');
+    });
+    // _addCbToLi sale temprano si el li ya tiene checkbox, asi que no mueve el cursor
+    Array.from(ref.current.querySelectorAll('.rte-checklist li')).forEach(_addCbToLi);
+  };
   var _inClNow = function _inClNow() {
     try {
       var sel = window.getSelection(), _n = sel && sel.anchorNode;
       while (_n && _n !== ref.current) {
-        if (_n.nodeName === 'LI' && _n.parentElement && _n.parentElement.classList.contains('rte-checklist')) return true;
+        // closest() sube por toda la cadena: un <ul> anidado por Tab tambien cuenta
+        if (_n.nodeName === 'LI' && _n.closest && _n.closest('.rte-checklist')) return true;
         _n = _n.parentNode;
       }
     } catch(e) {}
@@ -2319,7 +2333,7 @@ var RichTextEditor = function RichTextEditor(_ref6) {
       if (e.nativeEvent && e.nativeEvent.inputType === 'insertParagraph' && _inClNow()) {
         setTimeout(function() {
           if (!ref.current) return;
-          Array.from(ref.current.querySelectorAll('.rte-checklist li')).forEach(_addCbToLi);
+          _normalizeChecklists();
           handleInput(); tick();
         }, 0);
         return;
@@ -2343,7 +2357,9 @@ var RichTextEditor = function RichTextEditor(_ref6) {
     onKeyDown: function onKeyDown(e) {
       if (e.key === 'Tab') {
         e.preventDefault();
+        var _wasCl = _inClNow();
         exec(e.shiftKey ? 'outdent' : 'indent');
+        if (_wasCl) setTimeout(function(){ _normalizeChecklists(); handleInput(); tick(); }, 0);
       }
       // Auto-add checkbox to new <li> created by Enter in a checklist (desktop)
       if (e.key === 'Enter') {
@@ -2355,7 +2371,7 @@ var RichTextEditor = function RichTextEditor(_ref6) {
         if (_inCl) {
           setTimeout(function() {
             if (!ref.current) return;
-            Array.from(ref.current.querySelectorAll('.rte-checklist li')).forEach(_addCbToLi);
+            _normalizeChecklists();
             handleInput(); tick();
           }, 0);
         }
