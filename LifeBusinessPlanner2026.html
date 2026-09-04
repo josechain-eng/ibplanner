@@ -22,7 +22,7 @@
 <script>
 (function() {
   // ── Version ──────────────────────────────────────────────────────────────
-  window.LBP_VERSION = '5.24';
+  window.LBP_VERSION = '5.25';
 
   // ── PWA Install prompt ───────────────────────────────────────────────────
   window._installPrompt = null;
@@ -2123,11 +2123,24 @@ var RichTextEditor = function RichTextEditor(_ref6) {
   // boton Checklist cree que estas fuera de la lista (y al togglear borra el indent).
   var _normalizeChecklists = function() {
     if (!ref.current) return;
-    Array.from(ref.current.querySelectorAll('.rte-checklist ul')).forEach(function(u) {
-      if (!u.classList.contains('rte-checklist')) u.classList.add('rte-checklist');
+    // Normalizamos por ARBOL de lista, no por descendencia: al indentar, el <ul>
+    // sin clase puede quedar como padre o como hijo del que si la tiene.
+    var raices = [];
+    Array.from(ref.current.querySelectorAll('ul')).forEach(function(u) {
+      var raiz = u, p = u.parentElement;
+      while (p && p !== ref.current) { if (p.tagName === 'UL') raiz = p; p = p.parentElement; }
+      if (raices.indexOf(raiz) < 0) raices.push(raiz);
     });
-    // _addCbToLi sale temprano si el li ya tiene checkbox, asi que no mueve el cursor
-    Array.from(ref.current.querySelectorAll('.rte-checklist li')).forEach(_addCbToLi);
+    raices.forEach(function(raiz) {
+      var todos = [raiz].concat(Array.from(raiz.querySelectorAll('ul')));
+      // Es checklist si algun <ul> del arbol tiene la clase, o si ya hay checkboxes
+      var esCl = todos.some(function(u) { return u.classList.contains('rte-checklist'); }) ||
+                 !!raiz.querySelector('li > input[type=checkbox]');
+      if (!esCl) return;
+      todos.forEach(function(u) { if (!u.classList.contains('rte-checklist')) u.classList.add('rte-checklist'); });
+      // _addCbToLi sale temprano si el li ya tiene checkbox, asi que no mueve el cursor
+      Array.from(raiz.querySelectorAll('li')).forEach(_addCbToLi);
+    });
   };
   var _inClNow = function _inClNow() {
     try {
