@@ -22,7 +22,7 @@
 <script>
 (function() {
   // ── Version ──────────────────────────────────────────────────────────────
-  window.LBP_VERSION = '5.25';
+  window.LBP_VERSION = '5.26';
 
   // ── PWA Install prompt ───────────────────────────────────────────────────
   window._installPrompt = null;
@@ -13922,7 +13922,52 @@ var AiExpertChat = function AiExpertChat(props) {
   var placeholder = props.placeholder || 'Escribe tu pregunta...';
   var allowImage = props.allowImage || false;
   var contextFn = props.contextFn;
-  var _msgs = useState([]), _msgs2 = _slicedToArray(_msgs, 2), msgs = _msgs2[0], setMsgs = _msgs2[1];
+  // El historial vive en localStorage: sin esto la charla se perdia al salir de
+  // la app. NO va en el blob de sync: ese ya pesa ~4MB y no queremos engordarlo.
+  var chatId = props.chatId || 'generic';
+  var _chatLS = 'lbp_chat_' + chatId;
+  var _msgs = useState(function(){
+    try { var r = localStorage.getItem(_chatLS); return r ? JSON.parse(r) : []; } catch(e) { return []; }
+  }), _msgs2 = _slicedToArray(_msgs, 2), msgs = _msgs2[0], setMsgs = _msgs2[1];
+  var _cp = useState(-1), _cp2 = _slicedToArray(_cp, 2), copiado = _cp2[0], setCopiado = _cp2[1];
+  useEffect(function(){
+    // Tope de 80 mensajes: localStorage anda por los 5MB por origen
+    try { localStorage.setItem(_chatLS, JSON.stringify(msgs.slice(-80))); } catch(e) {}
+  }, [msgs]);
+  var _txtDe = function(m){
+    return typeof m.content === 'string' ? m.content
+      : (Array.isArray(m.content) ? m.content.filter(function(c){return c.type==='text';})
+          .map(function(c){return c.text;}).join(' ') : '');
+  };
+  var _copiar = function(t, i){
+    var ok = function(){ setCopiado(i); setTimeout(function(){ setCopiado(-1); }, 1500); };
+    try {
+      if (navigator.clipboard && navigator.clipboard.writeText) { navigator.clipboard.writeText(t).then(ok, function(){}); return; }
+    } catch(e) {}
+    try { // respaldo para navegadores sin Clipboard API (o sin HTTPS)
+      var ta = document.createElement('textarea'); ta.value = t;
+      ta.style.cssText = 'position:fixed;opacity:0';
+      document.body.appendChild(ta); ta.select(); document.execCommand('copy');
+      document.body.removeChild(ta); ok();
+    } catch(e2) {}
+  };
+  var _transcripcion = function(){
+    return msgs.map(function(m){ return (m.role==='user' ? 'YO: ' : 'IA: ') + _txtDe(m); }).join('\n\n');
+  };
+  var _exportar = function(){
+    var blob = new Blob(['\ufeff' + _transcripcion()], {type:'text/plain;charset=utf-8'});
+    var url = URL.createObjectURL(blob);
+    var a = document.createElement('a');
+    a.href = url;
+    a.download = 'chat_' + chatId + '_' + today() + '.txt';
+    document.body.appendChild(a); a.click(); document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+  };
+  var _limpiar = function(){
+    if (!confirm('¿Borrar toda esta conversación? No se puede deshacer.')) return;
+    setMsgs([]);
+    try { localStorage.removeItem(_chatLS); } catch(e) {}
+  };
   var _inp = useState(''), _inp2 = _slicedToArray(_inp, 2), inp = _inp2[0], setInp = _inp2[1];
   var _load = useState(false), _load2 = _slicedToArray(_load, 2), loading = _load2[0], setLoading = _load2[1];
   var _imgD = useState(null), _imgD2 = _slicedToArray(_imgD, 2), imgData = _imgD2[0], setImgData = _imgD2[1];
@@ -13992,6 +14037,14 @@ var AiExpertChat = function AiExpertChat(props) {
     reader.readAsDataURL(file);
   };
   return React.createElement('div',{style:{display:'flex',flexDirection:'column',height:'100%',minHeight:420}},
+    msgs.length>0 && React.createElement('div',{style:{display:'flex',gap:6,justifyContent:'flex-end',marginBottom:8,flexWrap:'wrap'}},
+      React.createElement('span',{style:{fontSize:11,color:'var(--text-dim)',marginRight:'auto',alignSelf:'center'}},
+        msgs.length+' mensajes · se guarda solo'),
+      React.createElement('button',{className:'btn btn-secondary btn-sm',onClick:function(){ _copiar(_transcripcion(), -2); }},
+        copiado===-2 ? '✓ Copiado' : '📋 Copiar todo'),
+      React.createElement('button',{className:'btn btn-secondary btn-sm',onClick:_exportar},'⬇ Exportar'),
+      React.createElement('button',{className:'btn btn-secondary btn-sm',onClick:_limpiar},'🗑 Limpiar')
+    ),
     React.createElement('div',{style:{flex:1,overflowY:'auto',padding:'0 4px 12px',display:'flex',flexDirection:'column',gap:8}},
       msgs.length===0 && React.createElement('div',{style:{textAlign:'center',color:'var(--text-dim)',padding:'32px 16px',fontSize:14}},
         React.createElement('div',{style:{fontSize:32,marginBottom:8}},'🤖'),
@@ -14005,7 +14058,13 @@ var AiExpertChat = function AiExpertChat(props) {
         return React.createElement('div',{key:i,style:{display:'flex',justifyContent:isUser?'flex-end':'flex-start'}},
           React.createElement('div',{style:{maxWidth:'85%',padding:'10px 14px',borderRadius:isUser?'14px 14px 2px 14px':'14px 14px 14px 2px',background:isUser?'#6B3FA0':'var(--card)',border:isUser?'none':'1px solid var(--border)',color:isUser?'#fff':'var(--text)',fontSize:13,lineHeight:1.5}},
             hasImage&&React.createElement('div',{style:{fontSize:11,opacity:0.7,marginBottom:4}},'📷 imagen adjunta'),
-            isUser ? React.createElement('div',null,textContent) : renderMsg(textContent)
+            isUser ? React.createElement('div',null,textContent) : renderMsg(textContent),
+            !isUser && textContent && React.createElement('button',{
+              onClick:function(){ _copiar(textContent, i); },
+              title:'Copiar respuesta',
+              style:{marginTop:8,background:'none',border:'1px solid var(--border)',borderRadius:6,
+                     color:copiado===i?'#4CAF50':'var(--text-dim)',cursor:'pointer',fontSize:11,padding:'3px 8px'}
+            }, copiado===i ? '✓ Copiado' : '📋 Copiar')
           )
         );
       }),
@@ -14336,7 +14395,7 @@ var WorkoutPlannerScreen = function WorkoutPlannerScreen(_ref57) {
         whiteSpace: 'pre-wrap'
       }
     }, t.exercises));
-  })), tab === 'AI Coach' && React.createElement(AiExpertChat, {key:'wk-ai',systemPrompt:WORKOUT_AI_SP,title:'fitness y entrenamiento',placeholder:'Pregúntame sobre ejercicios, rutinas, grupos musculares, progreso...'})), modal && /*#__PURE__*/React.createElement(Modal, {
+  })), tab === 'AI Coach' && React.createElement(AiExpertChat, {key:'wk-ai',chatId:'wk-ai',systemPrompt:WORKOUT_AI_SP,title:'fitness y entrenamiento',placeholder:'Pregúntame sobre ejercicios, rutinas, grupos musculares, progreso...'})), modal && /*#__PURE__*/React.createElement(Modal, {
     title: wpEditItem ? "Edit Workout" : "Log Workout",
     onClose: function onClose() {
       setWpEditItem(null);
@@ -14908,7 +14967,7 @@ var RecipesScreen = function RecipesScreen(_ref58) {
         return delGroc(g.id);
       }
     }, "\xD7"));
-  }))), tab === 'Nutrición AI' && React.createElement(AiExpertChat, {key:'rec-ai',systemPrompt:RECIPES_AI_SP,title:'nutrición y cocina',placeholder:'Pregunta sobre recetas, calorías, plan de comidas... (puedes subir fotos)',allowImage:true})), modal && /*#__PURE__*/React.createElement(Modal, {
+  }))), tab === 'Nutrición AI' && React.createElement(AiExpertChat, {key:'rec-ai',chatId:'rec-ai',systemPrompt:RECIPES_AI_SP,title:'nutrición y cocina',placeholder:'Pregunta sobre recetas, calorías, plan de comidas... (puedes subir fotos)',allowImage:true})), modal && /*#__PURE__*/React.createElement(Modal, {
     title: "New Recipe",
     onClose: function onClose() {
       setModal(false); setEditItem(null);
@@ -15716,7 +15775,7 @@ var BabyScreen = function BabyScreen(_ref60) {
       ),
 
       // IA PEDIATRA TAB
-      tab === 'IA Pediatra' && React.createElement(AiExpertChat, {key:'baby-ai',systemPrompt:BABY_AI_SP,title:'pediatría y cuidado del bebé',placeholder:'Pregunta sobre sueño, lactancia, desarrollo, vacunas, medicamentos...',contextFn:babyCtxFn})
+      tab === 'IA Pediatra' && React.createElement(AiExpertChat, {key:'baby-ai',chatId:'baby-ai',systemPrompt:BABY_AI_SP,title:'pediatría y cuidado del bebé',placeholder:'Pregunta sobre sueño, lactancia, desarrollo, vacunas, medicamentos...',contextFn:babyCtxFn})
 
     ),
 
@@ -16366,7 +16425,26 @@ var VoiceAssistant = function VoiceAssistant(props) {
 };
 
 var ChatScreen=function ChatScreen(_rc){var data=_rc.data;
-var _c1=useState([]),_c2=_slicedToArray(_c1,2),ch=_c2[0],setCh=_c2[1];
+// Igual que en AiExpertChat: el historial se guarda en localStorage, no en el
+// blob de sync (que ya pesa ~4MB).
+var _chLS='lbp_chat_asistente';
+var _c1=useState(function(){try{var r=localStorage.getItem(_chLS);return r?JSON.parse(r):[];}catch(e){return [];}}),
+  _c2=_slicedToArray(_c1,2),ch=_c2[0],setCh=_c2[1];
+var _cc=useState(-1),_cc2=_slicedToArray(_cc,2),chCop=_cc2[0],setChCop=_cc2[1];
+useEffect(function(){try{localStorage.setItem(_chLS,JSON.stringify(ch.slice(-80)));}catch(e){}},[ch]);
+var _chCopiar=function(t,i){
+  var ok=function(){setChCop(i);setTimeout(function(){setChCop(-1);},1500);};
+  try{ if(navigator.clipboard&&navigator.clipboard.writeText){navigator.clipboard.writeText(t).then(ok,function(){});return;} }catch(e){}
+  try{ var ta=document.createElement('textarea');ta.value=t;ta.style.cssText='position:fixed;opacity:0';
+       document.body.appendChild(ta);ta.select();document.execCommand('copy');document.body.removeChild(ta);ok(); }catch(e2){}
+};
+var _chTranscripcion=function(){return ch.map(function(m){return (m.role==='user'?'YO: ':'IA: ')+m.content;}).join('\n\n');};
+var _chExportar=function(){
+  var blob=new Blob(['\ufeff'+_chTranscripcion()],{type:'text/plain;charset=utf-8'});
+  var url=URL.createObjectURL(blob);var a=document.createElement('a');
+  a.href=url;a.download='chat_asistente_'+today()+'.txt';
+  document.body.appendChild(a);a.click();document.body.removeChild(a);URL.revokeObjectURL(url);
+};
 var _c3=useState(''),_c4=_slicedToArray(_c3,2),ci=_c4[0],setCi=_c4[1];
 var _c5=useState(false),_c6=_slicedToArray(_c5,2),cl=_c6[0],setCl=_c6[1];
 var eRef=useRef(null);
@@ -16388,7 +16466,13 @@ var send=function(msg){
 return /*#__PURE__*/React.createElement('div',null,
   /*#__PURE__*/React.createElement('div',{className:'page-header'},
     /*#__PURE__*/React.createElement('h1',null,'\uD83D\uDCAC Asistente'),
-    ch.length>0&&/*#__PURE__*/React.createElement('button',{className:'btn btn-secondary btn-sm',onClick:function(){setCh([]);}}, 'Limpiar')
+    ch.length>0&&/*#__PURE__*/React.createElement('div',{style:{display:'flex',gap:6,flexWrap:'wrap'}},
+      /*#__PURE__*/React.createElement('button',{className:'btn btn-secondary btn-sm',onClick:function(){_chCopiar(_chTranscripcion(),-2);}}, chCop===-2?'✓ Copiado':'📋 Copiar todo'),
+      /*#__PURE__*/React.createElement('button',{className:'btn btn-secondary btn-sm',onClick:_chExportar}, '⬇ Exportar'),
+      /*#__PURE__*/React.createElement('button',{className:'btn btn-secondary btn-sm',onClick:function(){
+        if(!confirm('¿Borrar toda esta conversación? No se puede deshacer.'))return;
+        setCh([]);try{localStorage.removeItem(_chLS);}catch(e){}
+      }}, '🗑 Limpiar'))
   ),
   /*#__PURE__*/React.createElement(VoiceAssistant,{data:data,setData:_rc.setData}),
   /*#__PURE__*/React.createElement('div',{className:'page-content'},
@@ -16402,7 +16486,12 @@ return /*#__PURE__*/React.createElement('div',null,
       ch.map(function(m,i){
         var u=m.role==='user';
         return /*#__PURE__*/React.createElement('div',{key:i,style:{display:'flex',justifyContent:u?'flex-end':'flex-start'}},
-          /*#__PURE__*/React.createElement('div',{style:{maxWidth:'88%',padding:'10px 14px',borderRadius:u?'16px 16px 4px 16px':'16px 16px 16px 4px',background:u?'var(--purple)':'var(--card)',border:u?'none':'1px solid var(--border)',color:u?'#fff':'var(--text)',fontSize:13,lineHeight:1.6,whiteSpace:'pre-wrap'}},m.content)
+          /*#__PURE__*/React.createElement('div',{style:{maxWidth:'88%',padding:'10px 14px',borderRadius:u?'16px 16px 4px 16px':'16px 16px 16px 4px',background:u?'var(--purple)':'var(--card)',border:u?'none':'1px solid var(--border)',color:u?'#fff':'var(--text)',fontSize:13,lineHeight:1.6,whiteSpace:'pre-wrap'}},m.content,
+            !u&&m.content&&/*#__PURE__*/React.createElement('button',{
+              onClick:function(){_chCopiar(m.content,i);},title:'Copiar respuesta',
+              style:{display:'block',marginTop:8,background:'none',border:'1px solid var(--border)',borderRadius:6,
+                     color:chCop===i?'#4CAF50':'var(--text-dim)',cursor:'pointer',fontSize:11,padding:'3px 8px'}
+            },chCop===i?'✓ Copiado':'📋 Copiar'))
         );
       }),
       cl&&/*#__PURE__*/React.createElement('div',{style:{display:'flex'}},
