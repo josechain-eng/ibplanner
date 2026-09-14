@@ -22,7 +22,7 @@
 <script>
 (function() {
   // ── Version ──────────────────────────────────────────────────────────────
-  window.LBP_VERSION = '5.26';
+  window.LBP_VERSION = '5.27';
 
   // ── PWA Install prompt ───────────────────────────────────────────────────
   window._installPrompt = null;
@@ -1967,6 +1967,43 @@ var Icon = function Icon(_ref) {
 };
 
 // ─── Modal ─────────────────────────────────────────────
+// ── Orden de las listas: mas nuevo (o ultimo modificado) primero por defecto ──
+// Preferimos updatedAt/createdAt ("ultimo modificado"); si no hay, caemos a la
+// fecha propia de la entidad (date/dueDate) para que journal y meetings ordenen
+// por su fecha real y no queden todos en 0.
+window._lbpTs = function(e) {
+  if (!e) return 0;
+  var v = e.updatedAt || e.createdAt;
+  if (v) { var n = (typeof v === 'number') ? v : Date.parse(v); if (!isNaN(n)) return n; }
+  var d = e.date || e.dueDate;
+  if (d) { var n2 = Date.parse(d); if (!isNaN(n2)) return n2; }
+  return 0;
+};
+window._lbpSort = function(list, dir) {
+  var arr = (list || []).slice();
+  arr.sort(function(a, b) {
+    var delta = window._lbpTs(b) - window._lbpTs(a);   // 'new' = descendente
+    return dir === 'old' ? -delta : delta;
+  });
+  return arr;
+};
+// Estado del orden, recordado por pantalla
+var useSortPref = function(clave) {
+  var st = useState(function() {
+    try { return localStorage.getItem('lbp_sort_' + clave) || 'new'; } catch(e) { return 'new'; }
+  });
+  var val = st[0], set = st[1];
+  return [val, function(v) { set(v); try { localStorage.setItem('lbp_sort_' + clave, v); } catch(e) {} }];
+};
+var SortToggle = function(props) {
+  var v = props.value;
+  return React.createElement('button', {
+    className: 'btn btn-secondary btn-sm',
+    title: v === 'old' ? 'Ordenado: mas viejos primero' : 'Ordenado: mas nuevos primero',
+    onClick: function() { props.onChange(v === 'old' ? 'new' : 'old'); }
+  }, v === 'old' ? '\u2191 M\u00e1s viejos' : '\u2193 M\u00e1s nuevos');
+};
+
 var Modal = function Modal(_ref2) {
   var title = _ref2.title,
     onClose = _ref2.onClose,
@@ -5713,9 +5750,11 @@ var ProjectsScreen = function ProjectsScreen(_ref20) {
       'ARCHIVED': '#607D8B'
     }[s] || '#6B3FA0';
   };
+    var _spprojects = useSortPref('projects'), sortDir = _spprojects[0], setSortDir = _spprojects[1];
+  displayed = window._lbpSort(displayed, sortDir);
   return /*#__PURE__*/React.createElement("div", null, /*#__PURE__*/React.createElement("div", {
     className: "page-header"
-  }, /*#__PURE__*/React.createElement("h1", null, "\uD83D\uDCC1 Project Manager"), /*#__PURE__*/React.createElement("button", {
+  }, /*#__PURE__*/React.createElement("h1", null, "\uD83D\uDCC1 Project Manager"), /*#__PURE__*/React.createElement(SortToggle,{value:sortDir,onChange:setSortDir}), /*#__PURE__*/React.createElement("button", {
     className: "btn btn-primary btn-sm",
     onClick: function onClick() {
       setEditItem(null);
@@ -6245,10 +6284,12 @@ var TasksScreen = function TasksScreen(_ref21) {
     }).length;
     return acc;
   }, {});
+    var _sptasks = useSortPref('tasks'), sortDir = _sptasks[0], setSortDir = _sptasks[1];
+  displayed = window._lbpSort(displayed, sortDir);
   return /*#__PURE__*/React.createElement("div", null, /*#__PURE__*/React.createElement("div", {
     className: "page-header"
   }, /*#__PURE__*/React.createElement("h1", null, "\u2705 Tasks & Time Sheet"), /*#__PURE__*/React.createElement("div", {style:{display:"flex",gap:6}},
-    /*#__PURE__*/React.createElement("button", {className:"btn btn-secondary btn-sm", onClick:function(){setCompact(function(c){return !c;});}, title:compact?"Expanded view":"Compact view"}, compact ? "☐ Expand" : "☰ Compact"),
+    /*#__PURE__*/React.createElement(SortToggle,{value:sortDir,onChange:setSortDir}), /*#__PURE__*/React.createElement("button", {className:"btn btn-secondary btn-sm", onClick:function(){setCompact(function(c){return !c;});}, title:compact?"Expanded view":"Compact view"}, compact ? "☐ Expand" : "☰ Compact"),
     /*#__PURE__*/React.createElement("button", {className:"btn btn-secondary btn-sm", disabled:tAiPrioritizing||allTasks.filter(function(t){return t.status!=='DONE';}).length===0,
       onClick:function(){
         var active=allTasks.filter(function(t){return t.status!=='DONE';}).slice(0,15);
@@ -8173,9 +8214,12 @@ var MeetingsScreen = function MeetingsScreen(_ref26) {
       }
     }, "\uD83D\uDCCB ", m.agenda));
   };
+    var _spmeetings = useSortPref('meetings'), sortDir = _spmeetings[0], setSortDir = _spmeetings[1];
+  displayUpcoming = window._lbpSort(displayUpcoming, sortDir);
+  displayPast = window._lbpSort(displayPast, sortDir);
   return /*#__PURE__*/React.createElement("div", null, /*#__PURE__*/React.createElement("div", {
     className: "page-header"
-  }, /*#__PURE__*/React.createElement("h1", null, "\uD83D\uDCC5 Meetings & Events"), /*#__PURE__*/React.createElement("button", {
+  }, /*#__PURE__*/React.createElement("h1", null, "\uD83D\uDCC5 Meetings & Events"), /*#__PURE__*/React.createElement(SortToggle,{value:sortDir,onChange:setSortDir}), /*#__PURE__*/React.createElement("button", {
     className: "btn btn-primary btn-sm",
     onClick: function onClick() { setEditItem(null); setForm({title:'',date:today(),startTime:'09:00',endTime:'10:00',isOnline:false,location:'',agenda:'',notes:'',contact:'',alarm:meetingAlarmDefault(today(),'09:00')}); setModal(true); }
   }, "+ New")),
@@ -9072,9 +9116,11 @@ var JournalScreen = function JournalScreen(_ref31) {
       });
     });
   };
+    var _spjournal = useSortPref('journal'), sortDir = _spjournal[0], setSortDir = _spjournal[1];
+  entries = window._lbpSort(entries, sortDir);
   return /*#__PURE__*/React.createElement("div", null, /*#__PURE__*/React.createElement("div", {
     className: "page-header"
-  }, /*#__PURE__*/React.createElement("h1", null, "\uD83D\uDCD3 Journal"), /*#__PURE__*/React.createElement("button", {
+  }, /*#__PURE__*/React.createElement("h1", null, "\uD83D\uDCD3 Journal"), /*#__PURE__*/React.createElement(SortToggle,{value:sortDir,onChange:setSortDir}), /*#__PURE__*/React.createElement("button", {
       className: "btn btn-primary btn-sm",
       onClick: function onClick() { setEditEntry(null); setForm({title:'',content:'',gratitude:'',topWins:'',challenges:'',tomorrowFocus:'',affirmations:'',mood:'GOOD',attachments:[],category:'',tags:[],alarm:defaultAlarm(),links:[],entryType:'journal'}); setMood('GOOD'); setModal(true); }
     
