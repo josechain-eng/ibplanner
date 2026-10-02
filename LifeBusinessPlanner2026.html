@@ -22,7 +22,7 @@
 <script>
 (function() {
   // ── Version ──────────────────────────────────────────────────────────────
-  window.LBP_VERSION = '5.27';
+  window.LBP_VERSION = '5.28';
 
   // ── PWA Install prompt ───────────────────────────────────────────────────
   window._installPrompt = null;
@@ -4371,10 +4371,32 @@ var HomeScreen = function HomeScreen(_ref14) {
     var evs=(window._lbpUpcomingEvents?window._lbpUpcomingEvents(new Date(),3):[]).slice(0,6);
     var updTxt='';
     if(di.updatedAt){var ud=new Date(di.updatedAt);updTxt='act. '+('0'+ud.getHours()).slice(-2)+':'+('0'+ud.getMinutes()).slice(-2);}
-    var pill=function(lbl,color,val){return React.createElement('div',{key:lbl,style:{display:'flex',flexDirection:'column',background:'rgba(255,255,255,.06)',borderRadius:8,padding:'3px 9px',borderLeft:'2px solid '+color}},
-      React.createElement('span',{style:{fontSize:8,fontWeight:800,letterSpacing:'.5px',color:color,textTransform:'uppercase'}},lbl),
+    var pill=function(lbl,color,val,nota,alerta){return React.createElement('div',{key:lbl,title:nota||'',style:{display:'flex',flexDirection:'column',background:'rgba(255,255,255,.06)',borderRadius:8,padding:'3px 9px',borderLeft:'2px solid '+(alerta?'#F59E0B':color)}},
+      React.createElement('span',{style:{fontSize:8,fontWeight:800,letterSpacing:'.5px',color:(alerta?'#F59E0B':color),textTransform:'uppercase'}},lbl,alerta?' \u26a0':''),
       React.createElement('span',{style:{fontSize:14,fontWeight:800}},'Bs '+Number(val).toFixed(2))
     );};
+    // Frescura del tipo de cambio oficial. El worker guarda en bcbFecha el dia al
+    // que corresponde el valor, confirmado contra una segunda fuente; null = no se
+    // pudo confirmar. Antes aqui solo se mostraba la hora del ultimo refresco, que
+    // no dice nada sobre si el dato en si esta al dia.
+    // Se compara contra el ultimo DIA HABIL, no contra hoy: el BCB no publica
+    // sabados ni domingos, asi que el fin de semana la cotizacion del viernes es
+    // la correcta y marcarla en ambar seria una falsa alarma cada semana (y una
+    // alarma que suena siempre es una alarma que se ignora).
+    var _ultHabil=function(){
+      var d=new Date(Date.now()-4*3600000), g=d.getUTCDay();
+      if(g===0) d.setUTCDate(d.getUTCDate()-2);
+      else if(g===6) d.setUTCDate(d.getUTCDate()-1);
+      return d.toISOString().slice(0,10);
+    };
+    var tcDia=di.bcbFecha||null;
+    var tcAlDia=(tcDia===_ultHabil());
+    var _dmy=function(f){return f.slice(8,10)+'/'+f.slice(5,7);};
+    var tcNota=tcDia
+      ? (tcAlDia
+          ? 'Tipo de cambio oficial del BCB, al dia (cotizacion del '+_dmy(tcDia)+')'
+          : 'Cotizacion del '+_dmy(tcDia)+'. El BCB todavia no publico la de hoy, o la fuente va atrasada.')
+      : 'No se pudo confirmar a que dia corresponde esta cotizacion.';
     // brecha cripto vs oficial
     var brechaEl=null;
     if(bcb&&bcb.venta&&crypto&&crypto.venta){
@@ -4384,10 +4406,11 @@ var HomeScreen = function HomeScreen(_ref14) {
     }
     var sectRates=(bcb||crypto)?React.createElement('div',{style:{display:'flex',alignItems:'center',gap:6,flexWrap:'wrap'}},
       React.createElement('span',{style:{fontSize:13}},'💵'),
-      bcb&&bcb.venta?pill('Oficial','#C9A84C',bcb.venta):null,
-      crypto&&crypto.venta?pill('Cripto','#60A5FA',crypto.venta):null,
+      bcb&&bcb.venta?pill('Oficial','#C9A84C',bcb.venta,tcNota,!tcAlDia):null,
+      crypto&&crypto.venta?pill('Cripto','#60A5FA',crypto.venta,'Dolar paralelo / cripto (USDT-BOB)'):null,
       brechaEl,
       React.createElement('span',{style:{marginLeft:'auto',display:'flex',alignItems:'center',gap:6}},
+        (tcDia&&!tcAlDia)?React.createElement('span',{title:tcNota,style:{fontSize:9,fontWeight:800,color:'#F59E0B'}},'TC al '+_dmy(tcDia)):null,
         updTxt?React.createElement('span',{style:{fontSize:9,opacity:.45}},updTxt):null,
         React.createElement('span',{onClick:_refreshDaily,title:'Actualizar tipo de cambio y clima',style:{fontSize:14,cursor:'pointer',opacity:diBusy?.5:.85,userSelect:'none'}}, diBusy?'⏳':'🔄')
       )
