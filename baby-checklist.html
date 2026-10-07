@@ -1,0 +1,690 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Lista para la llegada de la bebita 🍼</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+    background: #fdf6f0;
+    color: #2d2d2d;
+    padding: 20px;
+    max-width: 700px;
+    margin: 0 auto;
+  }
+  header { text-align: center; padding: 32px 20px 24px; }
+  header .emoji { font-size: 48px; display: block; margin-bottom: 12px; }
+  header h1 { font-size: 1.6rem; font-weight: 700; color: #1a1a1a; margin-bottom: 6px; }
+  header p { font-size: 0.9rem; color: #888; }
+  .section {
+    background: white;
+    border-radius: 16px;
+    padding: 20px;
+    margin-bottom: 20px;
+    box-shadow: 0 2px 12px rgba(0,0,0,0.06);
+  }
+  .section-title {
+    font-size: 0.7rem;
+    font-weight: 700;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    margin-bottom: 16px;
+  }
+  .section.s1 .section-title { color: #6c8ebf; }
+  .section.s2 .section-title { color: #e8836a; }
+  .section.s3 .section-title { color: #c47eb0; }
+  .section.s4 .section-title { color: #e07070; }
+  .section.s5 .section-title { color: #5aab7c; }
+  .section.s6 .section-title { color: #5aab7c; }
+  .section.s7 .section-title { color: #7b8ec8; }
+  .section.s8 .section-title { color: #a07850; }
+  .item {
+    display: flex;
+    align-items: flex-start;
+    gap: 12px;
+    padding: 10px 0;
+    border-bottom: 1px solid #f5f5f5;
+    cursor: pointer;
+    user-select: none;
+    -webkit-tap-highlight-color: transparent;
+  }
+  .item:last-child { border-bottom: none; }
+  .item:active { background: #fafafa; border-radius: 8px; }
+  .checkbox {
+    width: 22px; height: 22px;
+    border-radius: 50%;
+    border: 2px solid #ddd;
+    flex-shrink: 0;
+    margin-top: 1px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    transition: all 0.15s ease;
+  }
+  .item.done .checkbox { background: #5cb85c; border-color: #5cb85c; }
+  .item.done .checkbox::after { content: '✓'; color: white; font-size: 13px; font-weight: 700; }
+  .item-text { flex: 1; }
+  .item-text strong { display: block; font-size: 0.95rem; font-weight: 600; color: #1a1a1a; line-height: 1.3; }
+  .item-text span { font-size: 0.82rem; color: #888; line-height: 1.4; display: block; margin-top: 2px; }
+  .item.done .item-text strong { color: #bbb; text-decoration: line-through; }
+  .item.done .item-text span { color: #ccc; }
+  .tag {
+    font-size: 0.7rem; font-weight: 600;
+    padding: 2px 8px; border-radius: 20px;
+    flex-shrink: 0; margin-top: 3px; white-space: nowrap;
+  }
+  .tag.urgent  { background: #fff0ed; color: #e8836a; }
+  .tag.medical { background: #edf4ff; color: #6c8ebf; }
+  .tag.legal   { background: #f0f9f0; color: #5cb85c; }
+  .tag.tip     { background: #fdf0ff; color: #a060b8; }
+  .tag.kit     { background: #f0faf4; color: #5aab7c; }
+  .progress-bar-wrap { background: #f0f0f0; border-radius: 20px; height: 6px; margin: 8px 0 4px; overflow: hidden; }
+  .progress-bar { height: 100%; border-radius: 20px; background: linear-gradient(90deg, #6c8ebf, #a8c5e8); transition: width 0.3s ease; }
+  .progress-label { font-size: 0.78rem; color: #aaa; text-align: right; }
+  .reset-btn {
+    display: block; width: 100%; text-align: center;
+    padding: 12px; background: none; border: 1px solid #eee;
+    border-radius: 12px; color: #bbb; font-size: 0.82rem;
+    cursor: pointer; margin-top: 8px;
+  }
+  .reset-btn:hover { color: #999; border-color: #ddd; }
+</style>
+</head>
+<body>
+
+<header>
+  <span class="emoji">🍼</span>
+  <h1>Lista para la bebita</h1>
+  <p>Clínica Foianini · Santa Cruz · Mayo 2026</p>
+  <div style="margin-top:16px;">
+    <div class="progress-bar-wrap"><div class="progress-bar" id="pbar" style="width:0%"></div></div>
+    <div class="progress-label" id="plabel">0 completados</div>
+  </div>
+</header>
+
+<!-- S1: Lo básico -->
+<div class="section s1">
+  <div class="section-title">📋 Lo básico — antes de ir</div>
+
+  <div class="item" onclick="toggle(this)">
+    <div class="checkbox"></div>
+    <div class="item-text">
+      <strong>Bolso de la clínica listo</strong>
+      <span>Ropa bebé (bodies, pijamitas, gorro, medias), ropa mamá post-cesárea (holgada, sin cintura), artículos de higiene</span>
+    </div>
+  </div>
+
+  <div class="item" onclick="toggle(this)">
+    <div class="checkbox"></div>
+    <div class="item-text">
+      <strong>Outfit especial para el regreso a casa</strong>
+      <span>La primera foto saliendo de Foianini. Tenerlo separado y fácil de encontrar</span>
+    </div>
+  </div>
+
+  <div class="item" onclick="toggle(this)">
+    <div class="checkbox"></div>
+    <div class="item-text">
+      <strong>Documentos en orden</strong>
+      <span>Cédulas de ambos, carnet prenatal completo, datos del seguro o plan de pago con Foianini</span>
+    </div>
+    <span class="tag urgent">Urgente</span>
+  </div>
+
+  <div class="item" onclick="toggle(this)">
+    <div class="checkbox"></div>
+    <div class="item-text">
+      <strong>Efectivo en mano</strong>
+      <span>Foianini puede pedir depósito al ingreso. Tener también para propinas a enfermeras/auxiliares</span>
+    </div>
+    <span class="tag urgent">Urgente</span>
+  </div>
+
+  <div class="item" onclick="toggle(this)">
+    <div class="checkbox"></div>
+    <div class="item-text">
+      <strong>Silla de auto instalada y revisada</strong>
+      <span>Antes de ir — para el regreso. Sin esto no dejan salir en muchos hospitales</span>
+    </div>
+    <span class="tag urgent">Urgente</span>
+  </div>
+
+  <div class="item" onclick="toggle(this)">
+    <div class="checkbox"></div>
+    <div class="item-text">
+      <strong>Cuarto / espacio listo</strong>
+      <span>Cuna, colchón firme y plano, sábanas ajustadas, pañales talla N y 1, toallitas sin fragancia</span>
+    </div>
+  </div>
+
+  <div class="item" onclick="toggle(this)">
+    <div class="checkbox"></div>
+    <div class="item-text">
+      <strong>Pediatra confirmado con WhatsApp activo</strong>
+      <span>Preguntar en Foianini si asignan uno. Enviar mensaje de prueba antes del lunes</span>
+    </div>
+    <span class="tag medical">Salud</span>
+  </div>
+
+  <div class="item" onclick="toggle(this)">
+    <div class="checkbox"></div>
+    <div class="item-text">
+      <strong>Cargadores y batería externa</strong>
+      <span>La cesárea + recuperación puede ser 3-4 días en la clínica</span>
+    </div>
+  </div>
+
+  <div class="item" onclick="toggle(this)">
+    <div class="checkbox"></div>
+    <div class="item-text">
+      <strong>Celular con espacio libre</strong>
+      <span>Borrar fotos/videos viejos hoy — no hay peor momento para "sin espacio"</span>
+    </div>
+  </div>
+
+  <div class="item" onclick="toggle(this)">
+    <div class="checkbox"></div>
+    <div class="item-text">
+      <strong>Lista de números importantes en papel</strong>
+      <span>Pediatra, familiares clave, Foianini. Por si se quedan sin batería o señal</span>
+    </div>
+  </div>
+
+  <div class="item" onclick="toggle(this)">
+    <div class="checkbox"></div>
+    <div class="item-text">
+      <strong>Seguro médico avisado — incluir a la bebé</strong>
+      <span>Llamar el día del nacimiento. La cobertura no es automática en todos los planes</span>
+    </div>
+    <span class="tag legal">Legal</span>
+  </div>
+</div>
+
+<!-- S2: Logística -->
+<div class="section s2">
+  <div class="section-title">⚠️ Logística — lo que nadie te dice</div>
+
+  <div class="item" onclick="toggle(this)">
+    <div class="checkbox"></div>
+    <div class="item-text">
+      <strong>¿Quién queda a cargo de casa?</strong>
+      <span>Pueden ser 3-4 días sin volver. Definir hoy quién cuida mascotas, plantas, etc.</span>
+    </div>
+    <span class="tag urgent">Urgente</span>
+  </div>
+
+  <div class="item" onclick="toggle(this)">
+    <div class="checkbox"></div>
+    <div class="item-text">
+      <strong>Comida para el papá en la clínica</strong>
+      <span>El acompañante no recibe comida. Llevar snacks o efectivo para cafetín</span>
+    </div>
+  </div>
+
+  <div class="item" onclick="toggle(this)">
+    <div class="checkbox"></div>
+    <div class="item-text">
+      <strong>Estacionamiento en Foianini</strong>
+      <span>Tener claro dónde dejar el auto — especialmente si es de madrugada o de noche</span>
+    </div>
+  </div>
+
+  <div class="item" onclick="toggle(this)">
+    <div class="checkbox"></div>
+    <div class="item-text">
+      <strong>Política de visitas definida y comunicada</strong>
+      <span>Pocas y cortas los primeros días. Decidir con tu pareja HOY y decirlo antes del lunes</span>
+    </div>
+  </div>
+
+  <div class="item" onclick="toggle(this)">
+    <div class="checkbox"></div>
+    <div class="item-text">
+      <strong>No hacer planes fijos para días 2, 3 y 4</strong>
+      <span>Si hay ictericia u otra complicación, el alta se retrasa. Dejar esos días completamente libres</span>
+    </div>
+  </div>
+
+  <div class="item" onclick="toggle(this)">
+    <div class="checkbox"></div>
+    <div class="item-text">
+      <strong>Definir quién saca la primera foto</strong>
+      <span>En el momento nadie piensa en esto. Designarlo antes. El médico a veces ayuda si se lo piden</span>
+    </div>
+  </div>
+
+  <div class="item" onclick="toggle(this)">
+    <div class="checkbox"></div>
+    <div class="item-text">
+      <strong>Proyectos de código en estado "congelable"</strong>
+      <span>Commits al día, notas de qué ibas haciendo, README actualizado. No vas a concentrarte 4h seguidas por semanas</span>
+    </div>
+  </div>
+
+  <div class="item" onclick="toggle(this)">
+    <div class="checkbox"></div>
+    <div class="item-text">
+      <strong>Notificaciones en silencio selectivo</strong>
+      <span>Silenciar Slack, emails no críticos y redes. Dejar activo solo lo realmente urgente</span>
+    </div>
+  </div>
+</div>
+
+<!-- S3: Post-cesárea -->
+<div class="section s3">
+  <div class="section-title">🏥 Post-cesárea — recuperación de mamá</div>
+
+  <div class="item" onclick="toggle(this)">
+    <div class="checkbox"></div>
+    <div class="item-text">
+      <strong>Ropa sin presión en la cicatriz lista</strong>
+      <span>Vestidos holgados, pantalones con cintura muy alta o muy baja. Nada que toque el corte</span>
+    </div>
+    <span class="tag medical">Salud</span>
+  </div>
+
+  <div class="item" onclick="toggle(this)">
+    <div class="checkbox"></div>
+    <div class="item-text">
+      <strong>No manejar por 2-4 semanas</strong>
+      <span>El reflejo de frenado no puede forzarse con cicatriz abdominal activa. Organizar transporte de antemano</span>
+    </div>
+    <span class="tag medical">Salud</span>
+  </div>
+
+  <div class="item" onclick="toggle(this)">
+    <div class="checkbox"></div>
+    <div class="item-text">
+      <strong>No cargar más de ~3 kg por semanas</strong>
+      <span>Incluye bolsas de compras, cosas del hogar. La recuperación abdominal tarda varias semanas</span>
+    </div>
+    <span class="tag medical">Salud</span>
+  </div>
+
+  <div class="item" onclick="toggle(this)">
+    <div class="checkbox"></div>
+    <div class="item-text">
+      <strong>Ayuda física en casa los primeros días</strong>
+      <span>Organizar quién ayuda — levantarse de la cama cuesta, subir escaleras duele al principio</span>
+    </div>
+    <span class="tag medical">Salud</span>
+  </div>
+
+  <div class="item" onclick="toggle(this)">
+    <div class="checkbox"></div>
+    <div class="item-text">
+      <strong>Baby blues vs. depresión postparto</strong>
+      <span>~80% de mamás tienen baby blues días 3-5 (llanto sin razón, es hormonal, pasa solo). Si dura más de 2 semanas → consultar</span>
+    </div>
+    <span class="tag medical">Salud</span>
+  </div>
+
+  <div class="item" onclick="toggle(this)">
+    <div class="checkbox"></div>
+    <div class="item-text">
+      <strong>Lactancia no es automática</strong>
+      <span>Puede doler y haber problemas de agarre. Preguntar por lactarium o consultora en Foianini antes del alta</span>
+    </div>
+    <span class="tag medical">Salud</span>
+  </div>
+
+  <div class="item" onclick="toggle(this)">
+    <div class="checkbox"></div>
+    <div class="item-text">
+      <strong>Prepararse para los horarios de sueño</strong>
+      <span>Cada 2-3 horas incluyendo 2am y 4am. Dormir TODO lo posible antes del lunes</span>
+    </div>
+    <span class="tag tip">Tip</span>
+  </div>
+</div>
+
+<!-- S4: Salud del bebé -->
+<div class="section s4">
+  <div class="section-title">👶 Salud de la bebé — qué esperar</div>
+
+  <div class="item" onclick="toggle(this)">
+    <div class="checkbox"></div>
+    <div class="item-text">
+      <strong>Meconio — el primer pañal</strong>
+      <span>Negro, alquitranado, pegajoso. Necesita muchas toallitas. Completamente normal, no es sangre ni alarma</span>
+    </div>
+    <span class="tag tip">Tip</span>
+  </div>
+
+  <div class="item" onclick="toggle(this)">
+    <div class="checkbox"></div>
+    <div class="item-text">
+      <strong>Pérdida de peso inicial — normal</strong>
+      <span>Puede perder hasta ~10% de su peso los primeros días. Se recupera en 1-2 semanas con buena alimentación</span>
+    </div>
+    <span class="tag medical">Salud</span>
+  </div>
+
+  <div class="item" onclick="toggle(this)">
+    <div class="checkbox"></div>
+    <div class="item-text">
+      <strong>Ictericia neonatal</strong>
+      <span>Muy común días 2-4 (piel/ojos amarillos). Tratable. Preguntar al pediatra antes de salir de Foianini</span>
+    </div>
+    <span class="tag medical">Salud</span>
+  </div>
+
+  <div class="item" onclick="toggle(this)">
+    <div class="checkbox"></div>
+    <div class="item-text">
+      <strong>Fiebre &gt;38°C en &lt;3 meses = emergencia</strong>
+      <span>No esperar, no dar medicamento sin indicación médica. Llamar al pediatra o ir a urgencias ese momento</span>
+    </div>
+    <span class="tag urgent">Urgente</span>
+  </div>
+
+  <div class="item" onclick="toggle(this)">
+    <div class="checkbox"></div>
+    <div class="item-text">
+      <strong>Duerme mucho — pero despertarla para comer</strong>
+      <span>Los recién nacidos duermen 16-18h/día. Si no pide comer cada 3h en los primeros días, despertarla</span>
+    </div>
+    <span class="tag tip">Tip</span>
+  </div>
+
+  <div class="item" onclick="toggle(this)">
+    <div class="checkbox"></div>
+    <div class="item-text">
+      <strong>Grupo sanguíneo de todos</strong>
+      <span>Mamá, papá, y confirmar el de la bebé al nacer con el médico</span>
+    </div>
+    <span class="tag medical">Salud</span>
+  </div>
+</div>
+
+<!-- S5: Kit primeros auxilios -->
+<div class="section s5">
+  <div class="section-title">🧰 Kit de primeros auxilios — tener en casa</div>
+
+  <div class="item" onclick="toggle(this)">
+    <div class="checkbox"></div>
+    <div class="item-text">
+      <strong>Termómetro rectal o de oído</strong>
+      <span>El rectal es el más preciso en recién nacidos. El de frente no es confiable en esta etapa</span>
+    </div>
+    <span class="tag kit">Kit</span>
+  </div>
+
+  <div class="item" onclick="toggle(this)">
+    <div class="checkbox"></div>
+    <div class="item-text">
+      <strong>Suero fisiológico nasal (gotas o spray)</strong>
+      <span>Los bebés solo respiran por la nariz — si está tapada, no pueden mamar. Esencial tenerlo</span>
+    </div>
+    <span class="tag kit">Kit</span>
+  </div>
+
+  <div class="item" onclick="toggle(this)">
+    <div class="checkbox"></div>
+    <div class="item-text">
+      <strong>Aspirador nasal (NoseFrida o bulbo de pera)</strong>
+      <span>Para aspirar mocos cuando el suero no alcanza. Muy usado los primeros meses</span>
+    </div>
+    <span class="tag kit">Kit</span>
+  </div>
+
+  <div class="item" onclick="toggle(this)">
+    <div class="checkbox"></div>
+    <div class="item-text">
+      <strong>Crema protectora para pañal</strong>
+      <span>Bepanthen, Desitin o similar. Aplicar en cada cambio para prevenir rozaduras desde el día 1</span>
+    </div>
+    <span class="tag kit">Kit</span>
+  </div>
+
+  <div class="item" onclick="toggle(this)">
+    <div class="checkbox"></div>
+    <div class="item-text">
+      <strong>Gasa estéril + alcohol al 70%</strong>
+      <span>Para limpiar el cordón umbilical. El alcohol debe ser exactamente 70% — no más, no menos</span>
+    </div>
+    <span class="tag kit">Kit</span>
+  </div>
+
+  <div class="item" onclick="toggle(this)">
+    <div class="checkbox"></div>
+    <div class="item-text">
+      <strong>Jeringa oral para medicamentos</strong>
+      <span>Para dar gotas de vitamina D u otros. Más precisa que una cuchara</span>
+    </div>
+    <span class="tag kit">Kit</span>
+  </div>
+
+  <div class="item" onclick="toggle(this)">
+    <div class="checkbox"></div>
+    <div class="item-text">
+      <strong>Lima o cortauñas para bebé</strong>
+      <span>Las uñas crecen rápido y se rascan la cara. La lima es más segura al principio que el cortauñas</span>
+    </div>
+    <span class="tag kit">Kit</span>
+  </div>
+</div>
+
+<!-- S6: Cuidados diarios -->
+<div class="section s6">
+  <div class="section-title">🛁 Cuidados diarios — baño, pañal y cordón</div>
+
+  <div class="item" onclick="toggle(this)">
+    <div class="checkbox"></div>
+    <div class="item-text">
+      <strong>BAÑO: primeros días solo paño húmedo</strong>
+      <span>No bañar con agua hasta que caiga el cordón (7-21 días). Solo limpieza por zonas con paño tibio</span>
+    </div>
+    <span class="tag tip">Tip</span>
+  </div>
+
+  <div class="item" onclick="toggle(this)">
+    <div class="checkbox"></div>
+    <div class="item-text">
+      <strong>BAÑO: temperatura del agua con el codo interior</strong>
+      <span>El interior del codo es mucho más sensible que la mano. Debe sentirse tibia, no caliente</span>
+    </div>
+    <span class="tag tip">Tip</span>
+  </div>
+
+  <div class="item" onclick="toggle(this)">
+    <div class="checkbox"></div>
+    <div class="item-text">
+      <strong>BAÑO: 2-3 veces por semana máximo</strong>
+      <span>La piel del recién nacido se reseca. Jabón neutro específico para bebé, nunca jabón de adulto</span>
+    </div>
+    <span class="tag tip">Tip</span>
+  </div>
+
+  <div class="item" onclick="toggle(this)">
+    <div class="checkbox"></div>
+    <div class="item-text">
+      <strong>BAÑO: nunca dejar solo ni un segundo</strong>
+      <span>Se ahoga en centímetros de agua. Si suena el teléfono — ignorar o llevar a la bebé en brazos</span>
+    </div>
+    <span class="tag urgent">Urgente</span>
+  </div>
+
+  <div class="item" onclick="toggle(this)">
+    <div class="checkbox"></div>
+    <div class="item-text">
+      <strong>PAÑAL: tener todo listo ANTES de empezar</strong>
+      <span>Pañal, toallitas, crema — al alcance antes de poner a la bebé. Nunca soltarla para buscar algo</span>
+    </div>
+    <span class="tag tip">Tip</span>
+  </div>
+
+  <div class="item" onclick="toggle(this)">
+    <div class="checkbox"></div>
+    <div class="item-text">
+      <strong>PAÑAL: limpiar siempre de adelante hacia atrás</strong>
+      <span>En niñas es crítico para evitar infecciones urinarias. Nunca en sentido contrario</span>
+    </div>
+    <span class="tag medical">Salud</span>
+  </div>
+
+  <div class="item" onclick="toggle(this)">
+    <div class="checkbox"></div>
+    <div class="item-text">
+      <strong>PAÑAL: doblar por debajo del cordón</strong>
+      <span>El pañal no debe tapar ni rozar el muñón. Doblar la cintura hacia afuera en cada cambio</span>
+    </div>
+    <span class="tag tip">Tip</span>
+  </div>
+
+  <div class="item" onclick="toggle(this)">
+    <div class="checkbox"></div>
+    <div class="item-text">
+      <strong>CORDÓN: limpiar con gasa + alcohol 70% en cada cambio</strong>
+      <span>Humedecer la gasa y limpiar la base del muñón. Mantenerlo seco y al aire. Cae en 7-21 días</span>
+    </div>
+    <span class="tag medical">Salud</span>
+  </div>
+
+  <div class="item" onclick="toggle(this)">
+    <div class="checkbox"></div>
+    <div class="item-text">
+      <strong>CORDÓN: señales de alarma</strong>
+      <span>Olor fétido, pus, enrojecimiento en piel alrededor o fiebre → llamar al pediatra ese mismo día</span>
+    </div>
+    <span class="tag medical">Salud</span>
+  </div>
+</div>
+
+<!-- S7: Sueño seguro -->
+<div class="section s7">
+  <div class="section-title">💤 Sueño seguro</div>
+
+  <div class="item" onclick="toggle(this)">
+    <div class="checkbox"></div>
+    <div class="item-text">
+      <strong>Temperatura del cuarto: 18-20°C</strong>
+      <span>Fresco pero no frío. Si tú estás cómodo en manga corta, está bien. Tener termómetro de ambiente ayuda</span>
+    </div>
+    <span class="tag tip">Tip</span>
+  </div>
+
+  <div class="item" onclick="toggle(this)">
+    <div class="checkbox"></div>
+    <div class="item-text">
+      <strong>Siempre boca ARRIBA para dormir</strong>
+      <span>Reduce el riesgo de muerte súbita (SMSL). Hasta que pueda darse vuelta sola: siempre boca arriba</span>
+    </div>
+    <span class="tag urgent">Urgente</span>
+  </div>
+
+  <div class="item" onclick="toggle(this)">
+    <div class="checkbox"></div>
+    <div class="item-text">
+      <strong>Sin almohadas, peluches ni mantas sueltas en la cuna</strong>
+      <span>Riesgo de asfixia. Solo el colchón firme con sábana ajustada. Nada más dentro de la cuna</span>
+    </div>
+    <span class="tag urgent">Urgente</span>
+  </div>
+
+  <div class="item" onclick="toggle(this)">
+    <div class="checkbox"></div>
+    <div class="item-text">
+      <strong>Colchón firme y plano — verificado</strong>
+      <span>Si la mano se hunde al apoyarla, es demasiado blando. La cabeza no debe hundirse</span>
+    </div>
+    <span class="tag tip">Tip</span>
+  </div>
+
+  <div class="item" onclick="toggle(this)">
+    <div class="checkbox"></div>
+    <div class="item-text">
+      <strong>Cómo saber si tiene frío o calor</strong>
+      <span>Tocar la nuca o el pecho (no manos ni pies — siempre están fríos). Si el pecho está caliente y seco: está bien</span>
+    </div>
+    <span class="tag tip">Tip</span>
+  </div>
+
+  <div class="item" onclick="toggle(this)">
+    <div class="checkbox"></div>
+    <div class="item-text">
+      <strong>Dormir cuando la bebé duerme</strong>
+      <span>Los primeros días el sueño fragmentado es inevitable. La única solución real: dormir en cualquier momento</span>
+    </div>
+    <span class="tag tip">Tip</span>
+  </div>
+</div>
+
+<!-- S8: Burocracia -->
+<div class="section s8">
+  <div class="section-title">📜 Burocracia — no olvidar</div>
+
+  <div class="item" onclick="toggle(this)">
+    <div class="checkbox"></div>
+    <div class="item-text">
+      <strong>Certificado de nacido vivo — pedir en Foianini</strong>
+      <span>Lo emite la clínica. Es el documento base para todo lo que sigue. No salir sin él</span>
+    </div>
+    <span class="tag legal">Legal</span>
+  </div>
+
+  <div class="item" onclick="toggle(this)">
+    <div class="checkbox"></div>
+    <div class="item-text">
+      <strong>Inscripción en SERECI</strong>
+      <span>Registro civil del nacimiento. 60 días hábiles desde el nacimiento. Necesitas el certificado de Foianini + cédulas de ambos</span>
+    </div>
+    <span class="tag legal">Legal</span>
+  </div>
+
+  <div class="item" onclick="toggle(this)">
+    <div class="checkbox"></div>
+    <div class="item-text">
+      <strong>Carnet de identidad de la bebé</strong>
+      <span>Se tramita después del SERECI con el certificado de nacimiento en mano</span>
+    </div>
+    <span class="tag legal">Legal</span>
+  </div>
+</div>
+
+<button class="reset-btn" onclick="resetAll()">↺ Reiniciar checklist</button>
+
+<div style="text-align:center; padding: 24px 0 8px; font-size: 0.78rem; color: #ccc;">
+  Bienvenida al mundo, bebita 💕
+</div>
+
+<script>
+  const STORAGE_KEY = 'baby_checklist_2026';
+  function getState() {
+    try { return JSON.parse(localStorage.getItem(STORAGE_KEY) || '{}'); } catch(e) { return {}; }
+  }
+  function saveState(state) { localStorage.setItem(STORAGE_KEY, JSON.stringify(state)); }
+  function getItemId(el) { return 'item_' + Array.from(document.querySelectorAll('.item')).indexOf(el); }
+  function toggle(el) {
+    el.classList.toggle('done');
+    const state = getState();
+    state[getItemId(el)] = el.classList.contains('done');
+    saveState(state);
+    updateProgress();
+  }
+  function updateProgress() {
+    const items = document.querySelectorAll('.item');
+    const done = document.querySelectorAll('.item.done').length;
+    const total = items.length;
+    const pct = total ? Math.round(done / total * 100) : 0;
+    document.getElementById('pbar').style.width = pct + '%';
+    document.getElementById('plabel').textContent = done + ' de ' + total + ' completados';
+  }
+  function resetAll() {
+    if (!confirm('¿Reiniciar todas las marcas?')) return;
+    document.querySelectorAll('.item').forEach(el => el.classList.remove('done'));
+    saveState({});
+    updateProgress();
+  }
+  (function() {
+    const state = getState();
+    document.querySelectorAll('.item').forEach((el, i) => {
+      if (state['item_' + i]) el.classList.add('done');
+    });
+    updateProgress();
+  })();
+</script>
+</body>
+</html>

@@ -1,3 +1,10 @@
+# AVISO (13-sep-2026): este worker NO declara [vars] a proposito.
+# Todo lo sensible va como SECRET (wrangler secret put), nunca como variable de
+# texto plano en el dashboard: un `wrangler deploy` desde aca reemplaza el
+# conjunto de vars por el de este archivo y borra las que no esten declaradas.
+# Asi se perdieron OPENAI_API_KEY y JINA_API_KEY. Los secrets SI sobreviven.
+# Secrets esperados: ANTHROPIC_API_KEY, OPENAI_API_KEY, BRIEFING_KEY (+ JINA_API_KEY opcional).
+
 name = "life-planner"
 main = "worker.js"
 compatibility_date = "2024-11-06"

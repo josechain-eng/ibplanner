@@ -60,17 +60,82 @@ async function handleRequest(request, env) {
     if (p === '/dailyinfo' && request.method === 'GET') {
       let info = JSON.parse(await env.LBP_KV.get('dailyinfo_v2') || 'null');
       const force = url.searchParams.get('force') === '1';
-      const stale = !info || force || (Date.now() - (info.updatedAt || 0) > 5 * 3600 * 1000);
+      const age = Date.now() - ((info && info.updatedAt) || 0);
+      // OBSOLETO POR FECHA: el BCB ya publico un dia distinto al que tenemos en
+      // cache. Es el caso que de verdad importa - un cron perdido dejaba el valor
+      // viejo hasta 12h. El guard de 30 min evita refrescar en cada apertura los
+      // dias en que el BCB no publica (sabado, domingo y feriados: su fecha se
+      // queda atras a proposito y nunca va a coincidir con hoy).
+      const fechaVieja = !!info && info.bcbFecha !== _ultHabilBolivia();
+      const stale = !info || force || age > 5 * 3600 * 1000 || (fechaVieja && age > 30 * 60 * 1000);
       if (stale) {
-        try { info = await refreshDailyInfo(env, force ? 'force' : 'lazy'); } catch (e) { /* keep old cache */ }
+        try { info = await refreshDailyInfo(env, force ? 'force' : (fechaVieja ? 'lazy-fecha' : 'lazy')); } catch (e) { /* keep old cache */ }
       }
       return json(info || { error: 'no data yet' });
+    }
+
+    // GET /tc-probe  ->  prueba CADA fuente del tipo de cambio por separado, sin
+    // escribir en KV. Dice cual fuente esta viva, que valor da y de que fecha es,
+    // mas lo que hay guardado en cache. Es el probe de conexiones de este dato.
+    if (p === '/tc-probe' && request.method === 'GET') {
+      const out = { hoyBolivia: _hoyBolivia(), ultimoDiaHabil: _ultHabilBolivia(), fuentes: {} };
+      try {
+        out.fuentes.bcbDirecto = (await _fetchBcbDirect()) || 'no-match';
+        // Si no hay match hay que poder ver QUE devolvio el BCB a la IP de
+        // Cloudflare: un 200 con la pagina real, o un challenge / 403 / 429 que
+        // no lanza excepcion y por eso se confunde con "parser roto".
+        if (out.fuentes.bcbDirecto === 'no-match') {
+          const r = await fetch('https://www.bcb.gob.bo/', {
+            headers: {
+              'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/129.0 Safari/537.36',
+              'Accept': 'text/html,application/xhtml+xml',
+              'Accept-Language': 'es-ES,es;q=0.9',
+            },
+          });
+          const t = await r.text();
+          out.bcbDiag = {
+            status: r.status,
+            server: r.headers.get('server'),
+            ctype: r.headers.get('content-type'),
+            largo: (t || '').length,
+            tieneTarjeta: (t || '').indexOf('is-tc-oficial') >= 0,
+            tieneNum: (t || '').indexOf('bcb-tco-num') >= 0,
+            inicio: (t || '').replace(/\s+/g, ' ').slice(0, 300),
+          };
+        }
+      } catch (e) { out.fuentes.bcbDirecto = 'ERROR: ' + (e && e.message); }
+      try {
+        const h2 = await (await fetch('https://www.dolarbluebolivia.click/', { headers: { 'User-Agent': 'Mozilla/5.0' } })).text();
+        const m = h2 && h2.match(/faq-official[^>]*>\s*Bs\s*([0-9]{1,2}[.,][0-9]{2})/i);
+        out.fuentes.dolarblue = m ? parseFloat(m[1].replace(',', '.')) : 'no-match';
+      } catch (e) { out.fuentes.dolarblue = 'ERROR: ' + (e && e.message); }
+      try {
+        const arr = await (await fetch('https://bo.dolarapi.com/v1/dolares', { headers: { 'User-Agent': 'Mozilla/5.0' } })).json();
+        const of = Array.isArray(arr) ? arr.find(x => x.casa === 'oficial') : null;
+        out.fuentes.dolarapi = of ? { venta: of.venta, fecha: of.fechaActualizacion } : 'no-match';
+      } catch (e) { out.fuentes.dolarapi = 'ERROR: ' + (e && e.message); }
+      // Jina (r.jina.ai) quedo descartado como fuente: con JINA_API_KEY devuelve
+      // 401 (clave invalida) y sin clave 429 (limite por IP, y las IPs de los
+      // Workers son compartidas). Se deja solo como ultimo respaldo en el refresco.
+
+      const cache = JSON.parse(await env.LBP_KV.get('dailyinfo_v2') || 'null');
+      out.cache = cache ? {
+        bcb: cache.bcb, bcbFecha: cache.bcbFecha, bcbSource: cache.bcbSource,
+        updatedAt: new Date(cache.updatedAt || 0).toISOString(),
+        alDia: cache.bcbFecha === _ultHabilBolivia(),
+      } : null;
+      return json(out);
     }
 
     // GET /dailyinfo-log  \u2192  diagn\u00f3stico: \u00faltimos refrescos (hora, disparador, valor, fecha de la fuente, errores)
     if (p === '/dailyinfo-log' && request.method === 'GET') {
       const log = JSON.parse(await env.LBP_KV.get('dailyinfo_log') || '[]');
-      return json({ count: log.length, log: log.slice().reverse() });
+      const camb = JSON.parse(await env.LBP_KV.get('tc_cambios') || '[]');
+      return json({
+        count: log.length,
+        cambios: camb.slice().reverse(),   // solo cuando el valor cambio de verdad
+        log: log.slice().reverse(),
+      });
     }
 
 
@@ -785,6 +850,11 @@ async function sendSmartNotif(env, syncKeys, type, todayStr, tomorrowStr) {
         const todayTasks = tasks.filter(t => t.dueDate === todayStr);
         const meetings = (data.meetings || []).filter(m => m.date === todayStr);
         const habits = (data.habits || []).filter(h => h.active !== false);
+        // "Pendientes" son los que HOY todavia no se registraron, no todos los
+        // activos. Antes se mandaba habits.length y el briefing podia decir "5
+        // habitos pendientes" aunque estuvieran los 5 hechos.
+        const _hechosHoy = new Set((data.habitEntries || []).filter(e => e.date === todayStr).map(e => e.habitId));
+        const habitsPend = habits.filter(h => !_hechosHoy.has(h.id));
         const overdue = tasks.filter(t => t.dueDate && t.dueDate < todayStr);
         const projects = (data.projects || []).filter(p => !['DONE','CANCELLED'].includes(p.status));
         title = '\uD83C\uDF05 Briefing del d\u00eda';
@@ -797,10 +867,19 @@ async function sendSmartNotif(env, syncKeys, type, todayStr, tomorrowStr) {
           fecha: todayStr,
           tareasHoy: todayTasks.map(t => ({ titulo: t.title, prioridad: t.priority })),
           reunionesHoy: meetings.map(m => ({ titulo: m.title, hora: m.startTime || '' })),
+          // Se le mandan solo las 5 mas antiguas, pero TAMBIEN el total real: sin
+          // el total la IA contaba las que recibia y afirmaba "5 tareas vencidas
+          // en total" cuando habia 12 (visto en el briefing del 7-oct-2026).
           tareasVencidas: overdueSort.slice(0, 5).map(t => ({ titulo: t.title, vencio: t.dueDate })),
+          tareasVencidasTotal: overdue.length,
           tareasRecientes: recentTasks.map(t => ({ titulo: t.title, creado: (t.createdAt||'').slice(0,10) })),
+          // Mismo caso que las vencidas: se mandan 5 de muestra pero TAMBIEN el
+          // total, porque la IA contaba las que recibia y afirmaba "5 proyectos
+          // activos" habiendo 19 (visto el 7-oct-2026).
           proyectosActivos: projects.slice(0, 5).map(p => ({ nombre: p.name, estado: p.status })),
-          habitosPendientes: habits.length
+          proyectosActivosTotal: projects.length,
+          habitosPendientes: habitsPend.length,
+          habitosTotal: habits.length
         };
 
         const aiText = await callClaude(env, [
@@ -809,23 +888,139 @@ async function sendSmartNotif(env, syncKeys, type, todayStr, tomorrowStr) {
 
         // Conserva los saltos de l\u00ednea (colapsa m\u00faltiples a uno) para que las secciones queden separadas
         const stripMd = (s) => s.replace(/#{1,6}\s*/g,'').replace(/\*{1,3}([^*]+)\*{1,3}/g,'$1').replace(/^-{2,}\s*$/gm,'').replace(/^>\s*/gm,'').replace(/[ \t]{2,}/g,' ').replace(/\n{2,}/g,'\n').trim();
+
+        // TAREAS VENCIDAS se arma ACA, no la escribe la IA. Dos razones:
+        //   1) En vinetas se lee de un vistazo; la IA las juntaba en un parrafo
+        //      separado por punto y coma porque el prompt pide "cada seccion en
+        //      una linea", y pedirle vinetas se cumple unos dias y otros no.
+        //   2) Los nombres y las fechas salen EXACTOS del dato, sin que la IA los
+        //      reformule ni los acorte.
+        // La IA sigue redactando las otras tres secciones; aca solo se reemplaza
+        // el bloque de vencidas, de modo que el orden original no cambia.
+        const _fmtVenc = (iso) => {
+          if (!iso) return '';
+          const dm = iso.slice(8, 10) + '/' + iso.slice(5, 7);
+          // El anio solo se muestra si NO es el de hoy: evita el ruido de
+          // "2026-07-17" repetido en cada linea, sin volverse ambiguo con una
+          // tarea arrastrada del anio pasado.
+          return iso.slice(0, 4) === todayStr.slice(0, 4) ? dm : dm + '/' + iso.slice(2, 4);
+        };
+        const _topVenc = overdueSort.slice(0, 3);
+        // El encabezado dice "3 de 12", no "3 mas antiguas": asi se ve de una que
+        // hay mas atras de las tres que se listan.
+        const _encVenc = overdue.length > _topVenc.length
+          ? 'TAREAS VENCIDAS (' + _topVenc.length + ' de ' + overdue.length + '):'
+          : 'TAREAS VENCIDAS (' + _topVenc.length + '):';
+        const _bloqueVenc = _topVenc.length
+          ? _encVenc + '\n' + _topVenc.map(t => '\u2022 ' + t.title + ' (vencio ' + _fmtVenc(t.dueDate) + ')').join('\n')
+          : 'TAREAS VENCIDAS: ninguna';
+        // Toma el encabezado y TODAS las lineas que le siguen hasta el proximo
+        // encabezado de seccion, para no dejar huerfanas si la IA ya habia partido
+        // la lista en varios renglones.
+        const _reVenc = /^TAREAS VENCIDAS.*(?:\n(?!REUNIONES|TAREAS VENCIDAS|HOY EN AGENDA|RECI[E\u00c9]N AGREGADAS)[^\n]*)*/mi;
+
         if (aiText && aiText.trim().length > 10) {
-          // Notificaci\u00f3n (push): emojis por secci\u00f3n para que escanee mejor
-          const pushBody = stripMd(aiText)
+          const _base = stripMd(aiText);
+          // Si la IA omitio la seccion, se agrega al final en vez de perderla.
+          const texto = _reVenc.test(_base) ? _base.replace(_reVenc, _bloqueVenc) : (_base + '\n' + _bloqueVenc);
+          // ---- Cuerpo de la NOTIFICACION ----
+          // Android decide el tamano de letra, no la app (la API de notificaciones
+          // no expone tipografia), asi que lo unico que podemos hacer para que
+          // entre mas es gastar menos renglones. De ahi los tres recortes que
+          // siguen. El texto que ve la app (summary) queda completo.
+          let _cuerpo = texto
+            // 1) La IA encabeza con "BRIEFING MATUTINO - <fecha completa>". Es
+            //    redundante: el titulo ya dice "Briefing del dia" y Android pone
+            //    la hora al lado. Y como la fecha larga envuelve, se come DOS
+            //    renglones arriba de todo, que es donde mas duele.
+            .replace(/^BRIEFING\b[^\n]*\n?/im, '')
+            // 2) La IA cierra con un comentario largo de prosa. A veces lo rotula
+            //    "NOTA:" y a veces no ("Dia sin compromisos fijos: ventana ideal
+            //    para..."), asi que filtrar por la etiqueta se escapaba. En vez de
+            //    eso, en la notificacion SOLO sobrevive lo que tiene estructura:
+            //    un encabezado de seccion EN MAYUSCULAS seguido de dos puntos, o
+            //    una vinieta. Todo lo demas es prosa y se queda en la app.
+            .split('\n')
+            //    Un encabezado = arranca con 2+ MAYUSCULAS y en algun punto tiene
+            //    dos puntos. Ojo: el resto de la linea SI puede traer minusculas
+            //    ("TAREAS VENCIDAS (3 de 12):"), por eso no se puede exigir
+            //    mayusculas hasta los dos puntos.
+            .filter(l => /^\u2022 /.test(l) || /^[A-Z\u00c1\u00c9\u00cd\u00d3\u00da\u00d1]{2,}[^\n]*:/.test(l))
+            .join('\n')
+            // NOTA si pasa el filtro (es mayuscula + dos puntos), asi que se saca aparte.
+            .replace(/^NOTA\b[^\n]*\n?/im, '');
+
+          // 3) Las secciones que quedaron en "ninguna" gastan un renglon entero
+          //    cada una para no decir nada. Se sacan de su lugar y se juntan en
+          //    una sola linea al final, sin perder la informacion.
+          const _chips = [];
+          for (const _v of [
+            { re: /^REUNIONES HOY\s*:\s*ninguna\.?\s*$/im, chip: '\ud83d\udcc5 Sin reuniones' },
+            { re: /^HOY EN AGENDA\s*:\s*ninguna\.?\s*$/im, chip: '\ud83d\udccb Sin agenda' },
+            { re: /^RECI[E\u00c9]N AGREGADAS\s*:\s*ninguna\.?\s*$/im, chip: '\ud83c\udd95 Sin nuevas' },
+          ]) {
+            if (_v.re.test(_cuerpo)) { _chips.push(_v.chip); _cuerpo = _cuerpo.replace(_v.re, ''); }
+          }
+          // Al borrar una linea queda su salto: se colapsan para no dejar huecos.
+          _cuerpo = _cuerpo.replace(/\n{2,}/g, '\n').trim();
+
+          // 4) PROYECTOS y HABITOS se arman aca, igual que las vencidas. La IA a
+          //    veces los ponia como secciones propias y a veces los metia dentro de
+          //    la linea NOTA, con lo cual desaparecian del push al recortarla. Fijos
+          //    aparecen siempre y con los numeros reales.
+          _cuerpo = _cuerpo
+            .replace(/^PROYECTOS\b[^\n]*\n?/im, '')
+            .replace(/^H[A\u00c1]BITOS\b[^\n]*\n?/im, '')
+            .replace(/\n{2,}/g, '\n').trim();
+          // La ultima linea junta todo lo que NO exige accion, para no gastar un
+          // renglon por dato. El conteo de proyectos va aca: es contexto, no algo
+          // que haya que hacer hoy. Los nombres quedan en la vista de la app.
+          if (projects.length) {
+            _chips.unshift('\ud83d\udcc1 ' + projects.length + ' proyecto' + (projects.length > 1 ? 's' : ''));
+          }
+          // Habitos: si quedan pendientes es accionable y se lleva su propio
+          // renglon; si estan todos hechos (o no hay ninguno) no merece mas que un
+          // lugar en la linea de contexto.
+          let _bloqueHab = '';
+          if (habits.length) {
+            if (habitsPend.length > 0) {
+              _bloqueHab = '\n\ud83d\udd04 HABITOS: ' + habitsPend.length + ' pendiente' + (habitsPend.length > 1 ? 's' : '') + ' de ' + habits.length;
+            } else {
+              _chips.splice(projects.length ? 1 : 0, 0, '\u2705 Habitos al dia');
+            }
+          }
+
+          // Emojis por seccion para que escanee mejor. Van DESPUES de los recortes:
+          // las secciones vacias ya no estan, asi que no se les pone emoji al pedo.
+          const pushBody = _cuerpo
             .replace(/^REUNIONES/mi, '\ud83d\udcc5 REUNIONES')
             .replace(/^TAREAS VENCIDAS/mi, '\u26a0\ufe0f TAREAS VENCIDAS')
             .replace(/^HOY EN AGENDA/mi, '\ud83d\udccb HOY EN AGENDA')
-            .replace(/^RECI[E\u00c9]N AGREGADAS/mi, '\ud83c\udd95 RECI\u00c9N AGREGADAS');
+            .replace(/^RECI[E\u00c9]N AGREGADAS/mi, '\ud83c\udd95 RECI\u00c9N AGREGADAS')
+            + _bloqueHab
+            + (_chips.length ? '\n' + _chips.join(' \u00b7 ') : '');
           // Primera l\u00ednea: tipo de cambio oficial (BCB) desde dailyinfo_v2
           let tcLine = '';
           try {
             const di = JSON.parse(await env.LBP_KV.get('dailyinfo_v2') || 'null');
-            if (di && di.bcb && di.bcb.venta != null) tcLine = '\ud83d\udcb5 TC oficial: Bs ' + Number(di.bcb.venta).toFixed(2) + '\n';
+            if (di && di.bcb && di.bcb.venta != null) {
+              // Marcamos el dato cuando NO es del dia, para que el briefing no
+              // presente como de hoy un valor que quedo viejo.
+              const viejo = di.bcbFecha && di.bcbFecha !== _ultHabilBolivia();
+              tcLine = '\ud83d\udcb5 TC oficial: Bs ' + Number(di.bcb.venta).toFixed(2)
+                + (viejo ? ' (al ' + di.bcbFecha.slice(8, 10) + '/' + di.bcbFecha.slice(5, 7) + ')' : '') + '\n';
+            }
           } catch (e) { /* sin TC si falla */ }
-          body = (tcLine + pushBody).slice(0, 600);
+          // 1200, no 600: con 600 el texto se cortaba a media palabra (el briefing
+          // del 7-oct daba 642). El limite real es el payload cifrado del Web Push,
+          // que el estandar garantiza en 4096 bytes; 1200 caracteres quedan muy por
+          // debajo incluso contando tildes y emojis como varios bytes.
+          // OJO: esto evita que NOSOTROS cortemos el texto. Cuanto muestra Android
+          // en pantalla lo decide el sistema, no la app.
+          body = (tcLine + pushBody).slice(0, 1200);
           const fullBriefing = JSON.stringify({
             generated: new Date().toISOString(),
-            summary: tcLine + stripMd(aiText),
+            summary: tcLine + texto,
             stats: { tareasHoy: todayTasks.length, reunionesHoy: meetings.length, vencidas: overdue.length, habitosPendientes: habits.length, proyectosActivos: projects.length },
             tareasHoy: todayTasks.slice(0, 5).map(t => t.title),
             reunionesHoy: meetings.map(m => ({ title: m.title, time: m.startTime || '', client: m.clientName || '' }))
@@ -1097,13 +1292,80 @@ async function _fetchMeteoredWeather() {
   return days.length ? { days: days, nowTemp: nowTemp } : null;
 }
 
-async function refreshDailyInfo(env, trigger) {
+// Fecha de hoy en Bolivia (UTC-4) como YYYY-MM-DD.
+function _hoyBolivia(now) {
+  return new Date((now || Date.now()) - 4 * 3600 * 1000).toISOString().slice(0, 10);
+}
+
+// Ultimo dia habil en Bolivia (YYYY-MM-DD). El BCB no publica sabados ni domingos,
+// asi que el fin de semana la cotizacion vigente es la del viernes: comparar contra
+// "hoy" daria por atrasado un dato que esta correcto, y haria refrescar en vano cada
+// media hora todo el fin de semana. No cubre feriados (ahi si avisara, y preferimos
+// que avise de mas que de menos).
+function _ultHabilBolivia(now) {
+  const d = new Date((now || Date.now()) - 4 * 3600 * 1000), g = d.getUTCDay();
+  if (g === 0) d.setUTCDate(d.getUTCDate() - 2);
+  else if (g === 6) d.setUTCDate(d.getUTCDate() - 1);
+  return d.toISOString().slice(0, 10);
+}
+
+// BCB DIRECTO (www.bcb.gob.bo) - fuente autoritativa del tipo de cambio oficial.
+// El home trae la tarjeta "is-tc-oficial" con la fecha legible por maquina en
+// <time datetime="YYYY-MM-DD"> y el valor en <span class="bcb-tco-num">NN,NN</span>.
+// Devolver la fecha es lo importante: es la unica fuente que declara DE QUE DIA
+// es el dato, asi que es la unica con la que se puede saber si ya publicaron hoy
+// en vez de adivinar. Devuelve {venta, fecha} o null.
+// (Historico: se creia que bcb.gob.bo devolvia 429 a las IPs de datacenter de
+//  Cloudflare y por eso se leia via r.jina.ai o dolarbluebolivia.click. Hoy
+//  responde 200 directo; si volviera a bloquear, la cadena de respaldo sigue.)
+async function _fetchBcbDirect() {
+  const html = await (await fetch('https://www.bcb.gob.bo/', {
+    headers: {
+      'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/129.0 Safari/537.36',
+      'Accept': 'text/html,application/xhtml+xml',
+      'Accept-Language': 'es-ES,es;q=0.9',
+    },
+  })).text();
+  return _parseBcbHtml(html);
+}
+
+// Parser del home del BCB, separado del fetch para poder correrlo sobre el HTML
+// venga de donde venga (directo o via proxy lector).
+function _parseBcbHtml(html) {
+  if (!html) return null;
+  // ACOTAR a la tarjeta del tipo de cambio. Es obligatorio, no una optimizacion:
+  // el home trae varias tarjetas con la misma estructura y FECHAS DISTINTAS (una
+  // de ellas tenia 2026-09-30 mientras el tipo de cambio era del 2026-10-02), asi
+  // que tomar el primer <time> de la pagina daria una fecha equivocada.
+  // Se ancla en class="... is-tc-oficial ..." porque en el CSS la clase se escribe
+  // con punto (.bcb-kpi2-card.is-tc-oficial) y ahi no hay ningun class="...":
+  // exigir el atributo garantiza que caemos en el marcado y no en el <style>.
+  const am = html.match(/class="[^"]*\bis-tc-oficial\b[^"]*"/);
+  if (!am) return null;
+  // Cortar en el <article> siguiente, que es el limite real de la tarjeta. Con una
+  // ventana fija de N caracteres el recorte entraba en la tarjeta de al lado (que
+  // tiene su propio <time> con otra fecha) y solo acertabamos por el orden de los
+  // matches: si el BCB quitara el <time> de esta tarjeta, heredariamos su fecha.
+  const resto = html.slice(am.index + am[0].length);
+  const fin = resto.search(/<article\b/);
+  const card = fin > 0 ? resto.slice(0, fin) : resto.slice(0, 4000);
+  const mv = card.match(/class="bcb-tco-num"[^>]*>\s*([0-9]{1,2}[.,][0-9]{2})/);
+  if (!mv) return null;
+  const v = parseFloat(mv[1].replace(',', '.'));
+  if (!isFinite(v) || v <= 1 || v >= 100) return null;
+  const mf = card.match(/<time[^>]*datetime="(\d{4}-\d{2}-\d{2})"/);
+  return { venta: v, fecha: mf ? mf[1] : null };
+}
+
+async function refreshDailyInfo(env, trigger, opts) {
   const prev = JSON.parse(await env.LBP_KV.get('dailyinfo_v2') || 'null') || {};
   const info = {
     bcb: prev.bcb || null,
     crypto: prev.crypto || null,
     weather: prev.weather || null,
     weatherNow: prev.weatherNow || null,
+    bcbFecha: prev.bcbFecha || null,
+    bcbSource: prev.bcbSource || null,
     updatedAt: Date.now(),
   };
 
@@ -1114,13 +1376,26 @@ async function refreshDailyInfo(env, trigger) {
   let dolarFecha = null;   // fechaActualizacion que reporta DolarAPI para el oficial
   let bcbSource = null;    // 'bcb' (directo, sin lag) | 'dolarapi' (respaldo, ~13h de retraso)
 
-  // PRIMARIO oficial: BCB v\u00eda proxy lector r.jina.ai. bcb.gob.bo responde 429 (challenge)
-  // a las IPs de datacenter de Cloudflare, as\u00ed que el fetch directo NO sirve; Jina lo trae
-  // desde su propia infra y devuelve texto. Sin lag (DolarAPI se atrasa ~13h). En el texto,
-  // el valor aparece como: "Bolivianos por d\u00f3lar estadounidense" <fecha> <valor NN,NN>.
-  // (1) dolarbluebolivia.click (directo, SIN rate limit, mismo d\u00eda, m\u00e1s estable que Jina).
-  //     Astro server-render: el oficial est\u00e1 en <span class="faq-official">Bs 11.80</span>.
+  let bcbFecha = null;     // fecha "as of" que declara el propio BCB (YYYY-MM-DD)
+
+  // (0) PRIMARIO: BCB DIRECTO. Es la fuente oficial y la unica que trae su propia
+  //     fecha, de modo que podemos distinguir "el BCB todavia no publico" de
+  //     "nuestro refresco no corrio".
   try {
+    const bd = await _fetchBcbDirect();
+    if (bd) {
+      info.bcb = { venta: bd.venta, compra: bd.venta };
+      bcbFecha = bd.fecha;
+      bcbSource = 'bcb-directo';
+    } else { errs.push('bcb-directo:no-match'); }
+  } catch (e) { errs.push('bcb-directo:' + (e && e.message)); }
+
+  // (1) RESPALDO: dolarbluebolivia.click (Astro server-render, sin rate limit).
+  //     El oficial esta en <span class="faq-official">Bs 11.80</span>. OJO: este
+  //     sitio refleja el cambio del BCB con retraso - a las 20:10 Bolivia todavia
+  //     devolvia el valor del dia anterior (ver dailyinfo_log, 25-sep a 2-oct).
+  //     Por eso bajo a respaldo y el BCB subio a primario.
+  if (!bcbSource) try {
     const h2 = await (await fetch('https://www.dolarbluebolivia.click/', { headers: { 'User-Agent': 'Mozilla/5.0' } })).text();
     const m = h2 && h2.match(/faq-official[^>]*>\s*Bs\s*([0-9]{1,2}[.,][0-9]{2})/i);
     if (m) { const v = parseFloat(m[1].replace(',', '.')); if (isFinite(v) && v > 1 && v < 100) { info.bcb = { venta: v, compra: v }; bcbSource = 'dolarblue'; } }
@@ -1148,6 +1423,17 @@ async function refreshDailyInfo(env, trigger) {
       const bn = arr.find(x => ['binance', 'cripto', 'blue', 'paralelo'].includes(x.casa));
       if (of) dolarFecha = of.fechaActualizacion || null;
       if (!bcbSource && of && isFinite(of.venta)) { info.bcb = { venta: of.venta, compra: of.compra }; bcbSource = 'dolarapi'; }
+      // CONFIRMACION DE FECHA. El BCB responde 429 a las IPs de Cloudflare, asi
+      // que no podemos leer su fecha autoritativa; DolarAPI si publica la suya
+      // (fechaActualizacion). Si DolarAPI dice "hoy" Y coincide con el valor que
+      // ya tenemos, damos la fecha por confirmada. Si discrepan, el valor que
+      // mandamos es el de dolarblue (va adelantado respecto a DolarAPI: el 2-oct
+      // a las 08:00 dolarblue ya tenia 11,90 y DolarAPI seguia en el 1-oct) y
+      // dejamos la fecha sin confirmar en vez de inventarla.
+      if (!bcbFecha && of && dolarFecha && info.bcb && isFinite(of.venta)) {
+        const fd = String(dolarFecha).slice(0, 10);
+        if (fd === _hoyBolivia() && Math.abs(of.venta - info.bcb.venta) < 0.005) bcbFecha = fd;
+      }
       if (bn && isFinite(bn.venta)) info.crypto = { venta: bn.venta, compra: bn.compra };
     }
   } catch (e) { errs.push('dolarapi:' + (e && e.message)); }
@@ -1163,7 +1449,12 @@ async function refreshDailyInfo(env, trigger) {
   info._errors = errs;
 
   // 3. Clima Santa Cruz \u2014 PRIMARIO: Meteored (datos correctos). FALLBACK: open-meteo.
+  // Se omite en los refrescos de solo-tipo-de-cambio (cada 30 min): Meteored es un
+  // scrape pesado de HTML, el pronostico no cambia cada media hora, y raspar su
+  // home 48 veces al dia es justo lo que hace que a uno lo bloqueen.
+  const soloTC = !!(opts && opts.soloTC);
   let mtWeather = null;
+  if (soloTC) { /* sin clima en este refresco */ } else {
   try { mtWeather = await _fetchMeteoredWeather(); } catch (e) { errs.push('meteored:' + (e && e.message)); }
   if (mtWeather && mtWeather.days.length) {
     info.weather = mtWeather.days;
@@ -1183,6 +1474,41 @@ async function refreshDailyInfo(env, trigger) {
       }
     } catch (e) { errs.push('openmeteo:' + (e && e.message)); }
   }
+  }
+
+  // bcbFecha se sobreescribe SIEMPRE, incluso con null. null significa "no pudimos
+  // confirmar de que dia es este valor", y eso es justo lo que hay que guardar:
+  // conservar la fecha del cache etiquetaria un valor posiblemente nuevo con una
+  // fecha vieja (un "al 01/10" falso en el briefing). Preferimos no afirmar nada.
+  info.bcbFecha = bcbFecha;
+  if (bcbSource) info.bcbSource = bcbSource;
+
+  // REGISTRO DE CAMBIOS: una entrada solo cuando el valor cambia de verdad. El log
+  // general recibe 48 entradas por dia y rota, asi que no sirve para contestar "a
+  // que hora cambio el tipo de cambio". Guardando solo los cambios, 120 entradas
+  // cubren meses, y cada entrada trae la hora exacta en que lo vimos cambiar.
+  // OJO: la hora es cuando NOSOTROS lo detectamos (resolucion 30 min), no la hora
+  // en que el BCB publico. Es lo mas cerca que podemos estar: el BCB devuelve 429
+  // a las IPs de Cloudflare, asi que no hay forma de leer su hora de publicacion.
+  try {
+    const antes = prev.bcb ? prev.bcb.venta : null;
+    const ahora = info.bcb ? info.bcb.venta : null;
+    // Number.isFinite, NO isFinite: el global convierte primero, y isFinite(null)
+    // es true porque Number(null) es 0. Con el global, el primer arranque (sin
+    // valor previo) registraba un cambio falso "de 0 a 11,90", y lo mismo cada vez
+    // que se cayeran todas las fuentes. Number.isFinite(null) es false.
+    if (Number.isFinite(antes) && Number.isFinite(ahora) && Math.abs(antes - ahora) >= 0.005) {
+      const camb = JSON.parse(await env.LBP_KV.get('tc_cambios') || '[]');
+      camb.push({
+        t: new Date().toISOString(),
+        de: antes, a: ahora,
+        fecha: bcbFecha, fuente: bcbSource,
+        trigger: (trigger || '') + (opts && opts.soloTC ? '/tc' : ''),
+      });
+      while (camb.length > 120) camb.shift();
+      await env.LBP_KV.put('tc_cambios', JSON.stringify(camb));
+    }
+  } catch (e) { /* el registro nunca debe romper el refresco */ }
 
   await env.LBP_KV.put('dailyinfo_v2', JSON.stringify(info));
 
@@ -1193,14 +1519,19 @@ async function refreshDailyInfo(env, trigger) {
     const log = JSON.parse(await env.LBP_KV.get('dailyinfo_log') || '[]');
     log.push({
       t: new Date().toISOString(),
-      trigger: trigger || 'unknown',
+      trigger: (trigger || 'unknown') + (opts && opts.soloTC ? '/tc' : ''),
       bcbVenta: info.bcb ? info.bcb.venta : null,
       bcbSource: bcbSource,
+      bcbFecha: bcbFecha,
+      alDia: bcbFecha ? (bcbFecha === _ultHabilBolivia()) : null,
       dolarFecha: dolarFecha,
       cryptoVenta: info.crypto ? info.crypto.venta : null,
       errors: errs,
     });
-    while (log.length > 40) log.shift();
+    // 300 entradas, no 40: con el refresco cada 30 min entran 48 por dia, asi que
+    // un tope de 40 daba menos de 21 horas de historia y el log se vaciaba antes de
+    // poder revisar la noche anterior. 300 cubre ~6 dias.
+    while (log.length > 300) log.shift();
     await env.LBP_KV.put('dailyinfo_log', JSON.stringify(log));
   } catch (e) { /* el logging nunca debe romper el refresco */ }
 
@@ -1210,15 +1541,34 @@ async function refreshDailyInfo(env, trigger) {
 async function scheduledHandler(event, env) {
     const now = Date.now();
 
-    // Daily info refresh 3\u00d7/day: 8:10pm, 8am, 4pm Bolivia = 00:10, 12:00, 20:00 UTC.
-    // 8:10pm is right AFTER the BCB publishes the official rate (8pm Bolivia),
-    // so the cache carries the fresh value into the 8am briefing (12:00 UTC).
-    // Runs before the syncKeys early-return so it works regardless of registry.
+    // REFRESCO DEL TIPO DE CAMBIO: cada 30 minutos, todo el dia.
+    // Antes eran 3 horarios fijos y el de las 20:10 Bolivia nunca llegaba a ver el
+    // valor nuevo (ver dailyinfo_log del 25-sep al 2-oct: a las 20:10 la fuente
+    // seguia dando el valor del dia anterior y el cambio recien aparecia por la
+    // manana). En vez de adivinar la hora exacta de publicacion -- que no podemos
+    // comprobar, porque el BCB devuelve 429 a las IPs de Cloudflare -- se consulta
+    // cada media hora: el atraso maximo pasa a ser de 30 minutos sea cuando sea.
+    // Costo: 48 refrescos/dia x 2 escrituras en KV = 96, muy por debajo del limite
+    // de 1.000/dia del plan gratuito.
+    //
+    // EL CLIMA sigue 3x/dia (20:30, 07:00 y 16:00 Bolivia = 00:30, 11:00 y 20:00
+    // UTC; Bolivia es UTC-4 todo el ano). Su fuente es un scrape pesado.
+    //
+    // Ventanas de 5 minutos, no de 1: Cloudflare pierde ~20% de los disparos del
+    // cron sin dejar rastro. El guard de 20 minutos evita que una ventana de 5
+    // disparos refresque 5 veces.
+    // Corre antes del early-return de syncKeys para no depender del registro.
     {
-      const h = new Date(now).getUTCHours(), mm = new Date(now).getUTCMinutes();
-      const isRefreshTime = (h === 0 && mm >= 10 && mm < 12) || (h === 12 && mm < 2) || (h === 20 && mm < 2);
-      if (isRefreshTime) {
-        try { await refreshDailyInfo(env, 'cron:' + String(h).padStart(2,'0') + ':' + String(mm).padStart(2,'0') + 'UTC'); } catch (e) { /* ignore */ }
+      const d0 = new Date(now), h = d0.getUTCHours(), mm = d0.getUTCMinutes();
+      const enVentana = (mm < 5) || (mm >= 30 && mm < 35);
+      const conClima = (h === 0 && mm >= 30 && mm < 35) || (h === 11 && mm < 5) || (h === 20 && mm < 5);
+      if (enVentana) {
+        let last = 0;
+        try { last = (JSON.parse(await env.LBP_KV.get('dailyinfo_v2') || 'null') || {}).updatedAt || 0; } catch (e) { last = 0; }
+        if (now - last > 20 * 60 * 1000) {
+          const et = 'cron:' + String(h).padStart(2, '0') + ':' + String(mm).padStart(2, '0') + 'UTC';
+          try { await refreshDailyInfo(env, et, { soloTC: !conClima }); } catch (e) { /* ignore */ }
+        }
       }
     }
 

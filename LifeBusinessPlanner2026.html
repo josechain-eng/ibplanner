@@ -22,7 +22,7 @@
 <script>
 (function() {
   // ── Version ──────────────────────────────────────────────────────────────
-  window.LBP_VERSION = '5.28';
+  window.LBP_VERSION = '5.29';
 
   // ── PWA Install prompt ───────────────────────────────────────────────────
   window._installPrompt = null;
@@ -4456,6 +4456,56 @@ var HomeScreen = function HomeScreen(_ref14) {
       )
     ),
     brfOpen&&/*#__PURE__*/React.createElement("div",{style:{padding:'0 14px 14px'}},
+      // ── PARTE DEL DIA ──────────────────────────────────────────────────────
+      // Es el MISMO texto que llego al telefono, pero completo (con la fecha, las
+      // secciones vacias y la NOTA, que en la notificacion se recortan por espacio).
+      // Hasta la v5.28 la app lo pedia al worker y lo tiraba: brfData se llenaba y
+      // no se leia en ningun lado del archivo.
+      // No se reutiliza el renderizador de ANALISIS OPERACIONAL de abajo porque su
+      // regex de encabezado exige MAYUSCULAS hasta los dos puntos y se le escapa
+      // "TAREAS VENCIDAS (3 de 12):", y porque pega las vinetas en un solo parrafo.
+      (function(){
+        if(!brfData||!brfData.summary) return null;
+        var _col={'VENCIDAS':{c:'#F44336',ic:'\u26A0\uFE0F'},'REUNIONES':{c:'#9C68D6',ic:'\uD83D\uDCC5'},'AGENDA':{c:'#60A5FA',ic:'\uD83D\uDCCB'},'AGREGADAS':{c:'#4ADE80',ic:'\uD83C\uDD95'},'NOTA':{c:'#9CA3AF',ic:'\uD83D\uDCDD'},'PROYECTOS':{c:'#C9A84C',ic:'\uD83D\uDCC1'},'HABITOS':{c:'#4ADE80',ic:'\uD83D\uDD04'}};
+        var _cf=function(k){var r={c:'#9C68D6',ic:'\u25B8'};Object.keys(_col).forEach(function(n){if(k.toUpperCase().indexOf(n)>=0)r=_col[n];});return r;};
+        var bloques=[];
+        brfData.summary.split(/\n/).forEach(function(raw){
+          var l=raw.trim(); if(!l) return;
+          if(/^\u2022\s/.test(l)){
+            var it=l.replace(/^\u2022\s*/,'');
+            if(bloques.length&&bloques[bloques.length-1].tipo==='sec') bloques[bloques.length-1].items.push(it);
+            else bloques.push({tipo:'sec',key:null,texto:'',items:[it],c:'#9C68D6',ic:'\u25B8'});
+            return;
+          }
+          var m=l.match(/^([A-Z\u00C1\u00C9\u00CD\u00D3\u00DA\u00D1]{2,}[^:]*):\s*(.*)$/);
+          if(m){var cfg=_cf(m[1]);bloques.push({tipo:'sec',key:m[1].trim(),texto:m[2].trim(),items:[],c:cfg.c,ic:cfg.ic});}
+          else bloques.push({tipo:'txt',texto:l});
+        });
+        var hora='';
+        if(brfData.generated){var _g=new Date(brfData.generated);if(!isNaN(_g))hora=('0'+_g.getHours()).slice(-2)+':'+('0'+_g.getMinutes()).slice(-2);}
+        return React.createElement("div",{style:{borderLeft:'3px solid #F59E0B',background:'rgba(245,158,11,.08)',borderRadius:'0 8px 8px 0',padding:'10px 12px',marginBottom:14}},
+          React.createElement("div",{style:{display:'flex',alignItems:'center',justifyContent:'space-between',marginBottom:7}},
+            React.createElement("span",{style:{fontSize:10,fontWeight:700,letterSpacing:1,color:'#F59E0B',opacity:.9}},"\uD83C\uDF05 PARTE DEL D\u00CDA"),
+            hora?React.createElement("span",{style:{fontSize:9,opacity:.45}},hora):null
+          ),
+          bloques.map(function(b,i){
+            if(b.tipo==='txt') return React.createElement("div",{key:i,style:{fontSize:12,lineHeight:1.5,opacity:.75,marginBottom:6}},b.texto);
+            var vacia=!b.items.length&&(!b.texto||/^ninguna\.?$/i.test(b.texto));
+            return React.createElement("div",{key:i,style:{marginBottom:6,padding:'7px 10px',background:'rgba(255,255,255,.04)',borderLeft:'2px solid '+b.c,borderRadius:'0 6px 6px 0',opacity:vacia?.55:1}},
+              b.key?React.createElement("div",{style:{display:'flex',alignItems:'center',gap:5,marginBottom:(b.items.length||b.texto)?4:0}},
+                React.createElement("span",{style:{fontSize:11}},b.ic),
+                React.createElement("span",{style:{fontSize:9,fontWeight:800,letterSpacing:.8,color:b.c,textTransform:'uppercase'}},b.key)
+              ):null,
+              b.items.length?React.createElement("div",null,b.items.map(function(it,j){
+                return React.createElement("div",{key:j,style:{display:'flex',gap:6,fontSize:12,lineHeight:1.5,padding:'1px 0'}},
+                  React.createElement("span",{style:{color:b.c,flexShrink:0,fontSize:10,marginTop:2}},"\u25B8"),
+                  React.createElement("span",{style:{opacity:.9}},it)
+                );
+              })):(b.texto?React.createElement("div",{style:{fontSize:12,lineHeight:1.5,opacity:vacia?.5:.88,fontStyle:vacia?'italic':'normal',paddingLeft:2}},b.texto):null)
+            );
+          })
+        );
+      })(),
       /*#__PURE__*/React.createElement("div",{style:{borderLeft:'3px solid #9C68D6',background:'rgba(156,104,214,.1)',borderRadius:'0 8px 8px 0',padding:'10px 12px',marginBottom:14}},
         /*#__PURE__*/React.createElement("div",{style:{fontSize:10,fontWeight:700,letterSpacing:1,color:'#9C68D6',marginBottom:6,opacity:.8}},"\uD83E\uDD16 AN\u00C1LISIS OPERACIONAL"),
         brfSumLoad?/*#__PURE__*/React.createElement("div",{style:{display:'flex',alignItems:'center',gap:8,fontSize:12,opacity:.6,fontStyle:'italic'}},
