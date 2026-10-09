@@ -22,7 +22,7 @@
 <script>
 (function() {
   // ── Version ──────────────────────────────────────────────────────────────
-  window.LBP_VERSION = '5.30';
+  window.LBP_VERSION = '5.31';
 
   // ── PWA Install prompt ───────────────────────────────────────────────────
   window._installPrompt = null;
@@ -2219,12 +2219,15 @@ var RichTextEditor = function RichTextEditor(_ref6) {
       onChange(html);
     }
   };
+  // Estilo canonico del checkbox. Vive en una constante porque ahora hay DOS
+  // lugares que lo necesitan: el que los crea y el que los repara tras un outdent.
+  var _CB_STYLE = 'position:absolute;left:0;top:3px;width:15px;height:15px;accent-color:#9C68D6;cursor:pointer;';
   var _addCbToLi = function(li) {
     if (li.querySelector('input[type=checkbox]')) return;
     var cb = document.createElement('input');
     cb.type = 'checkbox';
     cb.setAttribute('contenteditable','false');
-    cb.style.cssText = 'position:absolute;left:0;top:3px;width:15px;height:15px;accent-color:#9C68D6;cursor:pointer;';
+    cb.style.cssText = _CB_STYLE;
     li.insertBefore(cb, li.firstChild);
     // Remove <br> nodes the browser inserts into empty <li> elements
     Array.from(li.querySelectorAll('br')).forEach(function(br){ br.parentNode.removeChild(br); });
@@ -2270,6 +2273,24 @@ var RichTextEditor = function RichTextEditor(_ref6) {
       todos.forEach(function(u) { if (!u.classList.contains('rte-checklist')) u.classList.add('rte-checklist'); });
       // _addCbToLi sale temprano si el li ya tiene checkbox, asi que no mueve el cursor
       Array.from(raiz.querySelectorAll('li')).forEach(_addCbToLi);
+      // REPARACION del dano de execCommand('outdent'). Al sacar un <li> de la
+      // sublista, Chrome re-serializa su contenido y en el camino:
+      //   (a) le borra al checkbox los estilos de posicion y tamano, dejando
+      //       solo accent-color -> el checkbox cambia de tamano y se desalinea;
+      //   (b) envuelve el texto en un <span style="font-family:...">.
+      // Medido: tras 'indent' el estilo queda intacto; es 'outdent' el que lo
+      // rompe. Solo se toca lo danado, para no mover el cursor sin necesidad.
+      Array.from(raiz.querySelectorAll('input[type=checkbox]')).forEach(function(cb) {
+        if (cb.style.position !== 'absolute' || cb.style.width !== '15px') cb.style.cssText = _CB_STYLE;
+        if (cb.getAttribute('contenteditable') !== 'false') cb.setAttribute('contenteditable','false');
+      });
+      Array.from(raiz.querySelectorAll('span[style]')).forEach(function(sp) {
+        // Solo los que inyecta el navegador: su unica declaracion es font-family.
+        if (!/^\s*font-family\s*:[^;]*;?\s*$/i.test(sp.getAttribute('style') || '')) return;
+        var p = sp.parentNode; if (!p) return;
+        while (sp.firstChild) p.insertBefore(sp.firstChild, sp);
+        p.removeChild(sp);
+      });
     });
   };
   var _inClNow = function _inClNow() {
@@ -2444,14 +2465,18 @@ var RichTextEditor = function RichTextEditor(_ref6) {
     className: "rte-btn",
     title: "Indent",
     onClick: function onClick() {
-      return exec('indent');
+      // Igual que el Tab: tras indentar hay que normalizar, si no la sublista
+      // queda sin la clase rte-checklist. Antes estos botones no lo hacian.
+      var _wc = _inClNow(); exec('indent');
+      if (_wc) setTimeout(function(){ _normalizeChecklists(); handleInput(); tick(); }, 0);
     }
   }, "\u2192 Indent"), /*#__PURE__*/React.createElement("button", {
     type: "button",
     className: "rte-btn",
     title: "Outdent",
     onClick: function onClick() {
-      return exec('outdent');
+      var _wc = _inClNow(); exec('outdent');
+      if (_wc) setTimeout(function(){ _normalizeChecklists(); handleInput(); tick(); }, 0);
     }
   }, "\u2190 Outdent"), /*#__PURE__*/React.createElement("div", {
     className: "rte-sep"
