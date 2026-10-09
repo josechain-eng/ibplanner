@@ -22,7 +22,7 @@
 <script>
 (function() {
   // ── Version ──────────────────────────────────────────────────────────────
-  window.LBP_VERSION = '5.29';
+  window.LBP_VERSION = '5.30';
 
   // ── PWA Install prompt ───────────────────────────────────────────────────
   window._installPrompt = null;
@@ -2002,6 +2002,99 @@ var SortToggle = function(props) {
     title: v === 'old' ? 'Ordenado: mas viejos primero' : 'Ordenado: mas nuevos primero',
     onClick: function() { props.onChange(v === 'old' ? 'new' : 'old'); }
   }, v === 'old' ? '\u2191 M\u00e1s viejos' : '\u2193 M\u00e1s nuevos');
+};
+
+// ── Registrar trabajo hecho: helpers de checklist ────────────────────────────
+// El estado de un item de checklist vive en el ATRIBUTO checked del <input>
+// (no en la propiedad del DOM: esa es la leccion de la v5.07). Marcar un item
+// significa reescribir el HTML de una descripcion, asi que estas funciones
+// tocan UN SOLO punto del string y dejan todo lo demas byte por byte igual.
+window._ckNorm = function(s){ return (s||'').toLowerCase().replace(/\s+/g,' ').trim(); };
+
+window._ckTexto = function(frag){
+  return String(frag||'').replace(/<[^>]*>/g,'')
+    .replace(/&nbsp;/g,' ').replace(/&amp;/g,'&').replace(/&lt;/g,'<')
+    .replace(/&gt;/g,'>').replace(/&quot;/g,'"').replace(/&#39;/g,"'")
+    .replace(/\s+/g,' ').trim();
+};
+
+// Lista los items en orden de documento. Se ancla en el <input type=checkbox>,
+// NO en el <li>: asi un checklist anidado (un <ul> dentro de un <li>) no corre
+// el conteo ni arrastra el texto de la sublista.
+window._ckItems = function(html){
+  if(!html) return [];
+  var out=[], re=/<input\b[^>]*type=["']?checkbox["']?[^>]*>/gi, m;
+  while((m=re.exec(html))){
+    var tag=m[0], resto=html.slice(m.index+tag.length), fin=resto.length;
+    var i1=resto.indexOf('</li>'); if(i1>=0) fin=Math.min(fin,i1);
+    var i2=resto.search(/<ul\b/i);  if(i2>=0) fin=Math.min(fin,i2);
+    out.push({ idx:out.length, checked:/\schecked\b/i.test(tag),
+               texto:window._ckTexto(resto.slice(0,fin)), _ini:m.index, _fin:m.index+tag.length });
+  }
+  return out;
+};
+
+// Marca UN item por indice. Si se pasa textoEsperado, verifica que el item siga
+// siendo el mismo antes de tocar: si la descripcion cambio desde que se armo el
+// inventario, el indice ya no significa lo mismo y preferimos no escribir nada.
+window._ckMarcar = function(html, idx, textoEsperado){
+  var its=window._ckItems(html), it=its[idx];
+  if(!it) return {ok:false, html:html, error:'indice fuera de rango'};
+  if(textoEsperado && window._ckNorm(it.texto)!==window._ckNorm(textoEsperado))
+    return {ok:false, html:html, error:'el item cambio desde que se armo la lista'};
+  if(it.checked) return {ok:true, html:html, yaEstaba:true};
+  var tag=html.slice(it._ini,it._fin);
+  var nuevo=tag.replace(/\s*\/?>$/, function(c){ return ' checked=""'+c; });
+  return {ok:true, yaEstaba:false, html: html.slice(0,it._ini)+nuevo+html.slice(it._fin)};
+};
+
+// Inventario de todo lo tildable que esta ABIERTO: tareas, subtareas de
+// proyecto e items de checklist. La IA elige NUMEROS de esta lista y nada mas,
+// asi que no puede referirse a algo que no exista.
+window._hechoInventario = function(d){
+  var out=[], FIN=['DONE','CANCELLED','ARCHIVED'];
+  (d.tasks||[]).forEach(function(t){
+    if(FIN.indexOf(t.status)>=0) return;
+    out.push({ref:'t:'+t.id, tipo:'tarea', texto:t.title||'', ctx:t.dueDate?('vence '+t.dueDate):''});
+  });
+  (d.projects||[]).forEach(function(p){
+    if(FIN.indexOf(p.status)>=0) return;
+    (p.subtasks||[]).forEach(function(s){
+      if(s.done) return;
+      out.push({ref:'s:'+p.id+':'+s.id, tipo:'subtarea', texto:s.title||'', ctx:'proyecto '+p.name});
+    });
+  });
+  var ck=function(kind,id,nombre,html){
+    window._ckItems(html).forEach(function(it){
+      if(it.checked) return;
+      out.push({ref:'c:'+kind+':'+id+':'+it.idx, tipo:'checklist', texto:it.texto,
+                ctx:kind+' '+nombre, esperado:it.texto});
+    });
+  };
+  (d.projects||[]).forEach(function(p){ if(FIN.indexOf(p.status)<0 && p.description) ck('proyecto',p.id,p.name,p.description); });
+  (d.tasks||[]).forEach(function(t){ if(FIN.indexOf(t.status)<0 && t.description) ck('tarea',t.id,t.title,t.description); });
+  // Reuniones agendadas de hoy y de los ultimos 7 dias. Van al inventario para
+  // que "me reuni con Laura" marque la que YA estaba agendada en vez de crear
+  // una copia. Las que ya tienen seguimiento no hacen falta.
+  var _hoy = new Date(Date.now() - new Date().getTimezoneOffset()*60000).toISOString().slice(0,10);
+  var _desde = new Date(Date.now() - 7*86400000 - new Date().getTimezoneOffset()*60000).toISOString().slice(0,10);
+  (d.meetings||[]).forEach(function(m){
+    if(!m.date || m.date < _desde || m.date > _hoy || m.followedUp) return;
+    out.push({ref:'m:'+m.id, tipo:'reunion', texto:m.title||'', ctx:'agendada '+m.date});
+  });
+  return out.filter(function(x){ return window._ckNorm(x.texto).length>1; });
+};
+
+// Resuelve el nombre de una empresa/persona a un clientId real. Mismo criterio
+// que usa el asistente de voz: si no hay match, queda vacio en vez de inventar.
+window._hechoCliente = function(d, nombre){
+  if (!nombre) return '';
+  var s = String(nombre).toLowerCase();
+  var c = (d.clients||[]).find(function(x){
+    var a=(x.businessName||'').toLowerCase(), b=(x.name||'').toLowerCase();
+    return a===s||b===s||(a&&a.indexOf(s)>=0)||(b&&b.indexOf(s)>=0)||(s.indexOf(a)>=0&&a.length>2);
+  });
+  return c ? c.id : '';
 };
 
 var Modal = function Modal(_ref2) {
@@ -16314,6 +16407,264 @@ var VOICE_SP = 'Eres el asistente de voz de LB Planner, la app de Pepe (gerente 
 'project: name, description, dueDate, clientName\n' +
 'journal: title, content, mood (EXCELLENT|GOOD|NEUTRAL|BAD|TERRIBLE)\n';
 
+// ── Registrar lo hecho: resumen hablado o escrito -> marcar pendientes ───────
+// /transcribe (Whisper) o texto pegado -> /chat (Claude) -> tarjeta -> setData.
+var HECHO_SP = 'Eres el registrador de trabajo hecho de LB Planner, la app de Pepe (gerente de Ventura Mall, La Paz, Bolivia).\n' +
+'Recibes (a) un RESUMEN de lo que Pepe hizo y (b) una LISTA NUMERADA de sus pendientes abiertos.\n' +
+'Por cada cosa que Pepe dice haber HECHO, decide si corresponde a un pendiente de la lista.\n\n' +
+'REGLAS:\n' +
+'- Solo puedes referirte a pendientes por su NUMERO de la lista. NUNCA inventes numeros.\n' +
+'- Si calza con un pendiente, devuelve su "n". Si no calza con NINGUNO, pon "n": null y llena "nueva".\n' +
+'- MEJOR DUDAR QUE EQUIVOCARSE: si no estas seguro, usa "confianza":"baja". Marcar por error un pendiente que sigue abierto es el peor resultado posible.\n' +
+'- NO registres nada que Pepe no haya dicho que hizo. Si menciona algo como pendiente, futuro o una intencion, IGNORALO.\n' +
+'- Un mismo numero no puede aparecer dos veces.\n' +
+'- Si dice que se reunio con alguien, es una reunion: usa tipo "reunion" en "nueva" (o el numero si ya estaba agendada).\n' +
+'- En "notas" de una reunion pon lo que se hablo o se acordo, con las palabras de Pepe. Si no dijo nada de eso, deja "".\n\n' +
+'RESPONDE SOLO CON JSON VALIDO, sin texto alrededor ni bloques de codigo:\n' +
+'{"items":[{"dijo":"frase corta de lo que hizo","n":3,"confianza":"alta","nueva":null}],"pregunta":null}\n\n' +
+'Cuando n es null, "nueva" tiene esta forma:\n' +
+'  tarea:   {"tipo":"tarea","titulo":"..."}\n' +
+'  reunion: {"tipo":"reunion","titulo":"Reunion con ...","con":"nombre de la empresa o persona","notas":"lo que se acordo"}\n';
+
+var RegistrarHecho = function RegistrarHecho(props) {
+  var data = props.data, setData = props.setData, onDone = props.onDone;
+  var _a = useState(false), rec = _a[0], setRec = _a[1];
+  var _b = useState(''), phase = _b[0], setPhase = _b[1];
+  var _c = useState(''), text = _c[0], setText = _c[1];
+  var _d = useState(null), draft = _d[0], setDraft = _d[1];
+  var _e = useState(''), err = _e[0], setErr = _e[1];
+  var _f = useState(0), secs = _f[0], setSecs = _f[1];
+  var mrRef = useRef(null), chunksRef = useRef([]), streamRef = useRef(null),
+      timerRef = useRef(null), finishRef = useRef(function(){});
+  var invRef = useRef([]);
+
+  var ICO = { tarea:'✅', subtarea:'✅', checklist:'☑️', reunion:'📅', nueva:'🆕' };
+
+  var start = function(){
+    if (!window.MediaRecorder || !navigator.mediaDevices) { setErr('Tu navegador no soporta grabacion. Usa Chrome.'); return; }
+    if (!window.LBP_WORKER_URL) { setErr('Configura el Worker URL en Cloud & Sync.'); return; }
+    setErr(''); setDraft(null); setSecs(0);
+    navigator.mediaDevices.getUserMedia({audio:true}).then(function(stream){
+      streamRef.current = stream; chunksRef.current = [];
+      var mime = '', cands = ['audio/webm;codecs=opus','audio/webm','audio/mp4','audio/ogg'];
+      for (var i=0;i<cands.length;i++){ if (window.MediaRecorder.isTypeSupported && window.MediaRecorder.isTypeSupported(cands[i])) { mime = cands[i]; break; } }
+      var mr = mime ? new MediaRecorder(stream,{mimeType:mime}) : new MediaRecorder(stream);
+      mrRef.current = mr;
+      mr.ondataavailable = function(e){ if (e.data && e.data.size>0) chunksRef.current.push(e.data); };
+      mr.onstop = function(){ finishRef.current(); };
+      mr.start(5000); setRec(true);
+      timerRef.current = setInterval(function(){ setSecs(function(p){return p+1;}); },1000);
+    }).catch(function(e){ setErr('No se pudo acceder al microfono: '+(e&&e.message||e)); });
+  };
+
+  var stop = function(){
+    if (timerRef.current) { clearInterval(timerRef.current); timerRef.current = null; }
+    setRec(false);
+    if (mrRef.current && mrRef.current.state !== 'inactive') { try { mrRef.current.stop(); } catch(e){ finishRef.current(); } }
+  };
+
+  finishRef.current = function(){
+    var chunks = chunksRef.current || [], stream = streamRef.current;
+    if (stream) { try { stream.getTracks().forEach(function(t){t.stop();}); } catch(e){} streamRef.current = null; }
+    if (!chunks.length) { setPhase(''); return; }
+    var type = (mrRef.current && mrRef.current.mimeType) || chunks[0].type || 'audio/webm';
+    var blob = new Blob(chunks,{type:type}); chunksRef.current = [];
+    setPhase('transcribiendo');
+    fetch(window.LBP_WORKER_URL+'/transcribe?lang=es',{method:'POST',headers:{'Content-Type':type},body:blob})
+      .then(function(r){return r.json();})
+      .then(function(res){
+        if (res && res.text) { setText(res.text); interpretar(res.text); }
+        else { setPhase(''); setErr('No se entendio el audio: '+((res&&res.error)||'sin respuesta')); }
+      })
+      .catch(function(){ setPhase(''); setErr('Error de red al transcribir'); });
+  };
+
+  var interpretar = function(t){
+    if (!t || !t.trim()) { setErr('Escribi o dicta un resumen primero.'); return; }
+    if (!window.LBP_WORKER_URL) { setErr('Configura el Worker URL en Cloud & Sync.'); return; }
+    var inv = window._hechoInventario(data);
+    invRef.current = inv;
+    if (!inv.length) { setErr('No tenes pendientes abiertos para marcar.'); return; }
+    setErr(''); setPhase('pensando');
+    var lista = inv.map(function(x,i){
+      return (i+1)+'. ['+x.tipo+'] '+x.texto+(x.ctx?'  ('+x.ctx+')':'');
+    }).join('\n');
+    var hoy = new Date();
+    var hoyS = hoy.getFullYear()+'-'+String(hoy.getMonth()+1).padStart(2,'0')+'-'+String(hoy.getDate()).padStart(2,'0');
+    var msg = 'FECHA DE HOY: '+hoyS+'\n\nPENDIENTES ABIERTOS:\n'+lista+'\n\nRESUMEN DE LO QUE HIZO PEPE:\n'+t;
+    fetch(window.LBP_WORKER_URL+'/chat',{
+      method:'POST', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({ messages:[{role:'user',content:msg}], systemPrompt: HECHO_SP })
+    }).then(function(r){return r.json();}).then(function(res){
+      setPhase('');
+      var raw = (res && res.content) || '';
+      var m = raw.match(/\{[\s\S]*\}/);
+      var parsed = null;
+      try { parsed = m ? JSON.parse(m[0]) : null; } catch(e) { parsed = null; }
+      if (!parsed) { setErr('No pude interpretar la respuesta de la IA.'); return; }
+      // VALIDACION: la IA solo puede devolver numeros de la lista que le dimos.
+      // Un numero fuera de rango o repetido se descarta en vez de marcar algo
+      // que Pepe no dijo. Es el error que mas caro sale.
+      var usados = {}, items = [];
+      (parsed.items||[]).forEach(function(it){
+        if (!it) return;
+        var n = (typeof it.n === 'number') ? it.n : null;
+        if (n !== null && (n < 1 || n > inv.length || usados[n])) n = null;
+        if (n !== null) {
+          usados[n] = 1;
+          var src = inv[n-1];
+          items.push({ dijo:it.dijo||'', ref:src.ref, tipo:src.tipo, texto:src.texto,
+                       ctx:src.ctx, esperado:src.esperado||null,
+                       confianza:it.confianza||'media', incluir:true });
+        } else if (it.nueva && it.nueva.titulo) {
+          items.push({ dijo:it.dijo||'', ref:null, tipo:'nueva',
+                       nuevaTipo:(it.nueva.tipo==='reunion'?'reunion':'tarea'),
+                       texto:it.nueva.titulo, con:it.nueva.con||'', notas:it.nueva.notas||'',
+                       confianza:it.confianza||'media', incluir:true });
+        }
+      });
+      if (!items.length) { setErr(parsed.pregunta || 'No identifique nada que hayas marcado como hecho.'); return; }
+      setDraft({ items:items, pregunta:parsed.pregunta||null });
+    }).catch(function(){ setPhase(''); setErr('Error de red al interpretar'); });
+  };
+
+  var toggle = function(i){
+    setDraft(function(d){
+      var its = d.items.map(function(x,j){ return j===i ? Object.assign({},x,{incluir:!x.incluir}) : x; });
+      return Object.assign({},d,{items:its});
+    });
+  };
+
+  var guardar = function(){
+    if (!draft) return;
+    var sel = draft.items.filter(function(x){return x.incluir;});
+    if (!sel.length) { onDone && onDone(); return; }
+    var ts = Date.now();
+    var hoy = new Date();
+    var hoyS = hoy.getFullYear()+'-'+String(hoy.getMonth()+1).padStart(2,'0')+'-'+String(hoy.getDate()).padStart(2,'0');
+    var fallos = [];
+    setData(function(prev){
+      var d = Object.assign({}, prev);
+      d.tasks = (prev.tasks||[]).slice();
+      d.projects = (prev.projects||[]).map(function(p){ return Object.assign({},p); });
+      d.meetings = (prev.meetings||[]).map(function(m){ return Object.assign({},m); });
+      sel.forEach(function(x){
+        if (x.ref) {
+          var pr = x.ref.split(':');
+          if (pr[0]==='t') {
+            d.tasks = d.tasks.map(function(t){
+              return t.id===pr[1] ? Object.assign({},t,{status:'DONE',completion:100,completedAt:ts,updatedAt:ts}) : t;
+            });
+          } else if (pr[0]==='s') {
+            d.projects = d.projects.map(function(p){
+              if (p.id!==pr[1]) return p;
+              return Object.assign({},p,{updatedAt:ts, subtasks:(p.subtasks||[]).map(function(s){
+                return s.id===pr[2] ? Object.assign({},s,{done:true,completedAt:ts}) : s;
+              })});
+            });
+          } else if (pr[0]==='c') {
+            var lista = pr[1]==='proyecto' ? 'projects' : 'tasks';
+            d[lista] = (d[lista]||[]).map(function(e){
+              if (e.id!==pr[2]) return e;
+              var r = window._ckMarcar(e.description, parseInt(pr[3],10), x.esperado);
+              if (!r.ok) { fallos.push(x.texto+': '+r.error); return e; }
+              return Object.assign({},e,{description:r.html, updatedAt:ts});
+            });
+          } else if (pr[0]==='m') {
+            d.meetings = d.meetings.map(function(m){
+              if (m.id!==pr[1]) return m;
+              // followedUp solo si quedo registrado QUE paso: si no, el worker
+              // sigue recordandole que le falta el seguimiento, que es correcto.
+              var notas = x.notas ? ((m.notes?m.notes+'\n\n':'')+x.notas) : m.notes;
+              return Object.assign({},m,{notes:notas, followedUp: x.notas?true:m.followedUp, updatedAt:ts});
+            });
+          }
+        } else if (x.nuevaTipo==='reunion') {
+          d.meetings = d.meetings.concat([{
+            id:uid(), title:x.texto||'Reunion', date:hoyS, startTime:'', endTime:'',
+            location:'', notes:x.notas||'', agenda:'', status:'SCHEDULED', isOnline:false,
+            contact:x.con||'', clientId:window._hechoCliente?window._hechoCliente(prev,x.con):'',
+            followedUp: x.notas?true:false, alarm:(typeof defaultAlarm==='function'?defaultAlarm():null),
+            createdAt:ts, updatedAt:ts
+          }]);
+        } else {
+          d.tasks = d.tasks.concat([{
+            id:uid(), title:x.texto||'(sin titulo)', description:'', status:'DONE',
+            priority:'MEDIUM', dueDate:'', estimatedHours:'', projectId:'', clientId:'',
+            category:'Work', tags:[], attachments:[], completion:100,
+            alarm:(typeof defaultAlarm==='function'?defaultAlarm():null),
+            completedAt:ts, createdAt:ts, updatedAt:ts
+          }]);
+        }
+      });
+      return d;
+    });
+    if (fallos.length) setErr('No se pudieron marcar: '+fallos.join(' | '));
+    else { onDone && onDone(); }
+  };
+  var mm = function(s){ return String(Math.floor(s/60)).padStart(2,'0')+':'+String(s%60).padStart(2,'0'); };
+  var CONF = { alta:null, media:{c:'#F59E0B',t:'revisar'}, baja:{c:'#F44336',t:'poco seguro'} };
+
+  // ── Tarjeta de confirmacion: nada se escribe hasta que Pepe le de OK ──
+  if (draft) {
+    return React.createElement('div', null,
+      React.createElement('div',{style:{fontSize:12,opacity:.7,marginBottom:10}},
+        'Revisa antes de guardar. Destilda lo que no corresponda.'),
+      draft.items.map(function(x,i){
+        var esNueva = !x.ref;
+        var cf = CONF[x.confianza] || null;
+        return React.createElement('div',{key:i,style:{display:'flex',gap:9,alignItems:'flex-start',
+          padding:'9px 10px',marginBottom:6,borderRadius:8,
+          background:x.incluir?'rgba(255,255,255,.05)':'rgba(255,255,255,.02)',
+          border:'1px solid '+(cf?cf.c+'66':'var(--border)'), opacity:x.incluir?1:.45}},
+          React.createElement('input',{type:'checkbox',checked:x.incluir,onChange:function(){toggle(i);},
+            style:{marginTop:3,width:16,height:16,accentColor:'#4ADE80',cursor:'pointer',flexShrink:0}}),
+          React.createElement('div',{style:{flex:1,minWidth:0}},
+            React.createElement('div',{style:{fontSize:13,fontWeight:600,lineHeight:1.35}},
+              (esNueva?ICO.nueva:(ICO[x.tipo]||'\u2705'))+' '+x.texto),
+            React.createElement('div',{style:{fontSize:10,opacity:.6,marginTop:3}},
+              esNueva ? ('crear '+(x.nuevaTipo==='reunion'?'reunion de hoy':'tarea ya hecha')+(x.con?' \u00b7 '+x.con:''))
+                      : ('marcar '+x.tipo+(x.ctx?' \u00b7 '+x.ctx:''))),
+            x.notas?React.createElement('div',{style:{fontSize:11,opacity:.75,marginTop:4,fontStyle:'italic'}},x.notas):null,
+            cf?React.createElement('div',{style:{fontSize:10,fontWeight:700,color:cf.c,marginTop:4}},'\u26A0 '+cf.t+' \u2014 lo dicho: "'+x.dijo+'"'):null
+          )
+        );
+      }),
+      draft.pregunta?React.createElement('div',{style:{fontSize:12,opacity:.8,margin:'8px 0',padding:'8px 10px',
+        background:'rgba(245,158,11,.1)',borderRadius:8}},'\u2753 '+draft.pregunta):null,
+      err?React.createElement('div',{style:{fontSize:12,color:'#F44336',margin:'8px 0'}},err):null,
+      React.createElement('div',{style:{display:'flex',gap:8,marginTop:12}},
+        React.createElement('button',{className:'btn btn-secondary',style:{flex:1},
+          onClick:function(){ setDraft(null); setErr(''); }},'\u2190 Volver'),
+        React.createElement('button',{className:'btn btn-primary',style:{flex:2},onClick:guardar},
+          '\u2714 Guardar '+draft.items.filter(function(x){return x.incluir;}).length)
+      )
+    );
+  }
+
+  // ── Entrada: texto pegado o dictado ──
+  var ocupado = phase==='transcribiendo'||phase==='pensando';
+  return React.createElement('div', null,
+    React.createElement('div',{style:{fontSize:12,opacity:.7,marginBottom:9}},
+      'Conta lo que hiciste. Busco cada cosa entre tus pendientes y lo que no exista lo registro como hecho.'),
+    React.createElement('textarea',{value:text,onChange:function(e){setText(e.target.value);},
+      placeholder:'Hoy cerre el pedido de Boss, me reuni con Laura de Mango por los pagos y mande el reporte de octubre.',
+      rows:5,disabled:rec||ocupado,
+      style:{width:'100%',boxSizing:'border-box',fontSize:13,lineHeight:1.5,padding:10,borderRadius:8,
+        background:'rgba(255,255,255,.05)',border:'1px solid var(--border)',color:'inherit',resize:'vertical'}}),
+    React.createElement('div',{style:{display:'flex',gap:8,alignItems:'center',marginTop:10}},
+      React.createElement('button',{className:'btn '+(rec?'btn-danger':'btn-secondary'),
+        onClick:rec?stop:start,disabled:ocupado,style:{minWidth:118}},
+        rec?('\u23F9 Parar '+mm(secs)):'\uD83C\uDFA4 Dictar'),
+      React.createElement('button',{className:'btn btn-primary',style:{flex:1},
+        disabled:rec||ocupado||!text.trim(),onClick:function(){ interpretar(text); }},
+        phase==='pensando'?'\u23F3 Buscando\u2026':(phase==='transcribiendo'?'\u23F3 Transcribiendo\u2026':'Revisar \u2192'))
+    ),
+    rec?React.createElement('div',{style:{fontSize:11,color:'#F44336',marginTop:8}},'\u25CF Grabando\u2026 al parar se transcribe solo.'):null,
+    err?React.createElement('div',{style:{fontSize:12,color:'#F44336',marginTop:9}},err):null
+  );
+};
+
 var VoiceAssistant = function VoiceAssistant(props) {
   var data = props.data, setData = props.setData;
   var _a = useState(false), rec = _a[0], setRec = _a[1];
@@ -18433,6 +18784,11 @@ var App = function App() {
     _useStateVoice2 = _slicedToArray(_useStateVoice, 2),
     voiceOpen = _useStateVoice2[0],
     setVoiceOpen = _useStateVoice2[1];
+  // Modal para registrar trabajo ya hecho (dictado o pegado)
+  var _useStateHecho = useState(false),
+    _useStateHecho2 = _slicedToArray(_useStateHecho, 2),
+    hechoOpen = _useStateHecho2[0],
+    setHechoOpen = _useStateHecho2[1];
   var _useState231 = useState(null),
     _useState232 = _slicedToArray(_useState231, 2),
     activeAlarm = _useState232[0],
@@ -18948,6 +19304,11 @@ var App = function App() {
     onClick: function onClick() { setVoiceOpen(true); }
   }, "\uD83C\uDFA4"), /*#__PURE__*/React.createElement("button", {
     className: "btn btn-secondary btn-sm",
+    style: {marginRight: 4},
+    title: "Registrar lo hecho",
+    onClick: function onClick() { setHechoOpen(true); }
+  }, "\u2705"), /*#__PURE__*/React.createElement("button", {
+    className: "btn btn-secondary btn-sm",
     onClick: function onClick() {
       return navigate('profile');
     }
@@ -19054,6 +19415,11 @@ var App = function App() {
     onClose: function() { setVoiceOpen(false); }
   }, /*#__PURE__*/React.createElement(VoiceAssistant, {
     data: data, setData: setData, onDone: function() { setVoiceOpen(false); }
+  })), hechoOpen && /*#__PURE__*/React.createElement(Modal, {
+    title: "\u2705 Registrar lo hecho",
+    onClose: function() { setHechoOpen(false); }
+  }, /*#__PURE__*/React.createElement(RegistrarHecho, {
+    data: data, setData: setData, onDone: function() { setHechoOpen(false); }
   })), drawerOpen && /*#__PURE__*/React.createElement("div", {
     className: "nav-drawer-overlay",
     onClick: function onClick() {
