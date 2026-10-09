@@ -22,7 +22,7 @@
 <script>
 (function() {
   // ── Version ──────────────────────────────────────────────────────────────
-  window.LBP_VERSION = '5.33';
+  window.LBP_VERSION = '5.34';
 
   // ── PWA Install prompt ───────────────────────────────────────────────────
   window._installPrompt = null;
@@ -1438,6 +1438,18 @@
              position: sticky; top: 0; z-index: 100; }
   .top-bar h2 { font-size: 15px; color: var(--text-dim); font-weight: 400; }
   .top-bar .greeting { font-size: 17px; font-weight: 700; color: var(--text); }
+  /* En movil la barra se apila: titulo a lo ancho, los pendientes debajo y los
+     botones en su propia fila. Antes los botones competian por el ancho con el
+     titulo y lo partian en cuatro renglones, comiendose media pantalla. En
+     escritorio se deja lado a lado: ahi el titulo entra en una linea y apilarlo
+     solo agregaria altura. */
+  @media(max-width:768px){
+    .top-bar { flex-direction: column; align-items: stretch; gap: 7px; padding: 9px 14px; }
+    .top-bar .greeting { font-size: 16px; line-height: 1.15; white-space: nowrap;
+                         overflow: hidden; text-overflow: ellipsis; }
+    .top-bar-info { display: block; }
+    .top-bar-acts { justify-content: flex-start; }
+  }
   .main-area { display: flex; flex: 1; overflow: hidden; }
   .sidebar { width: 220px; background: var(--surface); border-right: 1px solid var(--border);
              overflow-y: auto; flex-shrink: 0; padding: 16px 0; }
@@ -19406,7 +19418,7 @@ var App = function App() {
   }, "\u26A0\uFE0F Sin conexi\u00F3n a internet \u2014 Los cambios se guardan localmente y se sincronizar\u00E1n al recuperar la conexi\u00F3n."),
   /*#__PURE__*/React.createElement("div", {
     className: "top-bar"
-  }, /*#__PURE__*/React.createElement("div", null, /*#__PURE__*/React.createElement("div", {
+  }, /*#__PURE__*/React.createElement("div", { className: "top-bar-info" }, /*#__PURE__*/React.createElement("div", {
     className: "greeting"
   }, "Life & Business Planner 2026"), /*#__PURE__*/React.createElement("div", {
     style: {
@@ -19414,6 +19426,7 @@ var App = function App() {
       color: 'var(--text-muted)'
     }
   }, totalTasks > 0 ? "".concat(totalTasks, " tasks pending").concat(totalOverdue > 0 ? " \xB7 ".concat(totalOverdue, " overdue") : '') : '✅ All caught up!')), /*#__PURE__*/React.createElement("div", {
+    className: "top-bar-acts",
     style: {
       display: 'flex',
       gap: 8,
