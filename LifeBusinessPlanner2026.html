@@ -22,7 +22,7 @@
 <script>
 (function() {
   // ── Version ──────────────────────────────────────────────────────────────
-  window.LBP_VERSION = '5.34';
+  window.LBP_VERSION = '5.35';
 
   // ── PWA Install prompt ───────────────────────────────────────────────────
   window._installPrompt = null;
@@ -16495,6 +16495,8 @@ var RegistrarHecho = function RegistrarHecho(props) {
   var _e = useState(''), err = _e[0], setErr = _e[1];
   var _f = useState(0), secs = _f[0], setSecs = _f[1];
   var _g = useState(null), hecho = _g[0], setHecho = _g[1];   // resumen de lo guardado
+  var _h = useState(null), picker = _h[0], setPicker = _h[1]; // indice del item eligiendo pendiente
+  var _i = useState(''), busca = _i[0], setBusca = _i[1];
   var mrRef = useRef(null), chunksRef = useRef([]), streamRef = useRef(null),
       timerRef = useRef(null), finishRef = useRef(function(){});
   var invRef = useRef([]);
@@ -16603,6 +16605,20 @@ var RegistrarHecho = function RegistrarHecho(props) {
       });
       return Object.assign({},d,{items:its});
     });
+  };
+  // Engancha un item a un pendiente elegido A MANO. Es la salida cuando la IA
+  // no encuentra la coincidencia (pasa: con 60 pendientes tiende a ser
+  // conservadora) y si no terminarias creando un duplicado ya completado.
+  var elegir = function(i, src){
+    setDraft(function(d){
+      var its = d.items.map(function(x,j){
+        if (j!==i) return x;
+        return Object.assign({},x,{ref:src.ref, tipo:src.tipo, texto:src.texto, ctx:src.ctx,
+                                   esperado:src.esperado||null, confianza:'alta', nuevaTipo:null});
+      });
+      return Object.assign({},d,{items:its});
+    });
+    setPicker(null); setBusca('');
   };
   // Convierte una coincidencia en item nuevo: sirve cuando la IA engancho el
   // pendiente equivocado y lo que hiciste en realidad no estaba en la lista.
@@ -16761,7 +16777,37 @@ var RegistrarHecho = function RegistrarHecho(props) {
                 esNueva ? ('crear '+(x.nuevaTipo==='reunion'?'reunion de hoy':'tarea ya hecha')+(x.con?' \u00b7 '+x.con:''))
                         : ('marcar '+x.tipo+(x.ctx?' \u00b7 '+x.ctx:''))),
               !esNueva ? React.createElement('span',{onClick:function(){ aNueva(i); },
-                style:{cursor:'pointer',textDecoration:'underline',opacity:.85}},'no es esta, crear nueva') : null),
+                style:{cursor:'pointer',textDecoration:'underline',opacity:.85}},'no es esta, crear nueva') : null,
+              React.createElement('span',{onClick:function(){ setPicker(picker===i?null:i); setBusca(''); },
+                style:{cursor:'pointer',textDecoration:'underline',opacity:.85,color:'#60A5FA'}},
+                picker===i ? 'cancelar' : (esNueva ? 'ya existe, buscarlo' : 'elegir otro'))),
+            // Selector de pendientes. Se listan solo los que ningun otro item
+            // esta usando, para no marcar dos veces lo mismo.
+            picker===i ? (function(){
+              var usados = {}; draft.items.forEach(function(y,k){ if(k!==i && y.ref) usados[y.ref]=1; });
+              var q = window._ckNorm(busca);
+              var cands = (invRef.current||[]).filter(function(src){
+                if (usados[src.ref]) return false;
+                return !q || window._ckNorm(src.texto+' '+(src.ctx||'')).indexOf(q) >= 0;
+              });
+              return React.createElement('div',{style:{marginTop:6,padding:7,borderRadius:7,
+                background:'rgba(96,165,250,.08)',border:'1px solid rgba(96,165,250,.3)'}},
+                React.createElement('input',{type:'text',value:busca,autoFocus:true,
+                  placeholder:'Buscar entre tus '+(invRef.current||[]).length+' pendientes\u2026',
+                  onChange:function(e){ setBusca(e.target.value); },
+                  style:{width:'100%',boxSizing:'border-box',fontSize:12,padding:'5px 7px',borderRadius:5,
+                    background:'rgba(255,255,255,.07)',border:'1px solid var(--border)',color:'inherit'}}),
+                React.createElement('div',{style:{maxHeight:150,overflowY:'auto',marginTop:5}},
+                  cands.length ? cands.slice(0,40).map(function(src,k){
+                    return React.createElement('div',{key:k,onClick:function(){ elegir(i, src); },
+                      style:{fontSize:11,lineHeight:1.4,padding:'5px 6px',borderRadius:5,cursor:'pointer',
+                        borderBottom:'1px solid rgba(255,255,255,.05)'}},
+                      React.createElement('span',{style:{opacity:.5,marginRight:5}},ICO[src.tipo]||'\u2022'),
+                      src.texto,
+                      src.ctx?React.createElement('span',{style:{opacity:.5}},'  \u00b7 '+src.ctx):null);
+                  }) : React.createElement('div',{style:{fontSize:11,opacity:.6,padding:'6px 2px',fontStyle:'italic'}},
+                        'Nada coincide con esa busqueda.')));
+            })() : null,
             // Las notas de una reunion tambien se pueden corregir antes de guardar.
             (esNueva && x.nuevaTipo==='reunion')
               ? React.createElement('textarea',{value:x.notas||'',rows:2,
