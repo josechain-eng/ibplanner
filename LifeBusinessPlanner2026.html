@@ -22,7 +22,7 @@
 <script>
 (function() {
   // ── Version ──────────────────────────────────────────────────────────────
-  window.LBP_VERSION = '5.32';
+  window.LBP_VERSION = '5.33';
 
   // ── PWA Install prompt ───────────────────────────────────────────────────
   window._installPrompt = null;
@@ -16482,6 +16482,7 @@ var RegistrarHecho = function RegistrarHecho(props) {
   var _d = useState(null), draft = _d[0], setDraft = _d[1];
   var _e = useState(''), err = _e[0], setErr = _e[1];
   var _f = useState(0), secs = _f[0], setSecs = _f[1];
+  var _g = useState(null), hecho = _g[0], setHecho = _g[1];   // resumen de lo guardado
   var mrRef = useRef(null), chunksRef = useRef([]), streamRef = useRef(null),
       timerRef = useRef(null), finishRef = useRef(function(){});
   var invRef = useRef([]);
@@ -16582,6 +16583,27 @@ var RegistrarHecho = function RegistrarHecho(props) {
       return Object.assign({},d,{items:its});
     });
   };
+  var editar = function(i, campo, valor){
+    setDraft(function(d){
+      var its = d.items.map(function(x,j){
+        if (j!==i) return x;
+        var n = Object.assign({},x); n[campo] = valor; return n;
+      });
+      return Object.assign({},d,{items:its});
+    });
+  };
+  // Convierte una coincidencia en item nuevo: sirve cuando la IA engancho el
+  // pendiente equivocado y lo que hiciste en realidad no estaba en la lista.
+  var aNueva = function(i){
+    setDraft(function(d){
+      var its = d.items.map(function(x,j){
+        if (j!==i || !x.ref) return x;
+        return Object.assign({},x,{ref:null, tipo:'nueva', nuevaTipo:(x.tipo==='reunion'?'reunion':'tarea'),
+                                    esperado:null, confianza:'alta'});
+      });
+      return Object.assign({},d,{items:its});
+    });
+  };
 
   var guardar = function(){
     if (!draft) return;
@@ -16647,11 +16669,53 @@ var RegistrarHecho = function RegistrarHecho(props) {
       });
       return d;
     });
-    if (fallos.length) setErr('No se pudieron marcar: '+fallos.join(' | '));
-    else { onDone && onDone(); }
+    // Antes se cerraba el modal sin decir nada. Como las tareas nuevas se crean
+    // ya en DONE, no aparecen en la lista de pendientes y parecia que no habia
+    // pasado nada. Ahora se muestra exactamente que se hizo.
+    var res = { marcadas:0, nuevas:0, reuniones:0, checklist:0, fallos:fallos, detalle:[] };
+    sel.forEach(function(x){
+      if (x.ref) {
+        var k = x.ref.split(':')[0];
+        if (k==='c') res.checklist++; else if (k==='m') res.reuniones++; else res.marcadas++;
+        res.detalle.push('\u2713 '+x.texto);
+      } else if (x.nuevaTipo==='reunion') { res.reuniones++; res.detalle.push('\uD83C\uDD95 '+x.texto); }
+      else { res.nuevas++; res.detalle.push('\uD83C\uDD95 '+x.texto); }
+    });
+    setDraft(null); setErr(''); setText(''); setHecho(res);
   };
   var mm = function(s){ return String(Math.floor(s/60)).padStart(2,'0')+':'+String(s%60).padStart(2,'0'); };
   var CONF = { alta:null, media:{c:'#F59E0B',t:'revisar'}, baja:{c:'#F44336',t:'poco seguro'} };
+
+  // ── Resultado: que se guardo exactamente ──
+  if (hecho) {
+    var _n = hecho.marcadas + hecho.nuevas + hecho.reuniones + hecho.checklist;
+    var _resumen = [];
+    if (hecho.marcadas)  _resumen.push(hecho.marcadas + ' tarea' + (hecho.marcadas>1?'s':'') + ' marcada' + (hecho.marcadas>1?'s':''));
+    if (hecho.checklist) _resumen.push(hecho.checklist + ' de checklist');
+    if (hecho.nuevas)    _resumen.push(hecho.nuevas + ' tarea' + (hecho.nuevas>1?'s':'') + ' nueva' + (hecho.nuevas>1?'s':''));
+    if (hecho.reuniones) _resumen.push(hecho.reuniones + ' reuni' + (hecho.reuniones>1?'ones':'on'));
+    return React.createElement('div', null,
+      React.createElement('div',{style:{fontSize:15,fontWeight:700,color:'#4ADE80',marginBottom:4}},
+        '\u2714 Listo \u2014 ' + _n + ' registrado' + (_n>1?'s':'')),
+      React.createElement('div',{style:{fontSize:12,opacity:.7,marginBottom:10}}, _resumen.join(' \u00b7 ')),
+      React.createElement('div',{style:{maxHeight:220,overflowY:'auto',marginBottom:10}},
+        hecho.detalle.map(function(t,i){
+          return React.createElement('div',{key:i,style:{fontSize:12,lineHeight:1.5,padding:'3px 0',opacity:.9}}, t);
+        })),
+      // Las tareas nuevas se crean ya completadas, asi que NO salen en la lista
+      // de pendientes. Decirlo evita el "no paso nada".
+      hecho.nuevas ? React.createElement('div',{style:{fontSize:11,opacity:.6,lineHeight:1.5,
+        padding:'8px 10px',background:'rgba(255,255,255,.05)',borderRadius:8,marginBottom:10}},
+        'Las tareas nuevas quedan como completadas, asi que no aparecen entre tus pendientes: las ves filtrando por completadas o en el informe.') : null,
+      hecho.fallos && hecho.fallos.length ? React.createElement('div',{style:{fontSize:12,color:'#F44336',marginBottom:10}},
+        'No se pudieron marcar: '+hecho.fallos.join(' | ')) : null,
+      React.createElement('div',{style:{display:'flex',gap:8}},
+        React.createElement('button',{className:'btn btn-secondary',style:{flex:1},
+          onClick:function(){ setHecho(null); }},'Registrar mas'),
+        React.createElement('button',{className:'btn btn-primary',style:{flex:1},
+          onClick:function(){ setHecho(null); onDone && onDone(); }},'Cerrar'))
+    );
+  }
 
   // ── Tarjeta de confirmacion: nada se escribe hasta que Pepe le de OK ──
   if (draft) {
@@ -16668,12 +16732,33 @@ var RegistrarHecho = function RegistrarHecho(props) {
           React.createElement('input',{type:'checkbox',checked:x.incluir,onChange:function(){toggle(i);},
             style:{marginTop:3,width:16,height:16,accentColor:'#4ADE80',cursor:'pointer',flexShrink:0}}),
           React.createElement('div',{style:{flex:1,minWidth:0}},
-            React.createElement('div',{style:{fontSize:13,fontWeight:600,lineHeight:1.35}},
-              (esNueva?ICO.nueva:(ICO[x.tipo]||'\u2705'))+' '+x.texto),
-            React.createElement('div',{style:{fontSize:10,opacity:.6,marginTop:3}},
-              esNueva ? ('crear '+(x.nuevaTipo==='reunion'?'reunion de hoy':'tarea ya hecha')+(x.con?' \u00b7 '+x.con:''))
-                      : ('marcar '+x.tipo+(x.ctx?' \u00b7 '+x.ctx:''))),
-            x.notas?React.createElement('div',{style:{fontSize:11,opacity:.75,marginTop:4,fontStyle:'italic'}},x.notas):null,
+            // Los items NUEVOS se pueden editar: el titulo lo propuso la IA.
+            // Los que enganchan con un pendiente NO, porque ese texto es el del
+            // item que ya existe; para esos esta el boton "crear nueva".
+            esNueva
+              ? React.createElement('div',{style:{display:'flex',gap:5,alignItems:'center'}},
+                  React.createElement('span',{style:{fontSize:13}},ICO.nueva),
+                  React.createElement('input',{type:'text',value:x.texto,
+                    onChange:function(e){ editar(i,'texto',e.target.value); },
+                    style:{flex:1,minWidth:0,fontSize:13,fontWeight:600,padding:'3px 6px',borderRadius:5,
+                      background:'rgba(255,255,255,.07)',border:'1px solid var(--border)',color:'inherit'}}))
+              : React.createElement('div',{style:{fontSize:13,fontWeight:600,lineHeight:1.35}},
+                  (ICO[x.tipo]||'\u2705')+' '+x.texto),
+            React.createElement('div',{style:{fontSize:10,opacity:.6,marginTop:3,display:'flex',gap:6,alignItems:'center',flexWrap:'wrap'}},
+              React.createElement('span',null,
+                esNueva ? ('crear '+(x.nuevaTipo==='reunion'?'reunion de hoy':'tarea ya hecha')+(x.con?' \u00b7 '+x.con:''))
+                        : ('marcar '+x.tipo+(x.ctx?' \u00b7 '+x.ctx:''))),
+              !esNueva ? React.createElement('span',{onClick:function(){ aNueva(i); },
+                style:{cursor:'pointer',textDecoration:'underline',opacity:.85}},'no es esta, crear nueva') : null),
+            // Las notas de una reunion tambien se pueden corregir antes de guardar.
+            (esNueva && x.nuevaTipo==='reunion')
+              ? React.createElement('textarea',{value:x.notas||'',rows:2,
+                  placeholder:'Que se hablo o se acordo (opcional)',
+                  onChange:function(e){ editar(i,'notas',e.target.value); },
+                  style:{width:'100%',boxSizing:'border-box',marginTop:5,fontSize:11,lineHeight:1.45,padding:'5px 7px',
+                    borderRadius:5,background:'rgba(255,255,255,.05)',border:'1px solid var(--border)',
+                    color:'inherit',resize:'vertical'}})
+              : (x.notas?React.createElement('div',{style:{fontSize:11,opacity:.75,marginTop:4,fontStyle:'italic'}},x.notas):null),
             cf?React.createElement('div',{style:{fontSize:10,fontWeight:700,color:cf.c,marginTop:4}},'\u26A0 '+cf.t+' \u2014 lo dicho: "'+x.dijo+'"'):null
           )
         );
@@ -16683,7 +16768,8 @@ var RegistrarHecho = function RegistrarHecho(props) {
       err?React.createElement('div',{style:{fontSize:12,color:'#F44336',margin:'8px 0'}},err):null,
       React.createElement('div',{style:{display:'flex',gap:8,marginTop:12}},
         React.createElement('button',{className:'btn btn-secondary',style:{flex:1},
-          onClick:function(){ setDraft(null); setErr(''); }},'\u2190 Volver'),
+          title:'Vuelve al texto para corregirlo y buscar de nuevo',
+          onClick:function(){ setDraft(null); setErr(''); }},'\u2190 Corregir texto'),
         React.createElement('button',{className:'btn btn-primary',style:{flex:2},onClick:guardar},
           '\u2714 Guardar '+draft.items.filter(function(x){return x.incluir;}).length)
       )
