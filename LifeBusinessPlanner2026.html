@@ -22,7 +22,7 @@
 <script>
 (function() {
   // ── Version ──────────────────────────────────────────────────────────────
-  window.LBP_VERSION = '5.31';
+  window.LBP_VERSION = '5.32';
 
   // ── PWA Install prompt ───────────────────────────────────────────────────
   window._installPrompt = null;
@@ -2293,6 +2293,24 @@ var RichTextEditor = function RichTextEditor(_ref6) {
       });
     });
   };
+  // true si el cursor esta en un <li> del nivel RAIZ de la lista, o sea que su
+  // <ul> no cuelga de otro <ul>. Ahi no hay nada que desindentar: el outdent del
+  // navegador saca el item de la lista entera (pierde el checkbox y parte el
+  // <ul> en dos), que no es lo que uno quiere al pasarse de un Shift+Tab.
+  var _enRaizLista = function _enRaizLista() {
+    try {
+      var sel = window.getSelection(), n = sel && sel.anchorNode;
+      while (n && n !== ref.current) {
+        if (n.nodeName === 'LI') {
+          var p = n.parentElement && n.parentElement.parentElement;
+          while (p && p !== ref.current) { if (p.tagName === 'UL') return false; p = p.parentElement; }
+          return true;
+        }
+        n = n.parentNode;
+      }
+    } catch(e) {}
+    return false;
+  };
   var _inClNow = function _inClNow() {
     try {
       var sel = window.getSelection(), _n = sel && sel.anchorNode;
@@ -2475,7 +2493,9 @@ var RichTextEditor = function RichTextEditor(_ref6) {
     className: "rte-btn",
     title: "Outdent",
     onClick: function onClick() {
-      var _wc = _inClNow(); exec('outdent');
+      var _wc = _inClNow();
+      if (_wc && _enRaizLista()) return;   // ya esta en el nivel raiz
+      exec('outdent');
       if (_wc) setTimeout(function(){ _normalizeChecklists(); handleInput(); tick(); }, 0);
     }
   }, "\u2190 Outdent"), /*#__PURE__*/React.createElement("div", {
@@ -2526,8 +2546,11 @@ var RichTextEditor = function RichTextEditor(_ref6) {
       if (e.key === 'Tab') {
         e.preventDefault();
         var _wasCl = _inClNow();
-        exec(e.shiftKey ? 'outdent' : 'indent');
-        if (_wasCl) setTimeout(function(){ _normalizeChecklists(); handleInput(); tick(); }, 0);
+        // Shift+Tab en el nivel raiz de un checklist: no hacer nada.
+        if (!(e.shiftKey && _wasCl && _enRaizLista())) {
+          exec(e.shiftKey ? 'outdent' : 'indent');
+          if (_wasCl) setTimeout(function(){ _normalizeChecklists(); handleInput(); tick(); }, 0);
+        }
       }
       // Auto-add checkbox to new <li> created by Enter in a checklist (desktop)
       if (e.key === 'Enter') {
