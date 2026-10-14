@@ -13,6 +13,13 @@ const FIN = '\n};\n';
 const j = HTML.indexOf(FIN, i);
 assert.ok(j > i, 'no encuentro el cierre de _campAplicar');
 const win = {};
+// _campAplicar usa _campVigencia (al ampliar) y _campYaEsta (para no
+// duplicar), asi que el harness carga las tres funciones del HTML publicado.
+for (const nombre of ['window._campVigencia = function', 'window._campYaEsta = function']) {
+  const k = HTML.indexOf(nombre);
+  assert.ok(k > 0, 'no encuentro ' + nombre + ' en el HTML');
+  new Function('window', HTML.slice(k, HTML.indexOf(FIN, k) + FIN.length))(win);
+}
 new Function('window', HTML.slice(i, j + FIN.length))(win);
 const aplicar = win._campAplicar;
 
@@ -92,7 +99,9 @@ test('suma sin tiendas nuevas se informa y no cambia nada', () => {
   assert.equal(r.res.omitidas, 1);
 });
 
-test('amplia cambia unicamente dateEnd', () => {
+test('amplia cambia dateEnd y el estado, nada mas', () => {
+  // El estado se recalcula a proposito (ver "ampliar al futuro recalcula el
+  // estado"): lo que no puede tocar es el nombre, el inicio ni las tiendas.
   const data = BASE();
   const r = aplicar(data, [{
     tipo: 'amplia', incluir: true, campanaId: 'camp_vieja', nombreCampana: 'Invierno 2026', dateEnd: '2026-11-16'
@@ -101,7 +110,6 @@ test('amplia cambia unicamente dateEnd', () => {
   assert.equal(c.dateEnd, '2026-11-16');
   assert.equal(c.name, v.name);
   assert.equal(c.dateStart, v.dateStart);
-  assert.equal(c.status, v.status);
   assert.deepEqual(c.franchises, v.franchises);
   assert.equal(r.res.ampliadas, 1);
 });
@@ -135,4 +143,94 @@ test('basura no revienta', () => {
     const r = aplicar(BASE(), acc);
     assert.equal(r.campaigns.length, 1);
   }
+});
+
+// ── C2: el guardia de duplicados dependia del nombre, que el modelo cambia ──
+// Observado en vivo: la misma campana salio una vez como "Matrimonios y
+// Graduados" y otra como "Matrimonios y Graduados - detalle CK, AX y Outlet
+// Express". Un caracter de diferencia y el duplicado entra en los datos reales
+// de Pepe, y de ahi al informe semanal que manda.
+test('mismo inicio y mismas tiendas = duplicado, aunque el nombre cambie', () => {
+  const data = BASE();
+  const uno = aplicar(data, [accNueva()]);
+  const otra = accNueva();
+  otra.campana = Object.assign({}, otra.campana, { name: 'Matrimonios y Graduados - detalle CK, AX' });
+  const dos = aplicar({ campaigns: uno.campaigns }, [otra]);
+  assert.equal(dos.campaigns.length, 2, 'no entra una tercera');
+  assert.equal(dos.res.nuevas, 0);
+  assert.equal(dos.res.omitidas, 1);
+  assert.ok(dos.res.fallos.some(f => /ya existía|ya existia/.test(f)));
+});
+
+test('mismo inicio con OTRAS tiendas SI entra', () => {
+  const data = BASE();
+  const uno = aplicar(data, [accNueva()]);
+  const otra = accNueva();
+  otra.campana = Object.assign({}, otra.campana, {
+    name: 'Otra cosa', franchises: [fran('cl_boss'), fran('cl_mango')] });
+  const dos = aplicar({ campaigns: uno.campaigns }, [otra]);
+  assert.equal(dos.campaigns.length, 3);
+});
+
+test('mismas tiendas en otra fecha SI entra', () => {
+  const data = BASE();
+  const uno = aplicar(data, [accNueva()]);
+  const otra = accNueva();
+  otra.campana = Object.assign({}, otra.campana, { name: 'Otra', dateStart: '2027-01-05' });
+  assert.equal(aplicar({ campaigns: uno.campaigns }, [otra]).campaigns.length, 3);
+});
+
+// ── I1: ampliar una campana terminada la deja FINALIZADA ──
+// Entonces no aparece ni en CAMPANAS ACTIVAS ni en COMPLETADAS: desaparece del
+// informe justo cuando esta corriendo.
+test('ampliar al futuro recalcula el estado', () => {
+  const data = { campaigns: [{ id: 'c1', name: 'Suit Up Day', dateStart: '2025-10-20',
+    dateEnd: '2025-10-31', status: 'FINALIZADA', franchises: [fran('cl_ax')] }] };
+  const r = aplicar(data, [{ tipo: 'amplia', incluir: true, campanaId: 'c1',
+    nombreCampana: 'Suit Up Day', dateEnd: '2099-11-16' }]);
+  assert.equal(r.campaigns[0].dateEnd, '2099-11-16');
+  assert.equal(r.campaigns[0].status, 'ACTIVA', 'una campana extendida al futuro esta viva');
+});
+
+test('ampliar una campana que sigue terminada la deja FINALIZADA', () => {
+  const data = { campaigns: [{ id: 'c1', name: 'X', dateStart: '2020-01-01',
+    dateEnd: '2020-02-01', status: 'ACTIVA', franchises: [fran('cl_ax')] }] };
+  const r = aplicar(data, [{ tipo: 'amplia', incluir: true, campanaId: 'c1', dateEnd: '2020-03-01' }]);
+  assert.equal(r.campaigns[0].status, 'FINALIZADA');
+});
+
+test('ampliar no toca una campana CANCELADA', () => {
+  const data = { campaigns: [{ id: 'c1', name: 'X', dateStart: '2020-01-01',
+    dateEnd: '2020-02-01', status: 'CANCELADA', franchises: [] }] };
+  const r = aplicar(data, [{ tipo: 'amplia', incluir: true, campanaId: 'c1', dateEnd: '2099-03-01' }]);
+  assert.equal(r.campaigns[0].status, 'CANCELADA');
+});
+
+// ── El guardia al escribir ──
+// La tarjeta deja editar todo, incluso borrar el nombre o la fecha. Lo que
+// llega sin eso no se puede guardar: una campana sin inicio no tiene vigencia,
+// y sin nombre no se puede ni buscar.
+test('no escribe una campana sin fecha de inicio', () => {
+  const a = accNueva();
+  a.campana = Object.assign({}, a.campana, { dateStart: '' });
+  const r = aplicar(BASE(), [a]);
+  assert.equal(r.campaigns.length, 1);
+  assert.equal(r.res.nuevas, 0);
+  assert.ok(r.res.fallos.some(f => /fecha de inicio/.test(f)));
+});
+
+test('no escribe una campana sin nombre', () => {
+  const a = accNueva();
+  a.campana = Object.assign({}, a.campana, { name: '  ' });
+  const r = aplicar(BASE(), [a]);
+  assert.equal(r.res.nuevas, 0);
+  assert.ok(r.res.fallos.some(f => /sin nombre/.test(f)));
+});
+
+test('no escribe una campana sin tiendas', () => {
+  const a = accNueva();
+  a.campana = Object.assign({}, a.campana, { franchises: [] });
+  const r = aplicar(BASE(), [a]);
+  assert.equal(r.res.nuevas, 0);
+  assert.ok(r.res.fallos.some(f => /tienda/.test(f)));
 });

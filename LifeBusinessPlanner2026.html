@@ -22,7 +22,7 @@
 <script>
 (function() {
   // ── Version ──────────────────────────────────────────────────────────────
-  window.LBP_VERSION = '5.39';
+  window.LBP_VERSION = '5.40';
 
   // ── PWA Install prompt ───────────────────────────────────────────────────
   window._installPrompt = null;
@@ -622,14 +622,21 @@
     // COMPLETED / ACTIVE / EN_CURSO, que nadie escribe nunca: ninguna campana
     // aparecia aca, ni "Invierno 2026", la unica que habia. Se dejan los
     // nombres viejos por si quedo algun dato de antes.
+    // La vigencia se calcula con las fechas y el dia de hoy, no con el campo
+    // `status`, que queda congelado en el valor que tenia al importarse.
+    var _hoyMs = Date.now();
+    var _vig = function(c) { return window._campVigencia(c, _hoyMs); };
     var campaignsDone = (data.campaigns || []).filter(function(c) {
-      return (c.status === 'FINALIZADA' || c.status === 'COMPLETED') &&
+      return _vig(c) === 'FINALIZADA' &&
         inWin((c.dateEnd || c.endDate) ? new Date(c.dateEnd || c.endDate).getTime() : null);
     }).map(function(c) { return c.name + (c.dateEnd ? ' (fin ' + dstr(c.dateEnd) + ')' : ''); });
     var campaignsActive = (data.campaigns || []).filter(function(c) {
-      return c.status === 'ACTIVA' || c.status === 'PLANIFICADA' ||
-        c.status === 'ACTIVE' || c.status === 'EN_CURSO';
-    }).map(function(c) { return c.name + (c.dateStart ? ' (desde ' + dstr(c.dateStart) + ')' : ''); });
+      var v = _vig(c); return v === 'ACTIVA' || v === 'PLANIFICADA';
+    }).map(function(c) {
+      var v = _vig(c);
+      return c.name + (c.dateStart ? ' (' + (v === 'PLANIFICADA' ? 'desde' : 'desde') + ' ' + dstr(c.dateStart) + ')' : '') +
+        (v === 'PLANIFICADA' ? ' \u2014 por empezar' : '');
+    });
 
     // ── FINANZAS DEL PERIODO ────────────────────────────────────
     var finItems = [], finIn = 0, finOut = 0;
@@ -843,7 +850,7 @@
       (rep.campaignsDone.length || rep.campaignsActive.length) ? (
         (rep.campaignsDone.length ? '<p style="font-size:9.5pt;font-weight:bold;color:' + GREEN + ';margin:8px 0 2px 0;">CAMPANAS COMPLETADAS</p>' +
           rep.campaignsDone.map(function(c) { return line(c); }).join('') : '') +
-        (rep.campaignsActive.length ? '<p style="font-size:9.5pt;font-weight:bold;color:' + AMBER + ';margin:8px 0 2px 0;">CAMPANAS ACTIVAS</p>' +
+        (rep.campaignsActive.length ? '<p style="font-size:9.5pt;font-weight:bold;color:' + AMBER + ';margin:8px 0 2px 0;">CAMPANAS ACTIVAS Y POR EMPEZAR</p>' +
           rep.campaignsActive.map(function(c) { return line(c); }).join('') : '')
       ) : '<p style="font-size:10pt;color:#888;margin:6px 0;">Sin campanas registradas en el periodo.</p>'
     );
@@ -2074,6 +2081,42 @@ window._ckMarcar = function(html, idx, textoEsperado){
 // los datos. Pura: recibe data, devuelve {campaigns, res}. No muta data ni
 // toca estado de React, asi se puede probar en Node antes de desplegar
 // (tests/camp_aplicar.test.mjs).
+// Estado REAL de una campana hoy, calculado con sus fechas.
+// El campo `status` se fija una sola vez, cuando se importa el correo, y
+// despues nadie lo recalcula: una campana de octubre sigue diciendo ACTIVA en
+// noviembre, asi que aparece como activa en todos los informes siguientes y
+// nunca llega a completadas. El informe mira esto, no el campo.
+// CANCELADA es una decision de Pepe y manda sobre las fechas.
+window._campVigencia = function(c, hoyMs){
+  if (!c) return 'ACTIVA';
+  if (c.status === 'CANCELADA') return 'CANCELADA';
+  var hoy = hoyMs || Date.now();
+  var ms = function(d){ return d ? new Date(d + 'T12:00:00').getTime() : null; };
+  var ini = ms(c.dateStart), fin = ms(c.dateEnd || c.endDate);
+  if (fin !== null && !isNaN(fin) && fin < hoy) return 'FINALIZADA';
+  if (ini !== null && !isNaN(ini) && ini > hoy) return 'PLANIFICADA';
+  if (ini === null && fin === null) return c.status || 'ACTIVA';
+  return 'ACTIVA';
+};
+
+// Si una campana propuesta ya esta cargada. Una sola implementacion, usada
+// por la tarjeta (para destildarla y avisar) y por _campAplicar (para no
+// duplicar). El nombre lo escribe el modelo y cambia entre corridas, asi que
+// se compara tambien por el juego de tiendas, que sale del contenido del
+// correo. El inicio tiene que coincidir en los dos casos.
+window._campYaEsta = function(data, campana){
+  if (!data || !campana) return false;
+  var norm = function(s){ return String(s||'').trim().toLowerCase(); };
+  var tiendas = function(fs){
+    return ((fs)||[]).map(function(f){return f&&f.clientId;}).filter(Boolean).sort().join(',');
+  };
+  var clave = tiendas(campana.franchises);
+  return (data.campaigns||[]).some(function(x){
+    if ((x.dateStart||'')!==(campana.dateStart||'')) return false;
+    return norm(x.name)===norm(campana.name) || (!!clave && tiendas(x.franchises)===clave);
+  });
+};
+
 window._campAplicar = function(data, acciones){
   var ts = Date.now();
   var camps = ((data && data.campaigns) || []).map(function(c){
@@ -2091,10 +2134,18 @@ window._campAplicar = function(data, acciones){
       var c = a.campana || {};
       // Guardar dos veces la misma tanda (reabrir la tarjeta, doble click)
       // duplicaria la campana. Mismo nombre y misma fecha de inicio = la misma.
-      var dup = camps.filter(function(x){
-        return norm(x.name)===norm(c.name) && (x.dateStart||'')===(c.dateStart||'');
-      })[0];
-      if (dup) { res.omitidas++; res.fallos.push('ya existía: '+(c.name||'?')); return; }
+      // Guardia al escribir. La tarjeta deja editar todo, incluso vaciar el
+      // nombre o la fecha, y la reconversion de una continuacion llega sin
+      // fecha a proposito para que Pepe la complete. Nada de eso se guarda a
+      // medias: una campana sin inicio no tiene vigencia y el informe no sabe
+      // donde ponerla.
+      var _nom = String(c.name||'').trim();
+      if (!_nom) { res.omitidas++; res.fallos.push('sin nombre, no se guardó'); return; }
+      if (!c.dateStart) { res.omitidas++; res.fallos.push('sin fecha de inicio: '+_nom); return; }
+      if (!(c.franchises||[]).length) { res.omitidas++; res.fallos.push('sin tiendas: '+_nom); return; }
+      if (window._campYaEsta({campaigns:camps}, c)) {
+        res.omitidas++; res.fallos.push('ya existía: '+_nom); return;
+      }
       camps = [Object.assign({}, c, {
         id:'camp_'+ts+'_'+k,
         franchises:(c.franchises||[]).map(function(f,j){
@@ -2109,7 +2160,12 @@ window._campAplicar = function(data, acciones){
     var i = buscar(a.campanaId);
     if (i < 0) { res.fallos.push('la campaña ya no existe: '+(a.nombreCampana||a.campanaId||'?')); return; }
     if (a.tipo==='amplia') {
-      camps[i] = Object.assign({}, camps[i], {dateEnd:a.dateEnd, updatedAt:ts});
+      // Recalcular el estado es parte de ampliar: si no, una campana que
+      // estaba FINALIZADA y se extiende al futuro queda FINALIZADA con fecha
+      // de fin futura, y entonces no entra ni en las activas ni en las
+      // completadas del informe. Desaparece justo cuando esta corriendo.
+      var _ext = Object.assign({}, camps[i], {dateEnd:a.dateEnd});
+      camps[i] = Object.assign(_ext, {status: window._campVigencia(_ext, ts), updatedAt:ts});
       res.ampliadas++;
       res.detalle.push('📅 '+camps[i].name+' → '+a.dateEnd);
       return;
@@ -18186,9 +18242,24 @@ var CampanasCorreo = function CampanasCorreo(props) {
       .then(function(res){
         setFase('');
         if (!res || res.error) { setErr((res && res.error) || 'No pude leer el correo.'); return; }
-        var acc = (res.acciones||[]).map(function(a){ return Object.assign({}, a, {incluir: a.incluir !== false}); });
-        if (!acc.length) { setErr(res.note || 'No encontré campañas nuevas en tus correos enviados.'); return; }
-        setLote({acciones:acc, correos:res.correos||0, descartes:res.descartes||[], ts:res.ts||null});
+        // Los correos se acumulan en el KV y la tarjeta los vuelve a proponer
+        // cada vez que se abre. Lo que ya esta cargado entra destildado y
+        // marcado, para que no haya que acordarse de que ya se hizo.
+        var acc = (res.acciones||[]).map(function(a){
+          var ya = a.tipo==='nueva' && window._campYaEsta(data, a.campana);
+          return Object.assign({}, a, {incluir: ya ? false : (a.incluir !== false), yaImportado: ya});
+        });
+        var desc = res.descartes || [];
+        if (!acc.length) {
+          // "Lei 3 correos y descarte todas las propuestas" no puede leerse
+          // igual que "no hay nada nuevo": es la conclusion opuesta. El fallo
+          // mas comun del modelo es inventar ids de tienda, y eso tira abajo
+          // todas las propuestas de golpe.
+          if (desc.length) { setLote({acciones:[], correos:res.correos||0, descartes:desc, ts:res.ts||null}); return; }
+          setErr(res.note || 'No encontré campañas nuevas en tus correos enviados.');
+          return;
+        }
+        setLote({acciones:acc, correos:res.correos||0, descartes:desc, ts:res.ts||null});
       })
       .catch(function(){ setFase(''); setErr('Error de red al leer el correo.'); });
   };
@@ -18249,9 +18320,13 @@ var CampanasCorreo = function CampanasCorreo(props) {
   var marcadas = lote.acciones.filter(function(a){return a.incluir;}).length;
   return React.createElement('div',null,
     React.createElement('div',{style:{fontSize:12,color:'var(--text-dim)',marginBottom:10}},
-      lote.correos+' correo'+(lote.correos===1?'':'s')+' leído'+(lote.correos===1?'':'s')+
-      ' · '+lote.acciones.length+' propuesta'+(lote.acciones.length===1?'':'s')+
-      '. Revisa y destilda lo que no corresponda: nada se guarda hasta que le des Guardar.'),
+      lote.acciones.length
+        ? (lote.correos+' correo'+(lote.correos===1?'':'s')+' leído'+(lote.correos===1?'':'s')+
+           ' · '+lote.acciones.length+' propuesta'+(lote.acciones.length===1?'':'s')+
+           '. Revisa y destilda lo que no corresponda: nada se guarda hasta que le des Guardar.')
+        : ('Leí '+lote.correos+' correo'+(lote.correos===1?'':'s')+
+           ' y no pude armar ninguna propuesta: descarté todo lo que devolvió la IA. '+
+           'Abajo está el motivo de cada descarte.')),
     lote.acciones.map(function(a,i){
       var cf = CONF[a.confianza];
       var cab = a.tipo==='nueva' ? '🆕 Campaña nueva'
@@ -18265,6 +18340,10 @@ var CampanasCorreo = function CampanasCorreo(props) {
             style:{width:16,height:16,accentColor:'#9C68D6',cursor:'pointer'}}),
           React.createElement('div',{style:{flex:1,fontSize:12,fontWeight:800}},cab),
           cf ? chip(cf.t, cf.c) : null),
+        a.faltanDatos ? React.createElement('div',{style:{fontSize:10,color:'#F59E0B',marginBottom:5}},
+          '\u26A0 Falta la fecha de inicio. Compl\u00e9tala arriba o esta campa\u00f1a no se guarda.') : null,
+        a.yaImportado ? React.createElement('div',{style:{fontSize:10,color:'var(--text-dim)',marginBottom:5}},
+          '\u2713 Esta campa\u00f1a ya est\u00e1 cargada. Se deja destildada; t\u00edldala solo si quer\u00e9s volver a revisarla.') : null,
         a.posibleContinuacion ? React.createElement('div',{style:{fontSize:10,color:'#F59E0B',marginBottom:5}},
           '\u26A0 Podría ser la continuación de \u201c'+a.continuacionDe+'\u201d, más arriba. Si lo es, destíldala y súmale las tiendas a mano.') : null,
         a.tipo==='nueva' ? React.createElement('div',null,
@@ -18318,7 +18397,7 @@ var CampanasCorreo = function CampanasCorreo(props) {
         a.cita && a.confianza!=='alta' ? React.createElement('div',{style:{fontSize:10,fontStyle:'italic',color:'var(--text-dim)',marginTop:6,paddingTop:6,borderTop:'1px dashed var(--border)'}},
           '“'+a.cita+'”'+(a.correo?' — '+a.correo:'')) : null);
     }),
-    lote.descartes.length ? React.createElement('details',{style:{marginTop:6}},
+    lote.descartes.length ? React.createElement('details',{style:{marginTop:6},open:!lote.acciones.length},
       React.createElement('summary',{style:{fontSize:11,color:'var(--text-dim)',cursor:'pointer'}},
         'Descartado por la validación ('+lote.descartes.length+')'),
       lote.descartes.map(function(d,i){

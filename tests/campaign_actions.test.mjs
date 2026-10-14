@@ -84,3 +84,37 @@ test('la IA sin responder NO se ve como "nada que cargar"', async () => {
   assert.ok(b.error, 'tiene que haber un error visible, no una lista vacia muda');
   assert.match(b.error, /IA/);
 });
+
+// ── I5: /push-campanas estaba abierto a cualquiera ──
+// La URL del worker esta configurada dentro de la PWA publicada y se ve en
+// cualquier traza de red. Sin autenticacion, un POST {"n":5} le manda una
+// notificacion a todos los dispositivos de Pepe.
+const pushReq = (auth) => new Request('https://x/push-campanas', {
+  method: 'POST',
+  headers: Object.assign({ 'Content-Type': 'application/json' }, auth ? { Authorization: auth } : {}),
+  body: JSON.stringify({ n: 3 }),
+});
+
+const envPush = () => ({
+  BRIEFING_KEY: 'bk',
+  LBP_KV: { get: async k => (k === 'synckeys_registry' ? '["lbp_a"]' : (k === 'subs:lbp_a' ? '[]' : null)), put: async () => {} },
+});
+
+test('push-campanas sin autorizacion da 401', async () => {
+  const w = await cargar();
+  assert.equal((await w.fetch(pushReq(null), envPush())).status, 401);
+  assert.equal((await w.fetch(pushReq('Bearer malo'), envPush())).status, 401);
+});
+
+test('push-campanas con el secreto correcto pasa', async () => {
+  const w = await cargar();
+  const r = await w.fetch(pushReq('Bearer bk'), envPush());
+  assert.equal(r.status, 200);
+  assert.equal((await r.json()).sent, 0);  // sin suscripciones en este entorno
+});
+
+test('push-campanas sin BRIEFING_KEY en el worker no queda abierto', async () => {
+  const w = await cargar();
+  const env = Object.assign(envPush(), { BRIEFING_KEY: undefined });
+  assert.equal((await w.fetch(pushReq('Bearer bk'), env)).status, 401);
+});

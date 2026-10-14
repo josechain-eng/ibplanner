@@ -231,7 +231,16 @@ async function handleRequest(request, env) {
     // POST /test-push  \u2192  immediately push to all devices for a syncKey (diagnostic)
     // POST /push-campanas  {n}  -> aviso a todos los devices registrados.
     // Lo llama el worker del briefing cuando el puente encontro campanas.
+    // Pide el mismo secreto que el resto de la cadena: la URL de este worker
+    // esta configurada dentro de la PWA publicada y se ve en cualquier traza
+    // de red, asi que sin autenticacion cualquiera le manda notificaciones al
+    // telefono de Pepe. El worker del briefing lo tiene como INGEST_SECRET y
+    // la llamada va por el service binding.
     if (p === '/push-campanas' && request.method === 'POST') {
+      const auth = request.headers.get('Authorization') || '';
+      if (!env.BRIEFING_KEY || auth !== 'Bearer ' + env.BRIEFING_KEY) {
+        return json({ error: 'no autorizado' }, 401);
+      }
       let n = 0;
       try { n = parseInt((await request.json()).n, 10) || 0; } catch (err) { n = 0; }
       if (!n) return json({ sent: 0, note: 'nada que avisar' });
@@ -578,7 +587,7 @@ async function handleRequest(request, env) {
                  '\nASUNTO: ' + String(e.subject || '').slice(0, 160) +
                  '\nCUERPO:\n' + String(e.texto || '').slice(0, 6000);
         }).join('\n\n---\n\n');
-      const raw = await callClaude(env, [{ role: 'user', content: msg }], CAMP_SP, 8192);
+      const raw = await callClaude(env, [{ role: 'user', content: msg }], CAMP_SP, 16384);
       if (!raw) {
         // callClaude devuelve '' ante cualquier fallo (falta la key, 429, red).
         // Devolver acciones:[] sin decir nada se veria como "no hay nada que
@@ -1005,6 +1014,16 @@ function _campValidar(parsed, ctx) {
     return 'ACTIVA';
   }
   // Para comparar nombres de campana: sin acentos, sin mayusculas, sin bordes.
+  // El modulo de Campanas guarda 'Ni\u00f1a' y 'Ni\u00f1o'. Este archivo es ASCII
+  // puro, asi que el prompt pide 'Nina'/'Nino' y la traduccion se hace aca.
+  // Se aceptan las dos grafias: el modelo lee correos en castellano y es muy
+  // probable que escriba la correcta.
+  function linea(l) {
+    const k = String(l || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase().trim();
+    const mapa = { 'hombre': 'Hombre', 'mujer': 'Mujer', 'nina': 'Ni\u00f1a', 'nino': 'Ni\u00f1o',
+                   'kids': 'Kids', 'toda la tienda': 'Toda la Tienda' };
+    return mapa[k] || '';
+  }
   function clave(nombre) {
     return String(nombre || '')
       .normalize('NFD').replace(/[\u0300-\u036f]/g, '')
@@ -1028,7 +1047,13 @@ function _campValidar(parsed, ctx) {
       out.push({
         id: 'fran_' + f.clientId,
         clientId: f.clientId,
-        lines: (Array.isArray(f.lines) ? f.lines : []).filter(function (l) { return lineas[l]; }),
+        lines: (Array.isArray(f.lines) ? f.lines : []).map(function (l) {
+          const ok = linea(l);
+          // Un descarte silencioso es invisible: una campana de Mango nina
+          // perderia su linea sin que nadie se entere.
+          if (!ok) descartes.push('linea desconocida en ' + etiqueta + ': ' + String(l).slice(0, 40));
+          return ok;
+        }).filter(Boolean),
         sublines: (Array.isArray(f.sublines) ? f.sublines : [])
           .filter(function (s) { return s && texto(s.name, 120); })
           .slice(0, 8)
@@ -1041,6 +1066,33 @@ function _campValidar(parsed, ctx) {
     return out;
   }
 
+  // Una sola guarda para 'nueva'. La usan los DOS caminos que la producen: el
+  // directo y la reconversion de una 'suma' que no pudo identificar su
+  // campana. Antes la reconversion no validaba nada, asi que era la unica
+  // puerta por la que entraba una campana sin fecha de inicio, con el fin
+  // antes del inicio, o llamada "Campana sin nombre".
+  // `laxa` = esto viene de una 'suma' que no pudo identificar su campana. Una
+  // 'suma' no trae bloque campana (el modelo manda campanaId y franchises), asi
+  // que exigirle nombre y fecha la descartaria siempre y se perderia el correo
+  // entero. En ese caso el asunto sirve de nombre, la fecha queda vacia y la
+  // accion sale marcada: la tarjeta tiene selector de fecha y _campAplicar no
+  // la deja guardar hasta que este completa.
+  function armarNueva(c0, franRaw, conf, correo, cita, laxa) {
+    const c = c0 || {};
+    const nombre = texto(c.name, 120) || (laxa ? texto(correo, 120) : '');
+    const frs = franquicias(franRaw, nombre || 'campana nueva');
+    let ini = fecha(c.dateStart), fin = fecha(c.dateEnd);
+    if (!nombre) { descartes.push('campana nueva sin nombre: ' + (correo || '?')); return null; }
+    if (!frs.length) { descartes.push('campana nueva sin tiendas validas: ' + nombre); return null; }
+    if (!ini && !laxa) { descartes.push('campana nueva sin fecha de inicio: ' + nombre); return null; }
+    if (ini && fin && fin < ini) { descartes.push('fin antes del inicio, se deja vacio: ' + nombre); fin = ''; }
+    const out = { tipo: 'nueva', confianza: conf, correo: correo, cita: cita,
+      campana: { name: nombre, dateStart: ini, dateEnd: fin, status: estado(ini, fin, c.status),
+                 notes: texto(c.notes, 300), franchises: frs }, incluir: true };
+    if (!ini) out.faltanDatos = true;
+    return out;
+  }
+
   (Array.isArray(parsed && parsed.acciones) ? parsed.acciones : []).slice(0, 20).forEach(function (a) {
     if (!a || typeof a !== 'object') return;
     const conf = (a.confianza === 'alta' || a.confianza === 'baja') ? a.confianza : 'media';
@@ -1050,8 +1102,20 @@ function _campValidar(parsed, ctx) {
       if (!camps[a.campanaId]) { descartes.push('ampliacion sin campana conocida: ' + (a.campanaId || '?')); return; }
       const fin = fecha(a.dateEnd);
       if (!fin) { descartes.push('ampliacion sin fecha valida: ' + (correo || '?')); return; }
+      const obj = camps[a.campanaId];
+      // Es la UNICA accion que modifica una campana existente en vez de
+      // agregar una. Un ano mal tipeado ("hasta el 16 de Noviembre" en un
+      // correo de nov-2025 -> 2024-11-16) la dejaria con el fin antes del
+      // inicio, y la tarjeta solo muestra un selector de fecha suelto: Pepe no
+      // puede ver que quedo invertida sin salir de ahi. Por eso se valida
+      // contra la campana y se le mandan sus fechas actuales.
+      if (obj.dateStart && fin < obj.dateStart) {
+        descartes.push('ampliacion con fin antes del inicio de "' + obj.name + '" (' + obj.dateStart + '): ' + fin);
+        return;
+      }
       acciones.push({ tipo: 'amplia', confianza: conf, correo: correo, cita: cita,
-        campanaId: a.campanaId, nombreCampana: camps[a.campanaId].name, dateEnd: fin, incluir: true });
+        campanaId: a.campanaId, nombreCampana: obj.name, dateEnd: fin,
+        dateStart: obj.dateStart || '', dateEndActual: obj.dateEnd || '', incluir: true });
       return;
     }
 
@@ -1067,32 +1131,14 @@ function _campValidar(parsed, ctx) {
       // Descartarla en silencio perderia el correo entero, que es peor:
       // pasa como nueva con confianza baja y Pepe decide.
       descartes.push('suma reconvertida a nueva, campana no identificada: ' + (correo || '?'));
-      const c0 = a.campana || {};
-      acciones.push({ tipo: 'nueva', confianza: 'baja', correo: correo, cita: cita,
-        campana: {
-          name: texto(c0.name, 120) || correo || 'Campana sin nombre',
-          dateStart: fecha(c0.dateStart), dateEnd: fecha(c0.dateEnd),
-          status: estado(fecha(c0.dateStart), fecha(c0.dateEnd), null),
-          notes: texto(c0.notes, 300), franchises: frs
-        }, incluir: true });
+      const reco = armarNueva(a.campana, a.franchises, 'baja', correo, cita, true);
+      if (reco) acciones.push(reco);
       return;
     }
 
     if (a.tipo !== 'nueva') { descartes.push('tipo desconocido: ' + (a.tipo || '?')); return; }
-    const c = a.campana || {};
-    const nombre = texto(c.name, 120);
-    const frs2 = franquicias(c.franchises, nombre || 'campana nueva');
-    let ini = fecha(c.dateStart), fin2 = fecha(c.dateEnd);
-    if (!nombre) { descartes.push('campana nueva sin nombre'); return; }
-    if (!frs2.length) { descartes.push('campana nueva sin tiendas validas: ' + nombre); return; }
-    if (!ini) { descartes.push('campana nueva sin fecha de inicio: ' + nombre); return; }
-    if (fin2 && fin2 < ini) { descartes.push('fin antes del inicio, se deja vacio: ' + nombre); fin2 = ''; }
-    acciones.push({ tipo: 'nueva', confianza: conf, correo: correo, cita: cita,
-      campana: {
-        name: nombre, dateStart: ini, dateEnd: fin2,
-        status: estado(ini, fin2, c.status),
-        notes: texto(c.notes, 300), franchises: frs2
-      }, incluir: true });
+    const hecha = armarNueva(a.campana, a.campana && a.campana.franchises, conf, correo, cita);
+    if (hecha) acciones.push(hecha);
   });
 
   // Dos "nueva" con el mismo nombre en una tanda son casi siempre una campana

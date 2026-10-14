@@ -254,3 +254,93 @@ test('el nombre se compara sin acentos ni mayusculas', () => {
   const r = validar({ acciones: [una, otra] }, CTX_HOY);
   assert.equal(r.acciones[1].posibleContinuacion, true);
 });
+
+// ── I4: la reconversion suma->nueva salteaba TODAS las guardas de 'nueva' ──
+// Es el unico camino que produce una 'nueva' que las reglas del propio spec
+// dicen que no puede existir.
+test('reconvertida con fin antes del inicio se vacia el fin', () => {
+  const r = validar({ acciones: [{ tipo: 'suma', campanaId: 'camp_99', correo: 'Continuando',
+    campana: { name: 'Dia de la Madre', dateStart: '2026-05-11', dateEnd: '2026-05-01' },
+    franchises: [{ clientId: 'cl_ck', lines: [], sublines: [] }] }] }, CTX_HOY);
+  assert.equal(r.acciones.length, 1);
+  assert.equal(r.acciones[0].campana.dateEnd, '');
+});
+
+test('reconvertida sin nombre usa el asunto del correo, no "Campana sin nombre"', () => {
+  // Una 'suma' no trae bloque campana: el modelo solo manda campanaId y
+  // franchises. Descartarla pierde el correo entero; el asunto es un nombre
+  // util y Pepe lo edita en la tarjeta.
+  const r = validar({ acciones: [{ tipo: 'suma', campanaId: 'camp_99',
+    correo: 'Re: Campana Matrimonios y Graduados',
+    franchises: [{ clientId: 'cl_ck', lines: [], sublines: [] }] }] }, CTX_HOY);
+  assert.equal(r.acciones.length, 1);
+  assert.equal(r.acciones[0].campana.name, 'Re: Campana Matrimonios y Graduados');
+  assert.equal(r.acciones[0].confianza, 'baja');
+});
+
+test('reconvertida sin nombre NI asunto si se descarta', () => {
+  const r = validar({ acciones: [{ tipo: 'suma', campanaId: 'camp_99',
+    franchises: [{ clientId: 'cl_ck', lines: [], sublines: [] }] }] }, CTX_HOY);
+  assert.equal(r.acciones.length, 0);
+});
+
+test('reconvertida sin fecha de inicio pasa marcada, no se descarta', () => {
+  // Sin fecha no se puede guardar (lo impide _campAplicar), pero la tarjeta
+  // tiene un selector de fecha: proponerla marcada le deja completarla.
+  // Descartarla en silencio le saca esa posibilidad.
+  const r = validar({ acciones: [{ tipo: 'suma', campanaId: 'camp_99', correo: 'Re: Campana X',
+    franchises: [{ clientId: 'cl_ck', lines: [], sublines: [] }] }] }, CTX_HOY);
+  assert.equal(r.acciones.length, 1);
+  assert.equal(r.acciones[0].campana.dateStart, '');
+  assert.equal(r.acciones[0].faltanDatos, true);
+});
+
+test('una nueva directa sin nombre SI se descarta', () => {
+  // Ahi el modelo tuvo toda la informacion y no lo lleno: es una senal de que
+  // entendio mal el correo.
+  const p = nueva();
+  p.acciones[0].campana.name = '   ';
+  assert.equal(validar(p, CTX_HOY).acciones.length, 0);
+});
+
+// ── I1: amplia no validaba la fecha contra la campana que modifica ──
+// Es la unica accion que CAMBIA datos existentes en vez de agregar.
+test('amplia con fin anterior al inicio de la campana se descarta', () => {
+  const ctx = Object.assign({}, CTX_HOY, {
+    campanas: [{ id: 'camp_1', name: 'Suit Up Day', dateStart: '2025-10-20', dateEnd: '2025-10-31' }] });
+  const r = validar({ acciones: [{ tipo: 'amplia', campanaId: 'camp_1', dateEnd: '2024-11-16' }] }, ctx);
+  assert.equal(r.acciones.length, 0, 'un ano mal tipeado no puede invertir una campana real');
+  assert.ok(r.descartes.some(d => /antes del inicio/.test(d)));
+});
+
+test('amplia valida lleva el inicio de la campana para que se pueda ver', () => {
+  const ctx = Object.assign({}, CTX_HOY, {
+    campanas: [{ id: 'camp_1', name: 'Suit Up Day', dateStart: '2025-10-20', dateEnd: '2025-10-31' }] });
+  const r = validar({ acciones: [{ tipo: 'amplia', campanaId: 'camp_1', dateEnd: '2026-11-16' }] }, ctx);
+  assert.equal(r.acciones[0].dateStart, '2025-10-20');
+  assert.equal(r.acciones[0].dateEndActual, '2025-10-31');
+});
+
+// ── I3: las lineas con eñe ──
+// worker.js es ASCII puro, pero el modulo de Campanas usa 'Niña' y 'Niño'.
+test('Nina y Nino se guardan con la eñe que usa el modulo', () => {
+  const p = nueva();
+  p.acciones[0].campana.franchises[0].lines = ['Nina', 'Nino'];
+  const r = validar(p, CTX_HOY);
+  assert.deepEqual(r.acciones[0].campana.franchises[0].lines, ['Niña', 'Niño']);
+});
+
+test('si el modelo escribe bien el castellano tambien se acepta', () => {
+  const p = nueva();
+  p.acciones[0].campana.franchises[0].lines = ['Niña', 'Niño', 'Kids'];
+  const r = validar(p, CTX_HOY);
+  assert.deepEqual(r.acciones[0].campana.franchises[0].lines, ['Niña', 'Niño', 'Kids']);
+});
+
+test('una linea inventada se descarta Y se informa', () => {
+  const p = nueva();
+  p.acciones[0].campana.franchises[0].lines = ['Hombre', 'Gafas'];
+  const r = validar(p, CTX_HOY);
+  assert.deepEqual(r.acciones[0].campana.franchises[0].lines, ['Hombre']);
+  assert.ok(r.descartes.some(d => /Gafas/.test(d)), 'un descarte silencioso es invisible');
+});
