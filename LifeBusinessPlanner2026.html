@@ -22,7 +22,7 @@
 <script>
 (function() {
   // ── Version ──────────────────────────────────────────────────────────────
-  window.LBP_VERSION = '5.36';
+  window.LBP_VERSION = '5.37';
 
   // ── PWA Install prompt ───────────────────────────────────────────────────
   window._installPrompt = null;
@@ -617,11 +617,18 @@
       .sort(function(a, b) { return (b.done.length + b.progress.length + b.pending.length) - (a.done.length + a.progress.length + a.pending.length); });
 
     // ── CAMPANAS ────────────────────────────────────────────────
+    // Los estados que escribe el modulo de Campanas son PLANIFICADA / ACTIVA /
+    // FINALIZADA / CANCELADA (CAMP_STATUSES). El informe filtraba por
+    // COMPLETED / ACTIVE / EN_CURSO, que nadie escribe nunca: ninguna campana
+    // aparecia aca, ni "Invierno 2026", la unica que habia. Se dejan los
+    // nombres viejos por si quedo algun dato de antes.
     var campaignsDone = (data.campaigns || []).filter(function(c) {
-      return c.status === 'COMPLETED' && inWin((c.dateEnd || c.endDate) ? new Date(c.dateEnd || c.endDate).getTime() : null);
+      return (c.status === 'FINALIZADA' || c.status === 'COMPLETED') &&
+        inWin((c.dateEnd || c.endDate) ? new Date(c.dateEnd || c.endDate).getTime() : null);
     }).map(function(c) { return c.name + (c.dateEnd ? ' (fin ' + dstr(c.dateEnd) + ')' : ''); });
     var campaignsActive = (data.campaigns || []).filter(function(c) {
-      return c.status === 'ACTIVE' || c.status === 'EN_CURSO';
+      return c.status === 'ACTIVA' || c.status === 'PLANIFICADA' ||
+        c.status === 'ACTIVE' || c.status === 'EN_CURSO';
     }).map(function(c) { return c.name + (c.dateStart ? ' (desde ' + dstr(c.dateStart) + ')' : ''); });
 
     // ── FINANZAS DEL PERIODO ────────────────────────────────────
@@ -707,8 +714,8 @@
       '  - en curso (no recibido/cancelado): ' + (data.imports || []).filter(function(i){return i.status!=='RECIBIDO'&&i.status!=='CANCELADO';}).length + '\n\n' +
       'CAMPAÑAS\n' +
       '- Total: ' + (data.campaigns || []).length + '\n' +
-      '  - ACTIVE: ' + (data.campaigns || []).filter(function(c){return c.status==='ACTIVE';}).length + '\n' +
-      '  - COMPLETED esta semana: ' + (data.campaigns || []).filter(function(c){return c.status==='COMPLETED'&&inWeek(c.endDate?new Date(c.endDate).getTime():null);}).length + '\n\n' +
+      '  - ACTIVA: ' + (data.campaigns || []).filter(function(c){return c.status==='ACTIVA'||c.status==='ACTIVE';}).length + '\n' +
+      '  - FINALIZADA esta semana: ' + (data.campaigns || []).filter(function(c){return (c.status==='FINALIZADA'||c.status==='COMPLETED')&&inWeek((c.dateEnd||c.endDate)?new Date(c.dateEnd||c.endDate).getTime():null);}).length + '\n\n' +
       'CLIENTES REGISTRADOS: ' + (data.clients || []).length + '\n' +
       (data.clients || []).slice(0, 8).map(function(c){ return '  - ' + (c.businessName || c.name); }).join('\n') + '\n\n' +
       'EJEMPLOS — tareas DONE esta semana sin cliente:\n' +
