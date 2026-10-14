@@ -229,6 +229,31 @@ async function handleRequest(request, env) {
     }
 
     // POST /test-push  \u2192  immediately push to all devices for a syncKey (diagnostic)
+    // POST /push-campanas  {n}  -> aviso a todos los devices registrados.
+    // Lo llama el worker del briefing cuando el puente encontro campanas.
+    if (p === '/push-campanas' && request.method === 'POST') {
+      let n = 0;
+      try { n = parseInt((await request.json()).n, 10) || 0; } catch (err) { n = 0; }
+      if (!n) return json({ sent: 0, note: 'nada que avisar' });
+      const registry = JSON.parse(await env.LBP_KV.get('synckeys_registry') || '[]');
+      let sent = 0;
+      for (const syncKey of registry) {
+        const subs = JSON.parse(await env.LBP_KV.get('subs:' + syncKey) || '[]');
+        for (const sub of subs) {
+          try {
+            await sendPush(sub, {
+              title: '\uD83C\uDFF7 Campanas en tu correo',
+              body: n + ' correo' + (n === 1 ? '' : 's') + ' de campana listo' + (n === 1 ? '' : 's') +
+                    ' para revisar en Campaigns.',
+              alarmId: 'camp_' + Date.now(), vibration: 'long'
+            });
+            sent++;
+          } catch (err) { /* un device caido no frena a los demas */ }
+        }
+      }
+      return json({ sent });
+    }
+
     if (p === '/test-push' && request.method === 'POST') {
       const { syncKey } = await request.json();
       if (!syncKey) return json({ error: 'missing syncKey' }, 400);

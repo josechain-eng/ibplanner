@@ -60,7 +60,7 @@ test('la misma tanda dos veces no duplica', () => {
   assert.equal(dos.campaigns.length, 2);
   assert.equal(dos.res.nuevas, 0);
   assert.equal(dos.res.omitidas, 1);
-  assert.ok(dos.res.fallos.some(f => f.includes('ya existia')));
+  assert.ok(dos.res.fallos.some(f => f.includes('ya existía')));
 });
 
 test('mismo nombre con otra fecha de inicio SI entra', () => {
