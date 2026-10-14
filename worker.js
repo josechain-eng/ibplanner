@@ -479,6 +479,101 @@ async function handleRequest(request, env) {
       return json({ ts: payload.ts || null, days, emails: inWindow.length, analyzed: analyzed.length, byClient }, 200);
     }
 
+    // GET /campaign-actions?key=<syncKey>
+    // Trae las campanas que el puente leyo en la carpeta Enviados y hace que
+    // Claude las convierta en acciones sobre el modulo de Campanas.
+    // NO escribe nada: devuelve propuestas para la tarjeta de confirmacion.
+    if (p === '/campaign-actions' && request.method === 'GET') {
+      const syncKey = url.searchParams.get('key') || '';
+      if (!syncKey) return json({ error: 'Falta key', correos: 0, acciones: [] }, 200);
+      const briefKey = env.BRIEFING_KEY;
+      if (!briefKey) return json({ error: 'Falta el secreto BRIEFING_KEY en el worker', correos: 0, acciones: [] }, 200);
+      let payload;
+      const briefPath = '/campanas-correo?key=' + encodeURIComponent(briefKey);
+      try {
+        // Service binding: un fetch a la URL publica de workers.dev desde otro
+        // Worker de la misma cuenta devuelve 404.
+        let r;
+        if (env.BRIEFING_SERVICE) {
+          r = await env.BRIEFING_SERVICE.fetch(new Request('https://briefing.internal' + briefPath));
+        } else {
+          r = await fetch((env.BRIEFING_URL || 'https://briefing-diario-pepe.josechain.workers.dev') + briefPath);
+        }
+        if (!r.ok) return json({ error: 'Briefing respondio ' + r.status + (env.BRIEFING_SERVICE ? ' (binding)' : ' (http)'), correos: 0, acciones: [] }, 200);
+        payload = await r.json();
+      } catch (err) {
+        return json({ error: 'No pude leer el briefing: ' + err.message, correos: 0, acciones: [] }, 200);
+      }
+      const correos = Array.isArray(payload.correos) ? payload.correos.slice(0, 30) : [];
+      if (!correos.length) {
+        return json({ ts: payload.ts || null, correos: 0, acciones: [], descartes: [], note: 'Sin correos de campana. Abri Outlook y corre el puente.' }, 200);
+      }
+      let clients = [], campanas = [];
+      try {
+        const blob = await env.LBP_KV.get('data:' + syncKey);
+        const parsedData = blob ? JSON.parse(blob) : {};
+        clients = (parsedData.clients || [])
+          .filter(function (c) { return c && c.id; })
+          .map(function (c) { return { id: c.id, nombre: c.businessName || c.name || c.id }; });
+        campanas = (parsedData.campaigns || [])
+          .filter(function (c) { return c && c.id; })
+          .map(function (c) {
+            return { id: c.id, name: c.name || '', dateStart: c.dateStart || '', dateEnd: c.dateEnd || '',
+                     status: c.status || '',
+                     tiendas: (c.franchises || []).map(function (f) { return f.clientId; }).filter(Boolean) };
+          });
+      } catch (err) {
+        return json({ error: 'No pude leer tus datos: ' + err.message, correos: correos.length, acciones: [] }, 200);
+      }
+      if (!clients.length) {
+        return json({ error: 'No tengo tus tiendas cargadas en la nube. Abri la app para que sincronice.', correos: correos.length, acciones: [] }, 200);
+      }
+      const LINEAS = ['Hombre', 'Mujer', 'Nina', 'Nino', 'Kids', 'Toda la Tienda'];
+      // hoy en hora de Bolivia: el estado de la campana se deriva de las fechas,
+      // no de lo que opine el modelo.
+      const ctx = { clientIds: clients.map(function (c) { return c.id; }), lineas: LINEAS,
+                    campanas: campanas, hoy: _hoyBolivia() };
+      const msg =
+        'TIENDAS (usa el id tal cual):\n' +
+        clients.map(function (c) { return '- ' + c.id + ' = ' + c.nombre; }).join('\n') + '\n\n' +
+        'LINEAS DE MANGO: Mango Mujer (SHE), Mango Hombre (HE), Mango Ninos (Kids). ' +
+        'Hay dos tiendas Mango: Santa Cruz y La Paz; las de La Paz llevan LP detras del nombre. ' +
+        'El Outlet Express es una minitienda del atrio donde se juntan prendas de varias tiendas, ' +
+        'normalmente al 70%.\n\n' +
+        'CAMPANAS YA CARGADAS:\n' +
+        (campanas.length
+          ? campanas.map(function (c) {
+              return '- ' + c.id + ' | ' + c.name + ' | ' + (c.dateStart || '?') + ' a ' + (c.dateEnd || '?') +
+                     ' | ' + (c.status || '?') + ' | tiendas: ' + (c.tiendas.join(', ') || 'ninguna');
+            }).join('\n')
+          : '(ninguna)') + '\n\n' +
+        'CORREOS ENVIADOS:\n' +
+        correos.map(function (e, i) {
+          return '[' + (i + 1) + '] FECHA DE ENVIO: ' + (e.date || '?') +
+                 '\nASUNTO: ' + String(e.subject || '').slice(0, 160) +
+                 '\nCUERPO:\n' + String(e.texto || '').slice(0, 6000);
+        }).join('\n\n---\n\n');
+      const raw = await callClaude(env, [{ role: 'user', content: msg }], CAMP_SP, 8192);
+      if (!raw) {
+        // callClaude devuelve '' ante cualquier fallo (falta la key, 429, red).
+        // Devolver acciones:[] sin decir nada se veria como "no hay nada que
+        // cargar", que es exactamente la conclusion equivocada.
+        return json({ ts: payload.ts || null, correos: correos.length, acciones: [], descartes: [],
+                      error: 'La IA no respondio. Reintenta en un rato.' }, 200);
+      }
+      let parsed = null;
+      try {
+        const m = String(raw).match(/\{[\s\S]*\}/);
+        parsed = m ? JSON.parse(m[0]) : null;
+      } catch (err) { parsed = null; }
+      if (!parsed) {
+        return json({ ts: payload.ts || null, correos: correos.length, acciones: [], descartes: [],
+                      error: 'La IA no devolvio JSON valido.' }, 200);
+      }
+      const out = _campValidar(parsed, ctx);
+      return json({ ts: payload.ts || null, correos: correos.length,
+                    acciones: out.acciones, descartes: out.descartes }, 200);
+    }
     if (p === '/chat' && request.method === 'POST') {
       const apiKey = env.ANTHROPIC_API_KEY;
       if (!apiKey) return json({ error: 'ANTHROPIC_API_KEY not set.' }, 500);
@@ -809,6 +904,194 @@ async function registerSyncKey(env, syncKey) {
     await env.LBP_KV.put('synckeys_registry', JSON.stringify(registry));
   }
 }
+
+// Prompt de extraccion de campanas desde el correo. Cada regla nace de un
+// correo real que la rompe. Ver el spec:
+// docs/superpowers/specs/2026-10-14-campanas-desde-correo-design.html
+const CAMP_SP = 'Eres el extractor de campanas de descuento de LB Planner, la app de Pepe ' +
+  '(gerente de Ventura Mall, La Paz, Bolivia). Recibis correos que Pepe mando a contabilidad ' +
+  'pidiendo subir campanas al sistema, con su FECHA DE ENVIO, la lista de TIENDAS con su id, ' +
+  'y las CAMPANAS ya cargadas en la app.\n\n' +
+  'Hay tres tipos de correo:\n' +
+  '1. NUEVA: anuncia una campana que no estaba. tipo "nueva".\n' +
+  '2. CONTINUACION: "continuando con la misma campana para las otras tiendas" -> suma tiendas ' +
+  'a una campana que YA existe. tipo "suma", con el campanaId de la campana existente.\n' +
+  '3. AMPLIACION: "ampliar en sistema la campana de referencia hasta el 16 de Noviembre" -> ' +
+  'cambia SOLO la fecha de fin. tipo "amplia", con campanaId y dateEnd.\n\n' +
+  'REGLAS DURAS:\n' +
+  '- FECHAS RELATIVAS contra la fecha de envio del correo. "Desde hoy y hasta fin de mes" en un ' +
+  'correo del 3-oct-2026 es dateStart 2026-10-03 y dateEnd 2026-10-31. "Hasta el domingo 12 de ' +
+  'abril (incluido)" es dateEnd 2026-04-12. Siempre YYYY-MM-DD.\n' +
+  '- RESPETAR LAS EXCLUSIONES. Si el correo dice "por el momento NO tomar en cuenta BOSS", ' +
+  'Boss NO entra.\n' +
+  '- VARIOS DESCUENTOS EN UNA CAMPANA son varias sublineas. "50% de descuento (30% las prendas ' +
+  'de invierno)" son DOS sublineas, no una.\n' +
+  '- "MNG HE" es una LINEA de la tienda Mango, no una tienda. La tienda va en clientId y la ' +
+  'linea en lines. Lo mismo "MNG SHE" (Mujer) y "MNG Kids" (Kids). Si el nombre termina en LP ' +
+  'es la tienda de La Paz.\n' +
+  '- lines SOLO puede contener estos valores exactos: Hombre, Mujer, Nina, Nino, Kids, ' +
+  'Toda la Tienda. Si el correo no distingue linea, dejalo vacio.\n' +
+  '- SOLO podes usar clientId de la lista de tiendas que te di, copiado tal cual. NUNCA inventes ' +
+  'un id ni uses el nombre en su lugar.\n' +
+  '- Para "suma" y "amplia", el campanaId tiene que ser uno de la lista de campanas existentes. ' +
+  'Si no estas seguro de CUAL campana es, devolvela como "nueva" y pone "confianza":"baja".\n' +
+  '- DESCARTAR lo que no es una campana. "RE: Campanas de Descuento Realizadas 2024" es un ' +
+  'pedido de reporte, no una campana: no lo devuelvas.\n' +
+  '- MEJOR DUDAR QUE EQUIVOCARSE. Si algo no esta claro, "confianza":"baja". En "cita" pone la ' +
+  'frase textual del correo que origino la accion, para que Pepe pueda verificarla.\n' +
+  '- status solo puede ser PLANIFICADA, ACTIVA, FINALIZADA o CANCELADA.\n\n' +
+  'RESPONDE SOLO CON JSON VALIDO, sin texto alrededor ni bloques de codigo:\n' +
+  '{"acciones":[' +
+  '{"tipo":"nueva","confianza":"alta","correo":"asunto del correo","cita":"frase textual",' +
+  '"campana":{"name":"...","dateStart":"2026-10-03","dateEnd":"2026-10-31","status":"ACTIVA",' +
+  '"notes":"","franchises":[{"clientId":"...","lines":["Hombre"],' +
+  '"sublines":[{"name":"todas las prendas del archivo","discount":"30%"}],"notes":""}]}},' +
+  '{"tipo":"suma","confianza":"media","correo":"...","cita":"...","campanaId":"camp_...",' +
+  '"franchises":[]},' +
+  '{"tipo":"amplia","confianza":"alta","correo":"...","cita":"...","campanaId":"camp_...",' +
+  '"dateEnd":"2025-11-16"}]}';
+
+// <<<CAMPANAS-VALIDA>>>
+// Muro de contencion entre el modelo y la pantalla. Mismo criterio que
+// "Registrar lo hecho": antes descartar algo valido que escribir algo que
+// Pepe no dijo. Pura a proposito, para poder probarla en Node sin desplegar
+// (tests/campanas_valida.test.mjs la extrae entre estos marcadores).
+function _campValidar(parsed, ctx) {
+  const ESTADOS = ['PLANIFICADA', 'ACTIVA', 'FINALIZADA', 'CANCELADA'];
+  const ids = {}, camps = {}, lineas = {};
+  ((ctx && ctx.clientIds) || []).forEach(function (x) { ids[x] = 1; });
+  ((ctx && ctx.campanas) || []).forEach(function (c) { if (c && c.id) camps[c.id] = c; });
+  ((ctx && ctx.lineas) || []).forEach(function (l) { lineas[l] = 1; });
+  const descartes = [], acciones = [];
+
+  function fecha(v) {
+    return (typeof v === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(v)) ? v : '';
+  }
+  // El estado NO lo decide el modelo: lo deciden las fechas.
+  // Verificado en vivo el 14-oct-2026 con los correos reales: el modelo marco
+  // una campana del 3-oct al 31-oct como FINALIZADA estando en curso, y otra
+  // del 7-oct como ACTIVA. El prompt nunca le dijo como elegir, asi que
+  // adivinaba y se contradecia. Con las fechas y el dia de hoy no hay nada que
+  // adivinar. dateEnd es inclusive: el ultimo dia la campana sigue viva.
+  function estado(ini, fin, delModelo) {
+    if (!ctx || !ctx.hoy) return ESTADOS.indexOf(delModelo) >= 0 ? delModelo : 'PLANIFICADA';
+    if (ini && ini > ctx.hoy) return 'PLANIFICADA';
+    if (fin && fin < ctx.hoy) return 'FINALIZADA';
+    return 'ACTIVA';
+  }
+  // Para comparar nombres de campana: sin acentos, sin mayusculas, sin bordes.
+  function clave(nombre) {
+    return String(nombre || '')
+      .normalize('NFD').replace(/[\u0300-\u036f]/g, '')
+      .toLowerCase().trim().replace(/\s+/g, ' ');
+  }
+  function texto(v, n) {
+    return String(v == null ? '' : v).trim().slice(0, n);
+  }
+  function franquicias(arr, etiqueta) {
+    const vistos = {}, out = [];
+    (Array.isArray(arr) ? arr : []).forEach(function (f) {
+      if (!f || !ids[f.clientId]) {
+        descartes.push('tienda desconocida en ' + etiqueta + ': ' + ((f && f.clientId) || '?'));
+        return;
+      }
+      if (vistos[f.clientId]) {
+        descartes.push('tienda repetida en ' + etiqueta + ': ' + f.clientId);
+        return;
+      }
+      vistos[f.clientId] = 1;
+      out.push({
+        id: 'fran_' + f.clientId,
+        clientId: f.clientId,
+        lines: (Array.isArray(f.lines) ? f.lines : []).filter(function (l) { return lineas[l]; }),
+        sublines: (Array.isArray(f.sublines) ? f.sublines : [])
+          .filter(function (s) { return s && texto(s.name, 120); })
+          .slice(0, 8)
+          .map(function (s, k) {
+            return { id: 'sl_' + f.clientId + '_' + k, name: texto(s.name, 120), discount: texto(s.discount, 20) };
+          }),
+        notes: texto(f.notes, 300)
+      });
+    });
+    return out;
+  }
+
+  (Array.isArray(parsed && parsed.acciones) ? parsed.acciones : []).slice(0, 20).forEach(function (a) {
+    if (!a || typeof a !== 'object') return;
+    const conf = (a.confianza === 'alta' || a.confianza === 'baja') ? a.confianza : 'media';
+    const correo = texto(a.correo, 160), cita = texto(a.cita, 300);
+
+    if (a.tipo === 'amplia') {
+      if (!camps[a.campanaId]) { descartes.push('ampliacion sin campana conocida: ' + (a.campanaId || '?')); return; }
+      const fin = fecha(a.dateEnd);
+      if (!fin) { descartes.push('ampliacion sin fecha valida: ' + (correo || '?')); return; }
+      acciones.push({ tipo: 'amplia', confianza: conf, correo: correo, cita: cita,
+        campanaId: a.campanaId, nombreCampana: camps[a.campanaId].name, dateEnd: fin, incluir: true });
+      return;
+    }
+
+    if (a.tipo === 'suma') {
+      const frs = franquicias(a.franchises, 'suma');
+      if (!frs.length) { descartes.push('suma sin tiendas validas: ' + (correo || '?')); return; }
+      if (camps[a.campanaId]) {
+        acciones.push({ tipo: 'suma', confianza: conf, correo: correo, cita: cita,
+          campanaId: a.campanaId, nombreCampana: camps[a.campanaId].name, franchises: frs, incluir: true });
+        return;
+      }
+      // El correo dice "continuando con la misma campana" pero no sabemos cual.
+      // Descartarla en silencio perderia el correo entero, que es peor:
+      // pasa como nueva con confianza baja y Pepe decide.
+      descartes.push('suma reconvertida a nueva, campana no identificada: ' + (correo || '?'));
+      const c0 = a.campana || {};
+      acciones.push({ tipo: 'nueva', confianza: 'baja', correo: correo, cita: cita,
+        campana: {
+          name: texto(c0.name, 120) || correo || 'Campana sin nombre',
+          dateStart: fecha(c0.dateStart), dateEnd: fecha(c0.dateEnd),
+          status: estado(fecha(c0.dateStart), fecha(c0.dateEnd), null),
+          notes: texto(c0.notes, 300), franchises: frs
+        }, incluir: true });
+      return;
+    }
+
+    if (a.tipo !== 'nueva') { descartes.push('tipo desconocido: ' + (a.tipo || '?')); return; }
+    const c = a.campana || {};
+    const nombre = texto(c.name, 120);
+    const frs2 = franquicias(c.franchises, nombre || 'campana nueva');
+    let ini = fecha(c.dateStart), fin2 = fecha(c.dateEnd);
+    if (!nombre) { descartes.push('campana nueva sin nombre'); return; }
+    if (!frs2.length) { descartes.push('campana nueva sin tiendas validas: ' + nombre); return; }
+    if (!ini) { descartes.push('campana nueva sin fecha de inicio: ' + nombre); return; }
+    if (fin2 && fin2 < ini) { descartes.push('fin antes del inicio, se deja vacio: ' + nombre); fin2 = ''; }
+    acciones.push({ tipo: 'nueva', confianza: conf, correo: correo, cita: cita,
+      campana: {
+        name: nombre, dateStart: ini, dateEnd: fin2,
+        status: estado(ini, fin2, c.status),
+        notes: texto(c.notes, 300), franchises: frs2
+      }, incluir: true });
+  });
+
+  // Dos "nueva" con el mismo nombre en una tanda son casi siempre una campana
+  // y su continuacion: el correo de continuacion no pudo apuntar a la campana
+  // porque todavia no existe (se esta proponiendo aca mismo). El spec decide
+  // proponerlas separadas con confianza baja, no fusionarlas; esto solo lo dice
+  // en voz alta, para que la tarjeta no muestre dos campanas con el mismo
+  // nombre sin explicar por que.
+  var porNombre = {};
+  acciones.forEach(function (a) {
+    if (a.tipo !== 'nueva') return;
+    var k = clave(a.campana.name);
+    if (porNombre[k]) {
+      a.posibleContinuacion = true;
+      a.continuacionDe = porNombre[k];
+      if (a.confianza === 'alta') a.confianza = 'media';
+    } else {
+      porNombre[k] = a.campana.name;
+    }
+  });
+
+  return { acciones: acciones, descartes: descartes };
+}
+// <<<FIN CAMPANAS-VALIDA>>>
 
 async function callClaude(env, messages, system, maxTokens) {
   const apiKey = env.ANTHROPIC_API_KEY;
