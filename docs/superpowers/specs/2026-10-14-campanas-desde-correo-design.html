@@ -1,0 +1,127 @@
+<!doctype html><html lang="es"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Campañas desde el correo → módulo de Campañas</title><style>
+:root{--bg:#f4f1ea;--card:#fff;--line:#e2ddd0;--ink:#2b2926;--muted:#948d7d;--gold:#9a7b3f;--ok:#2f6a4a;--bad:#b04a35;--warn:#b07d2e}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--ink);font:16px/1.6 -apple-system,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;-webkit-text-size-adjust:100%}
+.wrap{max-width:960px;margin:0 auto;padding:28px 16px 64px}
+.top{font-size:12px;letter-spacing:.06em;text-transform:uppercase;color:var(--gold);font-weight:600;margin-bottom:6px}
+.top a{color:var(--gold);text-decoration:none}
+h1,h2,h3,h4{font-family:Georgia,"Times New Roman",serif;color:var(--ink);line-height:1.25}
+h1{font-size:32px;margin:4px 0 6px}
+.meta{color:var(--muted);font-size:13px;margin-bottom:22px}
+h2{font-size:23px;margin:36px 0 12px;padding-top:14px;border-top:1px solid var(--line)}
+h3{font-size:19px;margin:26px 0 8px}
+h4{font-size:16px;margin:20px 0 6px}
+p,li{max-width:76ch;overflow-wrap:anywhere}
+h1,h2,h3,.meta,.toc a{overflow-wrap:anywhere}
+a{color:var(--gold)}
+strong{color:#1f1d1a}
+ul,ol{padding-left:22px}
+li{margin:3px 0}
+blockquote{margin:14px 0;padding:12px 16px;background:var(--card);border:1px solid var(--line);border-left:3px solid var(--gold);border-radius:8px;color:#4a463f}
+blockquote p{margin:4px 0}
+code{background:#efeadf;border-radius:4px;padding:1px 5px;font-size:.88em;word-break:break-word}
+pre{background:var(--card);border:1px solid var(--line);border-radius:8px;padding:12px;overflow-x:auto}
+pre code{background:none;padding:0}
+.tbl{overflow-x:auto;margin:14px 0;background:var(--card);border:1px solid var(--line);border-radius:10px;box-shadow:0 1px 3px rgba(43,41,38,.04)}
+table{border-collapse:collapse;width:100%;font-size:14px;font-variant-numeric:tabular-nums}
+th{background:#faf8f3;color:var(--gold);text-transform:uppercase;letter-spacing:.04em;font-size:11.5px;text-align:left;padding:9px 10px;border-bottom:1px solid var(--line);white-space:nowrap}
+td{padding:8px 10px;border-bottom:1px solid #eee8db;vertical-align:top}
+tr:last-child td{border-bottom:0}
+hr{border:0;border-top:1px solid var(--line);margin:28px 0}
+.toc{background:var(--card);border:1px solid var(--line);border-radius:10px;padding:14px 18px;margin:0 0 8px;box-shadow:0 1px 3px rgba(43,41,38,.04)}
+.toc .lbl{font-size:11.5px;letter-spacing:.06em;text-transform:uppercase;color:var(--gold);font-weight:600;margin-bottom:6px}
+.toc ul{margin:0;padding-left:18px}
+.toc a{color:var(--ink);text-decoration:none}
+.toc a:hover{color:var(--gold)}
+.foot{margin-top:48px;color:var(--muted);font-size:12.5px;border-top:1px solid var(--line);padding-top:12px}
+@media (max-width:600px){h1{font-size:26px}h2{font-size:20px}body{font-size:15px}}
+@media print{body{background:#fff}.toc{display:none}.tbl{overflow:visible}a{color:var(--ink)}}
+</style></head><body><div class="wrap">
+<div class="top">Said With Heart · Informe</div><h1>Campañas desde el correo → módulo de Campañas</h1>
+<div class="meta">Fuente: spec.md · generado el 14-10-2026</div>
+<nav class="toc"><div class="lbl">Contenido</div><ul><li><a href="#que-resuelve">Qué resuelve</a></li><li><a href="#lo-que-se-verifico-antes-de-disenar">Lo que se verificó antes de diseñar</a></li><li><a href="#los-tres-tipos-de-correo">Los tres tipos de correo</a></li><li><a href="#arquitectura">Arquitectura</a></li><li><a href="#que-recibe-el-modelo">Qué recibe el modelo</a></li><li><a href="#reglas-duras-del-prompt">Reglas duras del prompt</a></li><li><a href="#forma-de-la-respuesta">Forma de la respuesta</a></li><li><a href="#nada-se-escribe-solo">Nada se escribe solo</a></li><li><a href="#cuando-corre">Cuándo corre</a></li><li><a href="#como-se-prueba">Cómo se prueba</a></li><li><a href="#riesgos">Riesgos</a></li><li><a href="#lo-que-queda-afuera-a-proposito">Lo que queda afuera a propósito</a></li></ul></nav><p><strong>14-oct-2026 · diseño para revisión, nada construido todavía</strong></p>
+<h2 id="que-resuelve">Qué resuelve</h2>
+<p>Pepe manda cada campaña de descuentos a contabilidad por correo, para que la suban a sistema. Esa misma información nunca llega al módulo de Campañas de LB Planner: hoy tiene <strong>una sola campaña cargada</strong> ("Invierno 2026", de junio), porque llenarla a mano es tedioso.</p>
+<p>La meta: que las campañas que ya se comunicaron por correo aparezcan en el módulo sin volver a tipearlas, revisables antes de guardar.</p>
+<p><strong>Lo que NO es:</strong> no reemplaza el correo a contabilidad ni toca el Excel con el detalle prenda por prenda. El módulo trabaja a nivel de tienda, línea y porcentaje; ahí llega.</p>
+<h2 id="lo-que-se-verifico-antes-de-disenar">Lo que se verificó antes de diseñar</h2>
+<p>Probado en vivo contra Outlook el 14-oct:</p>
+<ul>
+<li><strong>El puente ya lee la carpeta de Enviados.</strong> Hoy extrae solo el asunto (lo usa para saber qué correos ya se contestaron). Hay que sumarle fecha de envío y cuerpo.</li>
+<li><strong><code>content of m</code> devuelve HTML completo</strong>, generado por Word. Buena noticia: las tablas sobreviven (el correo del 11-may trae una de 12 filas). Mala: viene con mucho ruido de Office (<code>&lt;o:p&gt;</code>, estilos <code>mso-*</code>).</li>
+<li><strong>Los destinatarios NO se pueden leer.</strong> <code>address of email address of r</code> devuelve vacío; <code>count of to recipients</code> sí funciona. Se probaron tres sintaxis.</li>
+<li><strong>El asunto alcanza como filtro.</strong> De los ~300 correos revisados en Enviados, todos los de campaña traen «Campaña» en el asunto. Filtrar por destinatario era innecesario.</li>
+<li><strong>El destinatario que Pepe recordaba era incorrecto:</strong> los correos van a <code>jgandarillas@venturabrands.com.bo</code> (dominio <strong>venturabrands.com.bo</strong>), no <code>@venturamall.bo</code>. Si se hubiera filtrado por lo indicado, el resultado habría sido cero correos presentado como «funcionando».</li>
+</ul>
+<h2 id="los-tres-tipos-de-correo">Los tres tipos de correo</h2>
+<p>Sobre correos reales de abr-2026 a nov-2025:</p>
+<p><strong>1 · Campaña nueva.</strong> «Desde hoy y hasta fin de mes estaremos entrando en la campaña de Matrimonios y Graduados en las tiendas: MNG HE, CK, Hugo, AX y Chillibeans.»</p>
+<p><strong>2 · Continuación.</strong> «Continuando con la misma campaña para las otras tiendas, adjunto paso el archivo para cada una de las tiendas faltantes.» → <strong>suma tiendas a una campaña existente</strong>, no crea otra.</p>
+<p><strong>3 · Ampliación.</strong> «Por favor ampliar en sistema la campaña de referencia hasta el 16 de Noviembre (inclusive).» → <strong>cambia la fecha de fin</strong> de una campaña existente.</p>
+<h2 id="arquitectura">Arquitectura</h2>
+<pre><code>Outlook (Mac) ──► ventura_bridge.py ──► POST /ingest-campanas ──► KV campanas_raw
+                   (ya lee Enviados)      (worker briefing)
+                                                │
+                                   service binding
+                                                ▼
+LB Planner (app) ◄── tarjeta de confirmación ◄── GET /campaign-actions
+                                                 (worker life-planner + Claude)
+</code></pre>
+<p>Cuatro piezas, cada una con una sola responsabilidad:</p>
+<p><strong>El puente</strong> filtra por asunto y publica asunto, fecha de envío y cuerpo convertido a texto. La conversión HTML→texto se hace <strong>en el puente</strong>, no en el worker: ahí está el HTML crudo y conviene no mandar 40 KB de estilos de Word por la red. Las tablas se convierten a filas con <code>|</code> como separador, para que el modelo las lea como tabla.</p>
+<p><strong>El worker del briefing</strong> guarda en KV y lo expone, igual que ya hace con <code>ingest_ventura</code>.</p>
+<p><strong>El worker de LB Planner</strong> tiene el endpoint nuevo, hermano del <code>/email-actions</code> que ya existe para el informe semanal. Arma el contexto y llama a Claude.</p>
+<p><strong>La app</strong> muestra la tarjeta de confirmación y escribe en <code>data.campaigns</code> solo cuando Pepe acepta.</p>
+<h2 id="que-recibe-el-modelo">Qué recibe el modelo</h2>
+<ul>
+<li>El cuerpo en texto y <strong>la fecha de envío</strong> (sin ella no se pueden resolver las fechas).</li>
+<li><strong>Las 9 tiendas</strong> con su id: AX, Mango, CK, Boss, Chillibeans, Kids Delux, Hugo, Mango LP, Outlet Express.</li>
+<li><strong>Las 3 líneas de Mango</strong>: Mujer (SHE), Hombre (HE), Niños (Kids); en La Paz con «LP» detrás.</li>
+<li><strong>Las campañas ya cargadas</strong> (nombre, fechas, tiendas), para poder decidir continuación o ampliación.</li>
+</ul>
+<h2 id="reglas-duras-del-prompt">Reglas duras del prompt</h2>
+<p>Cada una nace de un correo real que la rompería:</p>
+<ol>
+<li><strong>Fechas relativas contra la fecha de envío.</strong> «Desde hoy y hasta fin de mes» en un correo del 3-oct → <code>2026-10-03</code> a <code>2026-10-31</code>. «Hasta el domingo 12 de abril (incluido)» → <code>2026-04-12</code>.</li>
+<li><strong>Respetar exclusiones.</strong> «por el momento NO tomar en cuenta BOSS» → Boss no entra.</li>
+<li><strong>Varios descuentos en una campaña.</strong> «50% de descuento (30% las prendas de invierno)» → dos sublíneas, no una.</li>
+<li><strong>«MNG HE» es línea, no tienda.</strong> Tienda va en <code>clientId</code>, línea en <code>lines</code>.</li>
+<li><strong>Continuación y ampliación apuntan a una campaña existente</strong>, por id. Si no se identifica con seguridad cuál, se propone como nueva y se marca con confianza baja.</li>
+<li><strong>Solo elegir tiendas de la lista dada</strong>, por id. Igual que en «Registrar lo hecho», cada id se valida contra las 9 antes de mostrarlo.</li>
+<li><strong>Descartar lo que no es una campaña.</strong> «RE: Campañas de Descuento Realizadas 2024» es un pedido de reporte.</li>
+</ol>
+<h2 id="forma-de-la-respuesta">Forma de la respuesta</h2>
+<pre><code class="language-json">{&quot;acciones&quot;:[
+  {&quot;tipo&quot;:&quot;nueva&quot;,&quot;confianza&quot;:&quot;alta&quot;,&quot;correo&quot;:&quot;Campaña Matrimonios y Graduados&quot;,
+   &quot;campana&quot;:{&quot;name&quot;:&quot;Matrimonios y Graduados&quot;,&quot;dateStart&quot;:&quot;2026-10-03&quot;,&quot;dateEnd&quot;:&quot;2026-10-31&quot;,
+     &quot;status&quot;:&quot;ACTIVE&quot;,
+     &quot;franchises&quot;:[{&quot;clientId&quot;:&quot;...&quot;,&quot;lines&quot;:[&quot;Hombre (HE)&quot;],
+                    &quot;sublines&quot;:[{&quot;name&quot;:&quot;todas las prendas del archivo&quot;,&quot;discount&quot;:&quot;30%&quot;}],
+                    &quot;notes&quot;:&quot;arranca hoy&quot;}]}},
+  {&quot;tipo&quot;:&quot;suma&quot;,&quot;confianza&quot;:&quot;media&quot;,&quot;campanaId&quot;:&quot;camp_...&quot;,&quot;franchises&quot;:[...]},
+  {&quot;tipo&quot;:&quot;amplia&quot;,&quot;confianza&quot;:&quot;alta&quot;,&quot;campanaId&quot;:&quot;camp_...&quot;,&quot;dateEnd&quot;:&quot;2025-11-16&quot;}
+]}
+</code></pre>
+<h2 id="nada-se-escribe-solo">Nada se escribe solo</h2>
+<p>Una tarjeta de confirmación, con el mismo criterio que «Registrar lo hecho»: cada acción se puede destildar, los textos y descuentos se editan, y las de confianza media o baja salen señaladas con la frase del correo que las originó.</p>
+<p>Esto no es ceremonia: los correos tienen matices finos —el 70% del Outlet Express, que en Chillibeans solo entran las gafas de sol, que AX y CK arrancan el lunes y no el viernes— y una campaña mal cargada se propaga al informe semanal.</p>
+<h2 id="cuando-corre">Cuándo corre</h2>
+<p>Los días <strong>5 y 25</strong>, o la primera vez que Outlook esté abierto después de esa fecha. No puede ser un cron fijo: el puente depende de Outlook abierto, que se cierra solo tras una hora y pide huella. Es la misma limitación que ya tiene el briefing diario.</p>
+<p>Cuando encuentra algo, llega un push: «3 campañas nuevas detectadas en tus correos».</p>
+<p>Se guarda la fecha del último correo procesado para no reprocesar. La primera corrida mira 90 días hacia atrás.</p>
+<h2 id="como-se-prueba">Cómo se prueba</h2>
+<ol>
+<li><strong>El puente</strong>, con correos reales: que los 5 ejemplos conocidos pasen el filtro y que el cuerpo llegue legible, con la tabla del 11-may convertida en filas.</li>
+<li><strong>La extracción</strong>, con esos 5 correos como casos fijos y el resultado esperado escrito a mano: fechas resueltas, BOSS excluido donde corresponde, dos sublíneas donde hay dos descuentos, la continuación del 14-jul apuntando a la campaña del 31-jul.</li>
+<li><strong>La validación</strong>, con respuestas inventadas del modelo: ids inexistentes, repetidos, <code>campanaId</code> que no existe. Ninguno debe llegar a la tarjeta.</li>
+<li><strong>La escritura</strong>, sobre una copia de los datos: que una campaña nueva no toque las existentes, que una suma agregue solo las tiendas nuevas, que una ampliación cambie únicamente <code>dateEnd</code>.</li>
+</ol>
+<h2 id="riesgos">Riesgos</h2>
+<p><strong>El HTML de Word.</strong> La conversión a texto es donde esto se puede ensuciar. Se prueba primero, con los correos reales, antes de construir el resto.</p>
+<p><strong>Identificar «la misma campaña».</strong> Es lo más frágil. Mitigación: se propone, no se aplica; y si no hay certeza, se marca confianza baja.</p>
+<p><strong>Una campaña, varios correos a lo largo de días.</strong> La ventana de 90 días en la primera corrida puede traer fragmentos de campañas viejas ya cerradas. Se propone como nuevas y se destildan.</p>
+<h2 id="lo-que-queda-afuera-a-proposito">Lo que queda afuera a propósito</h2>
+<p>El Excel adjunto (el módulo no llega a nivel prenda), escribir de vuelta al correo, y cualquier acción sobre el sistema de contabilidad.</p>
+<div class="foot">Etiquetas: [DATO] leído en el original · [DATO-2ª] citado por un tercero · [VENDOR] lo dice la propia tienda o herramienta · [INF]/[EST] inferencia o estimación.</div>
+</div></body></html>
