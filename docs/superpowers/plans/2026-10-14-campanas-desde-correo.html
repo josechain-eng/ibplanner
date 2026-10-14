@@ -1,0 +1,2414 @@
+<!doctype html><html lang="es"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Campañas desde el correo — Plan de implementación</title><style>
+:root{--bg:#f4f1ea;--card:#fff;--line:#e2ddd0;--ink:#2b2926;--muted:#948d7d;--gold:#9a7b3f;--ok:#2f6a4a;--bad:#b04a35;--warn:#b07d2e}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--ink);font:16px/1.6 -apple-system,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;-webkit-text-size-adjust:100%}
+.wrap{max-width:960px;margin:0 auto;padding:28px 16px 64px}
+.top{font-size:12px;letter-spacing:.06em;text-transform:uppercase;color:var(--gold);font-weight:600;margin-bottom:6px}
+.top a{color:var(--gold);text-decoration:none}
+h1,h2,h3,h4{font-family:Georgia,"Times New Roman",serif;color:var(--ink);line-height:1.25}
+h1{font-size:32px;margin:4px 0 6px}
+.meta{color:var(--muted);font-size:13px;margin-bottom:22px}
+h2{font-size:23px;margin:36px 0 12px;padding-top:14px;border-top:1px solid var(--line)}
+h3{font-size:19px;margin:26px 0 8px}
+h4{font-size:16px;margin:20px 0 6px}
+p,li{max-width:76ch;overflow-wrap:anywhere}
+h1,h2,h3,.meta,.toc a{overflow-wrap:anywhere}
+a{color:var(--gold)}
+strong{color:#1f1d1a}
+ul,ol{padding-left:22px}
+li{margin:3px 0}
+blockquote{margin:14px 0;padding:12px 16px;background:var(--card);border:1px solid var(--line);border-left:3px solid var(--gold);border-radius:8px;color:#4a463f}
+blockquote p{margin:4px 0}
+code{background:#efeadf;border-radius:4px;padding:1px 5px;font-size:.88em;word-break:break-word}
+pre{background:var(--card);border:1px solid var(--line);border-radius:8px;padding:12px;overflow-x:auto}
+pre code{background:none;padding:0}
+.tbl{overflow-x:auto;margin:14px 0;background:var(--card);border:1px solid var(--line);border-radius:10px;box-shadow:0 1px 3px rgba(43,41,38,.04)}
+table{border-collapse:collapse;width:100%;font-size:14px;font-variant-numeric:tabular-nums}
+th{background:#faf8f3;color:var(--gold);text-transform:uppercase;letter-spacing:.04em;font-size:11.5px;text-align:left;padding:9px 10px;border-bottom:1px solid var(--line);white-space:nowrap}
+td{padding:8px 10px;border-bottom:1px solid #eee8db;vertical-align:top}
+tr:last-child td{border-bottom:0}
+hr{border:0;border-top:1px solid var(--line);margin:28px 0}
+.toc{background:var(--card);border:1px solid var(--line);border-radius:10px;padding:14px 18px;margin:0 0 8px;box-shadow:0 1px 3px rgba(43,41,38,.04)}
+.toc .lbl{font-size:11.5px;letter-spacing:.06em;text-transform:uppercase;color:var(--gold);font-weight:600;margin-bottom:6px}
+.toc ul{margin:0;padding-left:18px}
+.toc a{color:var(--ink);text-decoration:none}
+.toc a:hover{color:var(--gold)}
+.foot{margin-top:48px;color:var(--muted);font-size:12.5px;border-top:1px solid var(--line);padding-top:12px}
+@media (max-width:600px){h1{font-size:26px}h2{font-size:20px}body{font-size:15px}}
+@media print{body{background:#fff}.toc{display:none}.tbl{overflow:visible}a{color:var(--ink)}}
+</style></head><body><div class="wrap">
+<div class="top">Said With Heart · Informe</div><h1>Campañas desde el correo — Plan de implementación</h1>
+<div class="meta">Fuente: 2026-10-14-campanas-desde-correo.md · generado el 14-10-2026</div>
+<nav class="toc"><div class="lbl">Contenido</div><ul><li><a href="#global-constraints">Global Constraints</a></li><li><a href="#review-focus">Review Focus</a></li><li><a href="#lo-que-queda-afuera-igual-que-en-el-spec">Lo que queda afuera, igual que en el spec</a></li><li><a href="#verificado-antes-de-entregar-este-plan">Verificado antes de entregar este plan</a></li><li><a href="#lo-que-hay-que-verificarle-a-pepe-cuando-este-todo">Lo que hay que verificarle a Pepe cuando esté todo</a></li></ul></nav><blockquote>
+<p><strong>For agentic workers:</strong> REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (<code>- [ ]</code>) syntax for tracking.</p>
+</blockquote>
+<p><strong>Goal:</strong> Que las campañas de descuento que Pepe ya comunicó por correo a contabilidad aparezcan en el módulo de Campañas de LB Planner, propuestas para revisar y confirmar, sin volver a tipearlas.</p>
+<p><strong>Architecture:</strong> Cuatro piezas con una sola responsabilidad cada una. El puente local (<code>campanas.py</code>) lee la carpeta Enviados de Outlook por AppleScript, filtra por asunto, convierte el HTML de Word a texto y publica en el worker del briefing. El worker del briefing lo guarda en KV y lo expone. El worker de LB Planner arma el contexto (9 tiendas + campañas ya cargadas), llama a Claude, y <strong>valida</strong> lo que devuelve antes de que llegue a la pantalla. La app muestra una tarjeta de confirmación y escribe en <code>data.campaigns</code> sólo cuando Pepe acepta.</p>
+<p><strong>Tech Stack:</strong> Python 3 (stdlib únicamente — launchd corre <code>/usr/bin/python3</code>), AppleScript/osascript, Cloudflare Workers ESM + KV, React 18 vía <code>React.createElement</code> en un único HTML, <code>node --test</code> para las pruebas de JS, <code>unittest</code> para las de Python.</p>
+<p><strong>Spec:</strong> <code>docs/superpowers/specs/2026-10-14-campanas-desde-correo-design.html</code></p>
+<hr />
+<h2 id="global-constraints">Global Constraints</h2>
+<ul>
+<li><strong><code>worker.js</code> (los dos) es ASCII puro.</strong> Nada fuera de 0x20–0x7E. Los acentos y emojis van como <code>\uXXXX</code>. Motivo documentado: copiar/pegar el worker en el editor de Cloudflare corrompe los literales no-ASCII. Los textos en español dentro de los prompts se escriben <strong>sin acentos</strong> (así está el prompt de <code>/email-actions</code> hoy).</li>
+<li><strong><code>node --check</code> obligatorio</strong> después de cada cambio en <code>worker.js</code> y después de cada parche al HTML. Para el HTML: extraer el <code>&lt;script&gt;</code> más grande y chequear ese archivo (ver patrón en <code>patch_v476.py:147-155</code>).</li>
+<li><strong>En los scripts Python de parcheo, nunca un <code>\n</code> literal dentro de un string</strong> que se inserta en el HTML: va <code>\\n</code>. Un <code>\n</code> literal rompe el JavaScript resultante.</li>
+<li><strong>El puente no puede tener dependencias.</strong> <code>launchd</code> corre <code>/usr/bin/python3</code> (el de Xcode, más viejo que la Terminal). Sólo stdlib, y <code>from __future__ import annotations</code> al inicio de cualquier archivo nuevo que use <code>str | None</code>.</li>
+<li><strong><code>wrangler.toml</code> de <code>life-planner</code> NO declara <code>[vars]</code> a propósito.</strong> Todo lo sensible es secret. Antes de cualquier <code>wrangler deploy</code>, verificar que <code>[triggers] crons = ["* * * * *"]</code> sigue en el toml: un deploy reemplaza el set de crons por el del archivo.</li>
+<li><strong><code>wrangler.toml</code> de <code>briefing-diario-pepe</code> tiene <code>crons = []</code> a propósito.</strong> No ponerle horario.</li>
+<li><strong>Estados de campaña válidos, exactamente estos cuatro:</strong> <code>PLANIFICADA</code>, <code>ACTIVA</code>, <code>FINALIZADA</code>, <code>CANCELADA</code> (<code>LifeBusinessPlanner2026.html:18091</code>). El ejemplo del spec decía <code>"status":"ACTIVE"</code> — <strong>el spec está equivocado en ese campo</strong>; manda el código.</li>
+<li><strong>Líneas válidas, exactamente estas seis:</strong> <code>Hombre</code>, <code>Mujer</code>, <code>Niña</code>, <code>Niño</code>, <code>Kids</code>, <code>Toda la Tienda</code> (<code>LifeBusinessPlanner2026.html:18093</code>). «MNG HE» no es una línea válida: se mapea a <code>Hombre</code>. Cualquier línea que el modelo invente se descarta en silencio (la campaña entra igual, sin esa línea).</li>
+<li><strong>Nada se escribe sin confirmación de Pepe.</strong> Ningún camino de este código modifica <code>data.campaigns</code> sin un click explícito en la tarjeta.</li>
+<li><strong>Un commit por tarea</strong>, al final de la tarea, con los archivos que esa tarea tocó.</li>
+</ul>
+<h2 id="review-focus">Review Focus</h2>
+<p>Cinco cosas que el spec implica pero no dice, y que muerden a quien usa esto. La prueba de cada una está en la tarea dueña del código:</p>
+<ol>
+<li><strong>Outlook cerrado o AppleScript que falla</strong> → si el puente marca el período como corrido igual, esos correos se pierden para siempre. El marcador de estado se escribe sólo después de un POST exitoso. <em>(Tarea 3)</em></li>
+<li><strong>La IA no devuelve JSON</strong> (o falta <code>ANTHROPIC_API_KEY</code>: <code>callClaude</code> devuelve <code>''</code> ante cualquier fallo) → la tarjeta no puede mostrar una lista vacía como si estuviera todo revisado. Tiene que decir que no pudo leer. <em>(Tarea 5, Step 6: <code>la IA sin responder NO se ve como "nada que cargar"</code>)</em></li>
+<li><strong>Una campaña nueva y su continuación en la misma tanda</strong> → el <code>suma</code> apunta a un <code>campanaId</code> que todavía no existe. No se descarta en silencio: pasa como <code>nueva</code> con confianza baja para que Pepe decida. <em>(Tarea 5)</em></li>
+<li><strong>Pepe guarda la misma tanda dos veces</strong> (vuelve a abrir la tarjeta, o doble click) → campañas duplicadas. <code>_campAplicar</code> omite la <code>nueva</code> cuyo nombre + <code>dateStart</code> ya existen, y lo informa. <em>(Tarea 6)</em></li>
+<li><strong>Una campaña sin tiendas, o con fecha de fin anterior al inicio</strong> → el módulo la renderiza rota y el informe la cuenta mal. La validación la descarta (sin tiendas) o le vacía el <code>dateEnd</code> (fin &lt; inicio). <em>(Tarea 5)</em></li>
+</ol>
+<hr />
+<h3 id="task-1-el-puente-convierte-el-html-de-word-a-texto">Task 1: El puente convierte el HTML de Word a texto</h3>
+<p>Es el riesgo que el spec manda probar primero: <em>«El HTML de Word. La conversión a texto es donde esto se puede ensuciar. Se prueba primero, con los correos reales, antes de construir el resto.»</em></p>
+<p><strong>Files:</strong></p>
+<ul>
+<li>Create: <code>~/Documents/Projects/Briefing Diario/bridge/campanas.py</code></li>
+<li>Create: <code>~/Documents/Projects/Briefing Diario/bridge/test_campanas.py</code></li>
+<li>Create: <code>~/Documents/Projects/Briefing Diario/bridge/fixtures/</code> (HTML real capturado de Outlook)</li>
+</ul>
+<p><strong>Interfaces:</strong></p>
+<ul>
+<li>Consumes: nada.</li>
+<li>
+<p>Produces: <code>campanas.html_a_texto(bruto: str) -&gt; str</code>, <code>campanas.es_campana(asunto: str) -&gt; bool</code>, <code>campanas.MAX_CUERPO: int</code>.</p>
+</li>
+<li>
+<p>[ ] <strong>Step 1: Capturar los correos reales a fixtures</strong></p>
+</li>
+</ul>
+<p>Outlook tiene que estar abierto. Este script es de sólo lectura y no publica nada.</p>
+<pre><code class="language-bash">cd ~/Documents/Projects/Briefing\ Diario/bridge &amp;&amp; mkdir -p fixtures &amp;&amp; osascript -e '
+tell application &quot;Microsoft Outlook&quot;
+    set fol to mail folder &quot;Sent Items&quot;
+    set total to (count of messages of fol)
+    set out to &quot;&quot;
+    set n to 0
+    set idx to 1
+    repeat while n &lt; 6 and idx &lt;= total
+        set m to message idx of fol
+        set idx to idx + 1
+        set subj to &quot;&quot;
+        try
+            set subj to subject of m
+        end try
+        if subj contains &quot;ampa&quot; then
+            set bod to &quot;&quot;
+            try
+                set bod to content of m
+            end try
+            set out to out &amp; &quot;===ASUNTO=== &quot; &amp; subj &amp; return &amp; bod &amp; return &amp; &quot;&lt;&lt;&lt;EOR&gt;&gt;&gt;&quot; &amp; return
+            set n to n + 1
+        end if
+    end repeat
+    return out
+end tell' &gt; fixtures/enviados_campana.txt; wc -c fixtures/enviados_campana.txt; grep -c &quot;===ASUNTO===&quot; fixtures/enviados_campana.txt
+</code></pre>
+<p>Si el nombre de la carpeta no es <code>Sent Items</code>, listarlas primero: <code>osascript -e 'tell application "Microsoft Outlook" to get name of every mail folder'</code>. Si devuelve 0 registros, el recorrido arranca por la punta vieja: cambiar <code>set idx to 1</code> por <code>set idx to total</code> y <code>set idx to idx + 1</code> por <code>set idx to idx - 1</code>.</p>
+<p>Esperado: al menos 5 registros, y que uno de ellos contenga <code>&lt;table</code> (el del 11-may, con la tabla de 12 filas).</p>
+<ul>
+<li>[ ] <strong>Step 2: Escribir la prueba que falla</strong></li>
+</ul>
+<p><code>bridge/test_campanas.py</code>:</p>
+<pre><code class="language-python">#!/usr/bin/env python3
+&quot;&quot;&quot;Pruebas del lector de campanas. Solo stdlib, sin red, sin Outlook.&quot;&quot;&quot;
+from __future__ import annotations
+
+import unittest
+
+import campanas
+
+
+TABLA = (
+    '&lt;html xmlns:o=&quot;urn:schemas-microsoft-com:office:office&quot;&gt;&lt;head&gt;'
+    '&lt;style&gt;p.MsoNormal{mso-style-parent:&quot;&quot;;font-size:11.0pt}&lt;/style&gt;&lt;/head&gt;&lt;body&gt;'
+    '&lt;p class=MsoNormal&gt;&lt;span style=\'font-size:11.0pt\'&gt;Estimados,&lt;o:p&gt;&lt;/o:p&gt;&lt;/span&gt;&lt;/p&gt;'
+    '&lt;p class=MsoNormal&gt;Favor subir la siguiente campa&amp;ntilde;a:&lt;o:p&gt;&lt;/o:p&gt;&lt;/p&gt;'
+    '&lt;table class=MsoTableGrid border=1&gt;'
+    '&lt;tr&gt;&lt;td&gt;&lt;p class=MsoNormal&gt;TIENDA&lt;/p&gt;&lt;/td&gt;&lt;td&gt;&lt;p class=MsoNormal&gt;CAMPA&amp;Ntilde;A&lt;/p&gt;&lt;/td&gt;'
+    '&lt;td&gt;&lt;p class=MsoNormal&gt;DESCUENTO&lt;/p&gt;&lt;/td&gt;&lt;/tr&gt;'
+    '&lt;tr&gt;&lt;td&gt;&lt;p class=MsoNormal&gt;MNG&amp;nbsp;HE&lt;/p&gt;&lt;/td&gt;&lt;td&gt;&lt;p class=MsoNormal&gt;Dia de la Madre&lt;/p&gt;&lt;/td&gt;'
+    '&lt;td&gt;&lt;p class=MsoNormal&gt;30%&lt;/p&gt;&lt;/td&gt;&lt;/tr&gt;'
+    '&lt;tr&gt;&lt;td&gt;&lt;p class=MsoNormal&gt;CK&lt;/p&gt;&lt;/td&gt;&lt;td&gt;&lt;p class=MsoNormal&gt;Dia de la Madre&lt;/p&gt;&lt;/td&gt;'
+    '&lt;td&gt;&lt;p class=MsoNormal&gt;50%&lt;/p&gt;&lt;/td&gt;&lt;/tr&gt;'
+    '&lt;/table&gt;'
+    '&lt;p class=MsoNormal&gt;Saludos&lt;o:p&gt;&lt;/o:p&gt;&lt;/p&gt;&lt;/body&gt;&lt;/html&gt;'
+)
+
+
+class TestHtmlATexto(unittest.TestCase):
+
+    def test_tabla_queda_en_filas_con_pipe(self):
+        txt = campanas.html_a_texto(TABLA)
+        self.assertIn(&quot;TIENDA | CAMPAÑA | DESCUENTO&quot;, txt)
+        self.assertIn(&quot;MNG HE | Dia de la Madre | 30%&quot;, txt)
+        self.assertIn(&quot;CK | Dia de la Madre | 50%&quot;, txt)
+
+    def test_una_fila_por_linea(self):
+        lineas = campanas.html_a_texto(TABLA).split(&quot;\n&quot;)
+        filas = [l for l in lineas if &quot;|&quot; in l]
+        self.assertEqual(len(filas), 3)
+
+    def test_sin_ruido_de_word(self):
+        txt = campanas.html_a_texto(TABLA)
+        for ruido in (&quot;mso-&quot;, &quot;MsoNormal&quot;, &quot;o:p&quot;, &quot;&lt;&quot;, &quot;&gt;&quot;, &quot;&amp;ntilde;&quot;, &quot; &quot;):
+            self.assertNotIn(ruido, txt)
+
+    def test_entidades_resueltas(self):
+        self.assertIn(&quot;campaña&quot;, campanas.html_a_texto(TABLA))
+
+    def test_texto_plano_pasa_igual(self):
+        self.assertEqual(campanas.html_a_texto(&quot;Hola\nmundo&quot;), &quot;Hola\nmundo&quot;)
+
+    def test_vacio_no_revienta(self):
+        self.assertEqual(campanas.html_a_texto(&quot;&quot;), &quot;&quot;)
+        self.assertEqual(campanas.html_a_texto(None), &quot;&quot;)
+
+
+class TestFiltroAsunto(unittest.TestCase):
+
+    def test_pasan_los_reales(self):
+        for a in (&quot;Campaña Matrimonios y Graduados&quot;,
+                  &quot;Campaña Dia de la Madre&quot;,
+                  'Ampliacion Campaña &quot;Suit Up Day&quot;',
+                  &quot;RE: Campañas de Descuento Realizadas 2024&quot;,
+                  &quot;campana de invierno&quot;,
+                  &quot;CAMPAÑA BLACK FRIDAY&quot;):
+            self.assertTrue(campanas.es_campana(a), a)
+
+    def test_no_pasan_otros(self):
+        for a in (&quot;Informe de ventas semanal&quot;, &quot;Pago a proveedores&quot;, &quot;&quot;, None):
+            self.assertFalse(campanas.es_campana(a), a)
+
+
+if __name__ == &quot;__main__&quot;:
+    unittest.main()
+</code></pre>
+<ul>
+<li>[ ] <strong>Step 3: Correr la prueba y verificar que falla</strong></li>
+</ul>
+<pre><code class="language-bash">cd ~/Documents/Projects/Briefing\ Diario/bridge &amp;&amp; python3 test_campanas.py -v
+</code></pre>
+<p>Esperado: FAIL con <code>ModuleNotFoundError: No module named 'campanas'</code>.</p>
+<ul>
+<li>[ ] <strong>Step 4: Escribir el conversor</strong></li>
+</ul>
+<p><code>bridge/campanas.py</code>:</p>
+<pre><code class="language-python">#!/usr/bin/env python3
+&quot;&quot;&quot;
+Campanas de descuento desde la carpeta Enviados de Outlook.
+
+Pepe manda cada campana a contabilidad por correo. Este modulo lee esos
+correos, los convierte a texto legible y los publica en el worker del
+briefing, para que LB Planner los pueda proponer en el modulo de Campanas.
+
+Por que la conversion HTML-&gt;texto pasa ACA y no en el worker: &quot;content of
+message&quot; de Outlook devuelve el HTML completo que genero Word, con decenas
+de KB de estilos mso-*. Mandarlo crudo por la red es tirar ancho de banda y
+tokens. Las tablas se convierten a filas separadas por &quot;|&quot; porque el correo
+del 11-may trae la informacion en una tabla de 12 filas y hay que que el
+modelo la lea como tabla.
+
+Solo stdlib: launchd corre /usr/bin/python3, no el de la Terminal.
+&quot;&quot;&quot;
+from __future__ import annotations
+
+import html as _html
+import re
+import unicodedata
+
+# Tope de cuerpo por correo. Lo que pasa de aca es firma, cadena de respuestas
+# y disclaimer legal: no aporta y gasta tokens.
+MAX_CUERPO = 6000
+
+_RE_BLOQUE = re.compile(r&quot;&lt;(style|script|head)\b.*?&lt;/\1&gt;&quot;, re.S | re.I)
+_RE_COMENTARIO = re.compile(r&quot;&lt;!--.*?--&gt;&quot;, re.S)
+_RE_OP = re.compile(r&quot;&lt;/?o:p\b[^&gt;]*&gt;&quot;, re.I)
+_RE_TABLA = re.compile(r&quot;&lt;table\b.*?&lt;/table&gt;&quot;, re.S | re.I)
+_RE_TR = re.compile(r&quot;&lt;tr\b.*?&lt;/tr&gt;&quot;, re.S | re.I)
+_RE_TD = re.compile(r&quot;&lt;(td|th)\b[^&gt;]*&gt;(.*?)&lt;/\1\s*&gt;&quot;, re.S | re.I)
+_RE_SALTO = re.compile(r&quot;&lt;\s*br\s*/?\s*&gt;|&lt;/\s*(p|div|li|tr|table|h[1-6])\s*&gt;&quot;, re.I)
+_RE_TAG = re.compile(r&quot;&lt;[^&gt;]+&gt;&quot;)
+_RE_BLANCOS = re.compile(r&quot;\s+&quot;)
+_RE_ESPACIOS = re.compile(r&quot;[ \t]+&quot;)
+
+
+def _quitar_tags(s: str) -&gt; str:
+    &quot;&quot;&quot;Tags fuera, salto de linea donde cerraba un bloque. NO resuelve
+    entidades: eso va una sola vez al final, para no desescapar dos veces.&quot;&quot;&quot;
+    return _RE_TAG.sub(&quot;&quot;, _RE_SALTO.sub(&quot;\n&quot;, s))
+
+
+def _tabla_a_filas(m) -&gt; str:
+    &quot;&quot;&quot;Una fila de tabla por linea, celdas separadas por ' | '.
+
+    Las tablas se procesan ANTES que el resto y por separado porque Word mete
+    un &lt;p class=MsoNormal&gt; dentro de CADA celda. Si dejamos que ese &lt;/p&gt; se
+    convierta en salto de linea, cada celda termina en su propia linea y la
+    fila se desarma: la tabla del correo del 11-may queda ilegible. Ese fue el
+    primer intento y falla.&quot;&quot;&quot;
+    filas = []
+    for tr in _RE_TR.findall(m.group(0)):
+        celdas = [_RE_BLANCOS.sub(&quot; &quot;, _quitar_tags(c)).strip()
+                  for _, c in _RE_TD.findall(tr)]
+        if any(celdas):
+            filas.append(&quot; | &quot;.join(celdas))
+    return &quot;\n&quot; + &quot;\n&quot;.join(filas) + &quot;\n&quot;
+
+
+def html_a_texto(bruto: str) -&gt; str:
+    &quot;&quot;&quot;HTML de Word -&gt; texto. Las filas de tabla quedan separadas por ' | '.&quot;&quot;&quot;
+    if not bruto:
+        return &quot;&quot;
+    s = _RE_BLOQUE.sub(&quot; &quot;, bruto)
+    s = _RE_COMENTARIO.sub(&quot; &quot;, s)
+    s = _RE_OP.sub(&quot;&quot;, s)
+    s = _RE_TABLA.sub(_tabla_a_filas, s)
+    s = _quitar_tags(s)
+    s = _html.unescape(s)
+    s = s.replace(&quot; &quot;, &quot; &quot;)
+    salida = []
+    for linea in s.split(&quot;\n&quot;):
+        linea = _RE_ESPACIOS.sub(&quot; &quot;, linea).strip()
+        if linea:
+            salida.append(linea)
+    return &quot;\n&quot;.join(salida)
+
+
+def _sin_acentos(s: str) -&gt; str:
+    return (unicodedata.normalize(&quot;NFKD&quot;, s or &quot;&quot;)
+            .encode(&quot;ascii&quot;, &quot;ignore&quot;).decode(&quot;ascii&quot;).lower())
+
+
+def es_campana(asunto: str) -&gt; bool:
+    &quot;&quot;&quot;Filtro por asunto. De ~300 enviados revisados el 14-oct, todos los de
+    campana traen 'Campana' en el asunto; filtrar por destinatario era
+    innecesario (y ademas AppleScript no puede leer los destinatarios).
+    Lo que no es una campana de verdad ('RE: Campanas de Descuento
+    Realizadas 2024' es un pedido de reporte) lo descarta el modelo, no esto:
+    aca preferimos pasar de mas.&quot;&quot;&quot;
+    return &quot;campan&quot; in _sin_acentos(asunto)
+</code></pre>
+<ul>
+<li>[ ] <strong>Step 5: Correr la prueba y verificar que pasa</strong></li>
+</ul>
+<pre><code class="language-bash">cd ~/Documents/Projects/Briefing\ Diario/bridge &amp;&amp; python3 test_campanas.py -v
+</code></pre>
+<p>Esperado: 8 tests, OK.</p>
+<ul>
+<li>[ ] <strong>Step 6: Correrlo contra el HTML real capturado</strong></li>
+</ul>
+<pre><code class="language-bash">cd ~/Documents/Projects/Briefing\ Diario/bridge &amp;&amp; python3 -I -c &quot;
+import campanas
+bruto = open('fixtures/enviados_campana.txt', encoding='utf-8', errors='replace').read()
+for i, reg in enumerate(bruto.split('&lt;&lt;&lt;EOR&gt;&gt;&gt;')):
+    if '===ASUNTO===' not in reg: continue
+    cab, _, cuerpo = reg.partition(chr(10))
+    asunto = cab.replace('===ASUNTO===','').strip()
+    txt = campanas.html_a_texto(cuerpo)
+    print('---', i, '|', asunto, '| filtro:', campanas.es_campana(asunto),
+          '|', len(cuerpo), 'bytes HTML -&gt;', len(txt), 'texto')
+    print(txt[:700])
+    print()
+&quot;
+</code></pre>
+<p>Esperado: los 5 correos pasan el filtro; ninguna salida contiene <code>mso-</code> ni <code>&lt;</code>; el del 11-may muestra las filas de la tabla con <code>|</code>; la relación de bytes baja fuerte (el HTML de Word suele ser 20–60× el texto).</p>
+<p><strong>Si alguna salida sale sucia, se arregla acá y se le agrega el caso a <code>test_campanas.py</code> antes de seguir.</strong> Esto es el riesgo nº1 del spec; el resto del plan asume que esta conversión es legible.</p>
+<ul>
+<li>[ ] <strong>Step 7: Commit</strong></li>
+</ul>
+<pre><code class="language-bash">cd ~/Documents/Projects/Briefing\ Diario &amp;&amp; git add bridge/campanas.py bridge/test_campanas.py bridge/fixtures/ 2&gt;/dev/null; git add -A bridge/ &amp;&amp; git commit -m &quot;Campanas: conversor de HTML de Word a texto + filtro de asunto
+
+Co-Authored-By: Claude Opus 5 &lt;noreply@anthropic.com&gt;&quot;
+</code></pre>
+<p>Si <code>~/Documents/Projects/Briefing Diario</code> no es un repo git, saltar el commit y anotarlo; el resto del plan no depende de eso.</p>
+<hr />
+<h3 id="task-2-el-puente-recorre-la-carpeta-enviados">Task 2: El puente recorre la carpeta Enviados</h3>
+<p><strong>Files:</strong></p>
+<ul>
+<li>Modify: <code>~/Documents/Projects/Briefing Diario/bridge/campanas.py</code> (agregar al final)</li>
+<li>Modify: <code>~/Documents/Projects/Briefing Diario/bridge/test_campanas.py</code> (agregar clase)</li>
+</ul>
+<p><strong>Interfaces:</strong></p>
+<ul>
+<li>Consumes: <code>campanas.html_a_texto</code>, <code>campanas.es_campana</code>, <code>campanas.MAX_CUERPO</code> (Tarea 1); de <code>ventura_bridge.py</code>: <code>osa(script, timeout) -&gt; (ok, salida)</code>, <code>esc(s) -&gt; str</code>, <code>FIELD_SEP = "|~|"</code>, <code>RECORD_SEP = "&lt;&lt;&lt;EOR&gt;&gt;&gt;"</code>, <code>find_sent_folder() -&gt; str | None</code>.</li>
+<li>
+<p>Produces: <code>campanas.SCRIPT_TMPL: str</code>, <code>campanas.parse(raw: str) -&gt; list[dict]</code>, <code>campanas.leer(folder: str, dias: int, osa_fn, esc_fn) -&gt; list[dict]</code>. Cada dict: <code>{"id": str, "subject": str, "date": "YYYY-MM-DD", "texto": str}</code>.</p>
+</li>
+<li>
+<p>[ ] <strong>Step 1: Escribir la prueba que falla</strong></p>
+</li>
+</ul>
+<p>Agregar al final de <code>bridge/test_campanas.py</code>, antes del <code>if __name__</code>:</p>
+<pre><code class="language-python">SEP_C = &quot;|~|&quot;
+SEP_R = &quot;&lt;&lt;&lt;EOR&gt;&gt;&gt;&quot;
+
+CRUDO = (
+    &quot;101&quot; + SEP_C + &quot;Campaña Matrimonios y Graduados&quot; + SEP_C + &quot;2026&quot; + SEP_C + &quot;10&quot; + SEP_C + &quot;3&quot;
+    + SEP_C + &quot;&lt;p&gt;Desde hoy y hasta fin de mes&lt;o:p&gt;&lt;/o:p&gt;&lt;/p&gt;&quot; + SEP_R
+    + &quot;102&quot; + SEP_C + &quot;Informe de ventas&quot; + SEP_C + &quot;2026&quot; + SEP_C + &quot;10&quot; + SEP_C + &quot;2&quot;
+    + SEP_C + &quot;&lt;p&gt;adjunto&lt;/p&gt;&quot; + SEP_R
+    + &quot;103&quot; + SEP_C + &quot;Ampliacion Campaña Suit Up Day&quot; + SEP_C + &quot;2025&quot; + SEP_C + &quot;11&quot; + SEP_C + &quot;7&quot;
+    + SEP_C + &quot;&lt;p&gt;ampliar hasta el 16 de Noviembre&lt;/p&gt;&quot; + SEP_R
+)
+
+
+class TestParse(unittest.TestCase):
+
+    def test_solo_los_de_campana(self):
+        regs = campanas.parse(CRUDO)
+        self.assertEqual([r[&quot;id&quot;] for r in regs], [&quot;101&quot;, &quot;103&quot;])
+
+    def test_fecha_iso_con_cero_adelante(self):
+        regs = campanas.parse(CRUDO)
+        self.assertEqual(regs[0][&quot;date&quot;], &quot;2026-10-03&quot;)
+        self.assertEqual(regs[1][&quot;date&quot;], &quot;2025-11-07&quot;)
+
+    def test_cuerpo_convertido(self):
+        regs = campanas.parse(CRUDO)
+        self.assertEqual(regs[0][&quot;texto&quot;], &quot;Desde hoy y hasta fin de mes&quot;)
+        self.assertNotIn(&quot;o:p&quot;, regs[0][&quot;texto&quot;])
+
+    def test_cuerpo_con_el_separador_adentro_no_corta_los_campos(self):
+        raw = (&quot;201&quot; + SEP_C + &quot;Campaña X&quot; + SEP_C + &quot;2026&quot; + SEP_C + &quot;9&quot; + SEP_C + &quot;1&quot;
+               + SEP_C + &quot;&lt;p&gt;a&quot; + SEP_C + &quot;b&lt;/p&gt;&quot; + SEP_R)
+        regs = campanas.parse(raw)
+        self.assertEqual(len(regs), 1)
+        self.assertEqual(regs[0][&quot;date&quot;], &quot;2026-09-01&quot;)
+
+    def test_cuerpo_recortado_al_tope(self):
+        largo = &quot;&lt;p&gt;&quot; + (&quot;x&quot; * (campanas.MAX_CUERPO + 500)) + &quot;&lt;/p&gt;&quot;
+        raw = &quot;301&quot; + SEP_C + &quot;Campaña Y&quot; + SEP_C + &quot;2026&quot; + SEP_C + &quot;8&quot; + SEP_C + &quot;9&quot; + SEP_C + largo + SEP_R
+        self.assertEqual(len(campanas.parse(raw)[0][&quot;texto&quot;]), campanas.MAX_CUERPO)
+
+    def test_fecha_invalida_se_descarta(self):
+        raw = &quot;401&quot; + SEP_C + &quot;Campaña Z&quot; + SEP_C + &quot;0&quot; + SEP_C + &quot;0&quot; + SEP_C + &quot;0&quot; + SEP_C + &quot;&lt;p&gt;q&lt;/p&gt;&quot; + SEP_R
+        self.assertEqual(campanas.parse(raw), [])
+
+    def test_crudo_vacio(self):
+        self.assertEqual(campanas.parse(&quot;&quot;), [])
+        self.assertEqual(campanas.parse(None), [])
+
+    def test_mas_nuevo_primero(self):
+        regs = campanas.parse(CRUDO)
+        self.assertGreater(regs[0][&quot;date&quot;], regs[1][&quot;date&quot;])
+
+
+class TestLeer(unittest.TestCase):
+
+    def test_osascript_que_falla_devuelve_lista_vacia(self):
+        regs = campanas.leer(&quot;Sent&quot;, 90,
+                             osa_fn=lambda s, timeout=0: (False, &quot;error -1728&quot;),
+                             esc_fn=lambda s: s)
+        self.assertEqual(regs, [])
+
+    def test_pasa_dias_y_carpeta_al_script(self):
+        visto = {}
+
+        def falso_osa(script, timeout=0):
+            visto[&quot;script&quot;] = script
+            return True, CRUDO
+
+        regs = campanas.leer(&quot;Elementos enviados&quot;, 45, osa_fn=falso_osa, esc_fn=lambda s: s)
+        self.assertIn(&quot;Elementos enviados&quot;, visto[&quot;script&quot;])
+        self.assertIn(&quot;45 * days&quot;, visto[&quot;script&quot;])
+        self.assertEqual(len(regs), 2)
+</code></pre>
+<ul>
+<li>[ ] <strong>Step 2: Correr y verificar que falla</strong></li>
+</ul>
+<pre><code class="language-bash">cd ~/Documents/Projects/Briefing\ Diario/bridge &amp;&amp; python3 test_campanas.py -v 2&gt;&amp;1 | tail -20
+</code></pre>
+<p>Esperado: FAIL con <code>AttributeError: module 'campanas' has no attribute 'parse'</code>.</p>
+<ul>
+<li>[ ] <strong>Step 3: Escribir el recorrido y el parseo</strong></li>
+</ul>
+<p>Agregar al final de <code>bridge/campanas.py</code>:</p>
+<pre><code class="language-python"># ── Recorrido de la carpeta Enviados ─────────────────────────────────────────
+#
+# Mismo patron que la bandeja en ventura_bridge.py: arrancamos del mensaje mas
+# nuevo y caminamos hacia atras, cortando en cuanto cruzamos el limite de dias.
+# &quot;messages of fol whose time sent &gt; cutoff&quot; obliga a Outlook a evaluar la
+# carpeta historica completa y nunca termina.
+#
+# El filtro de AppleScript es 'contains &quot;ampa&quot;' a proposito: el &quot;contains&quot; de
+# AppleScript ignora mayusculas pero NO los acentos, asi que buscar &quot;Campaña&quot;
+# se perderia &quot;Campana&quot; y viceversa. &quot;ampa&quot; matchea los dos y de paso
+# &quot;campanas&quot;, &quot;CAMPAÑA&quot; y &quot;Ampliacion Campaña&quot;. Que entre algun &quot;Pampa&quot; o
+# &quot;estampa&quot; no molesta: es_campana() vuelve a filtrar en Python, con acentos
+# normalizados.
+MAX_CORREOS = 60
+MAX_SCAN = 2000
+FIELD_SEP = &quot;|~|&quot;
+RECORD_SEP = &quot;&lt;&lt;&lt;EOR&gt;&gt;&gt;&quot;
+
+SCRIPT_TMPL = &quot;&quot;&quot;tell application &quot;Microsoft Outlook&quot;
+    set fol to mail folder &quot;{folder}&quot;
+    set total to (count of messages of fol)
+    if total = 0 then return &quot;&quot;
+    set cutoff to (current date) - ({dias} * days)
+    set stepDir to -1
+    set idx to total
+    if total &gt; 1 then
+        set d1 to missing value
+        set dN to missing value
+        try
+            set d1 to time sent of message 1 of fol
+            set dN to time sent of message total of fol
+        end try
+        if d1 is missing value then
+            try
+                set d1 to time received of message 1 of fol
+                set dN to time received of message total of fol
+            end try
+        end if
+        if d1 is not missing value and dN is not missing value then
+            if d1 &gt; dN then
+                set stepDir to 1
+                set idx to 1
+            end if
+        end if
+    end if
+    set out to &quot;&quot;
+    set n to 0
+    set scanned to 0
+    repeat while n &lt; {maxc} and scanned &lt; {maxs} and idx &gt;= 1 and idx &lt;= total
+        set scanned to scanned + 1
+        set m to message idx of fol
+        set idx to idx + stepDir
+        set dt to missing value
+        try
+            set dt to time sent of m
+        end try
+        if dt is missing value then
+            try
+                set dt to time received of m
+            end try
+        end if
+        set yy to 0
+        set mm to 0
+        set dd to 0
+        set tooOld to false
+        if dt is not missing value then
+            if dt &lt; cutoff then set tooOld to true
+            set yy to year of dt
+            set mm to (month of dt) as integer
+            set dd to day of dt
+        end if
+        if tooOld then exit repeat
+        set subj to &quot;&quot;
+        try
+            set subj to subject of m
+        end try
+        if subj contains &quot;ampa&quot; then
+            set mid to &quot;&quot;
+            set bod to &quot;&quot;
+            try
+                set mid to (id of m) as string
+            end try
+            try
+                set bod to content of m
+            end try
+            set out to out &amp; mid &amp; &quot;{fs}&quot; &amp; subj &amp; &quot;{fs}&quot; &amp; yy &amp; &quot;{fs}&quot; &amp; mm &amp; &quot;{fs}&quot; &amp; dd &amp; &quot;{fs}&quot; &amp; bod &amp; &quot;{rs}&quot;
+            set n to n + 1
+        end if
+    end repeat
+    return out
+end tell
+&quot;&quot;&quot;
+
+
+def parse(raw: str) -&gt; list:
+    &quot;&quot;&quot;Crudo de AppleScript -&gt; registros listos para publicar, mas nuevo primero.&quot;&quot;&quot;
+    salida = []
+    for registro in (raw or &quot;&quot;).split(RECORD_SEP):
+        if not registro.strip():
+            continue
+        # maxsplit=5: el cuerpo es el ultimo campo y puede contener el separador.
+        partes = registro.split(FIELD_SEP, 5)
+        if len(partes) &lt; 6:
+            continue
+        mid, asunto, yy, mm, dd, cuerpo = partes
+        asunto = (asunto or &quot;&quot;).strip()
+        if not es_campana(asunto):
+            continue
+        try:
+            fecha = &quot;%04d-%02d-%02d&quot; % (int(yy), int(mm), int(dd))
+        except (TypeError, ValueError):
+            continue
+        if not (1 &lt;= int(mm) &lt;= 12 and 1 &lt;= int(dd) &lt;= 31 and int(yy) &gt;= 2000):
+            continue
+        texto = html_a_texto(cuerpo)[:MAX_CUERPO]
+        if not texto:
+            continue
+        salida.append({
+            &quot;id&quot;: (mid or &quot;&quot;).strip(),
+            &quot;subject&quot;: asunto,
+            &quot;date&quot;: fecha,
+            &quot;texto&quot;: texto,
+        })
+    salida.sort(key=lambda r: r[&quot;date&quot;], reverse=True)
+    return salida
+
+
+def leer(folder: str, dias: int, osa_fn, esc_fn) -&gt; list:
+    &quot;&quot;&quot;Lee la carpeta por AppleScript. Si osascript falla devuelve [] y lo
+    informa: nunca una lista a medias que parezca completa.&quot;&quot;&quot;
+    script = SCRIPT_TMPL.format(
+        folder=esc_fn(folder), dias=int(dias),
+        maxc=MAX_CORREOS, maxs=MAX_SCAN,
+        fs=FIELD_SEP, rs=RECORD_SEP,
+    )
+    ok, out = osa_fn(script, timeout=240)
+    if not ok:
+        primera = (out or &quot;?&quot;).splitlines()[0] if out else &quot;?&quot;
+        print(&quot;[campanas] aviso: no pude leer '%s' - %s&quot; % (folder, primera))
+        return []
+    return parse(out)
+</code></pre>
+<ul>
+<li>[ ] <strong>Step 4: Correr y verificar que pasa</strong></li>
+</ul>
+<pre><code class="language-bash">cd ~/Documents/Projects/Briefing\ Diario/bridge &amp;&amp; python3 test_campanas.py -v 2&gt;&amp;1 | tail -8
+</code></pre>
+<p>Esperado: 19 tests, OK.</p>
+<ul>
+<li>[ ] <strong>Step 5: Correrlo contra Outlook de verdad</strong></li>
+</ul>
+<pre><code class="language-bash">cd ~/Documents/Projects/Briefing\ Diario/bridge &amp;&amp; python3 -I -c &quot;
+import campanas, ventura_bridge as vb
+fol = vb.find_sent_folder()
+print('carpeta:', fol)
+regs = campanas.leer(fol, 90, vb.osa, vb.esc)
+print(len(regs), 'correos de campana en 90 dias')
+for r in regs:
+    print(' ', r['date'], '|', len(r['texto']), 'chars |', r['subject'][:70])
+&quot;
+</code></pre>
+<p>Esperado: al menos los 5 conocidos, fechas plausibles, ninguno con <code>texto</code> vacío. Si tarda más de 4 minutos, bajar <code>MAX_SCAN</code>.</p>
+<ul>
+<li>[ ] <strong>Step 6: Commit</strong></li>
+</ul>
+<pre><code class="language-bash">cd ~/Documents/Projects/Briefing\ Diario &amp;&amp; git add -A bridge/ &amp;&amp; git commit -m &quot;Campanas: recorrido de Enviados por AppleScript + parseo
+
+Co-Authored-By: Claude Opus 5 &lt;noreply@anthropic.com&gt;&quot;
+</code></pre>
+<hr />
+<h3 id="task-3-el-puente-publica-lleva-estado-y-corre-el-5-y-el-25">Task 3: El puente publica, lleva estado y corre el 5 y el 25</h3>
+<p><strong>Files:</strong></p>
+<ul>
+<li>Modify: <code>~/Documents/Projects/Briefing Diario/bridge/campanas.py</code> (agregar al final)</li>
+<li>Modify: <code>~/Documents/Projects/Briefing Diario/bridge/ventura_bridge.py</code> (hook en <code>main()</code> + flag CLI)</li>
+<li>Modify: <code>~/Documents/Projects/Briefing Diario/bridge/test_campanas.py</code> (agregar clase)</li>
+</ul>
+<p><strong>Interfaces:</strong></p>
+<ul>
+<li>Consumes: <code>campanas.leer</code>, <code>campanas.MAX_CORREOS</code> (Tarea 2); de <code>ventura_bridge.py</code>: <code>STATE_FILE</code>, <code>load_state()</code>, <code>save_state(state)</code>, <code>USER_AGENT</code>, <code>keychain(service, account)</code>.</li>
+<li>
+<p>Produces: <code>campanas.periodo(hoy: date) -&gt; str</code>, <code>campanas.toca_correr(estado: dict, hoy: date) -&gt; bool</code>, <code>campanas.dias_a_mirar(estado: dict, hoy: date) -&gt; int</code>, <code>campanas.publicar(correos: list, secret: str, url_fn) -&gt; bool</code>, <code>campanas.correr(estado, hoy, folder, osa_fn, esc_fn, secret, url_fn) -&gt; dict</code>. La clave de estado es <code>campanas_periodo</code> (período ya corrido) y <code>campanas_ultimo</code> (fecha del correo más nuevo ya publicado).</p>
+</li>
+<li>
+<p>[ ] <strong>Step 1: Escribir la prueba que falla</strong></p>
+</li>
+</ul>
+<p>Agregar a <code>bridge/test_campanas.py</code> (y <code>import datetime</code> arriba):</p>
+<pre><code class="language-python">import datetime
+
+
+class TestPeriodo(unittest.TestCase):
+
+    def test_del_5_al_24_es_el_05(self):
+        for d in (5, 12, 24):
+            self.assertEqual(campanas.periodo(datetime.date(2026, 10, d)), &quot;2026-10-05&quot;)
+
+    def test_del_25_en_adelante_es_el_25(self):
+        for d in (25, 28, 31):
+            self.assertEqual(campanas.periodo(datetime.date(2026, 10, d)), &quot;2026-10-25&quot;)
+
+    def test_del_1_al_4_sigue_siendo_el_25_del_mes_pasado(self):
+        for d in (1, 4):
+            self.assertEqual(campanas.periodo(datetime.date(2026, 10, d)), &quot;2026-09-25&quot;)
+
+    def test_enero_cae_a_diciembre_anterior(self):
+        self.assertEqual(campanas.periodo(datetime.date(2026, 1, 2)), &quot;2025-12-25&quot;)
+
+
+class TestToca(unittest.TestCase):
+
+    def test_sin_estado_corre(self):
+        self.assertTrue(campanas.toca_correr({}, datetime.date(2026, 10, 14)))
+
+    def test_mismo_periodo_ya_corrido_no_corre(self):
+        est = {&quot;campanas_periodo&quot;: &quot;2026-10-05&quot;}
+        self.assertFalse(campanas.toca_correr(est, datetime.date(2026, 10, 14)))
+
+    def test_periodo_nuevo_corre(self):
+        est = {&quot;campanas_periodo&quot;: &quot;2026-10-05&quot;}
+        self.assertTrue(campanas.toca_correr(est, datetime.date(2026, 10, 25)))
+
+
+class TestDias(unittest.TestCase):
+
+    def test_primera_corrida_mira_90(self):
+        self.assertEqual(campanas.dias_a_mirar({}, datetime.date(2026, 10, 14)), 90)
+
+    def test_despues_mira_desde_el_ultimo_con_holgura(self):
+        est = {&quot;campanas_ultimo&quot;: &quot;2026-10-01&quot;}
+        # 13 dias + 3 de holgura, piso 10
+        self.assertEqual(campanas.dias_a_mirar(est, datetime.date(2026, 10, 14)), 16)
+
+    def test_piso_de_10_dias(self):
+        est = {&quot;campanas_ultimo&quot;: &quot;2026-10-14&quot;}
+        self.assertEqual(campanas.dias_a_mirar(est, datetime.date(2026, 10, 14)), 10)
+
+    def test_techo_de_90_dias(self):
+        est = {&quot;campanas_ultimo&quot;: &quot;2020-01-01&quot;}
+        self.assertEqual(campanas.dias_a_mirar(est, datetime.date(2026, 10, 14)), 90)
+
+    def test_ultimo_corrupto_cae_a_90(self):
+        self.assertEqual(campanas.dias_a_mirar({&quot;campanas_ultimo&quot;: &quot;ayer&quot;}, datetime.date(2026, 10, 14)), 90)
+
+
+class TestCorrer(unittest.TestCase):
+
+    HOY = datetime.date(2026, 10, 14)
+
+    def _correr(self, estado, osa_fn, publicar_ok=True, publicados=None):
+        def url_fn(payload, secret):
+            if publicados is not None:
+                publicados.append(payload)
+            return publicar_ok
+        return campanas.correr(estado, self.HOY, &quot;Sent&quot;, osa_fn, lambda s: s, &quot;sec&quot;, url_fn)
+
+    def test_applescript_caido_no_marca_el_periodo(self):
+        &quot;&quot;&quot;El caso que mas caro sale: si marcamos el periodo igual, esos
+        correos no se vuelven a mirar nunca.&quot;&quot;&quot;
+        est = {}
+        r = self._correr(est, lambda s, timeout=0: (False, &quot;error -1728&quot;))
+        self.assertEqual(r[&quot;correos&quot;], 0)
+        self.assertFalse(r[&quot;ok&quot;])
+        self.assertNotIn(&quot;campanas_periodo&quot;, est)
+        self.assertNotIn(&quot;campanas_ultimo&quot;, est)
+
+    def test_publicacion_fallida_no_marca_el_periodo(self):
+        est = {}
+        r = self._correr(est, lambda s, timeout=0: (True, CRUDO), publicar_ok=False)
+        self.assertFalse(r[&quot;ok&quot;])
+        self.assertNotIn(&quot;campanas_periodo&quot;, est)
+
+    def test_exito_marca_periodo_y_ultimo(self):
+        est, pubs = {}, []
+        r = self._correr(est, lambda s, timeout=0: (True, CRUDO), publicados=pubs)
+        self.assertTrue(r[&quot;ok&quot;])
+        self.assertEqual(r[&quot;correos&quot;], 2)
+        self.assertEqual(est[&quot;campanas_periodo&quot;], &quot;2026-10-05&quot;)
+        self.assertEqual(est[&quot;campanas_ultimo&quot;], &quot;2026-10-03&quot;)
+        self.assertEqual(len(pubs[0][&quot;correos&quot;]), 2)
+
+    def test_cero_correos_marca_el_periodo_igual(self):
+        &quot;&quot;&quot;No hubo campanas este mes. Es exito, no fallo: no hay que
+        reintentar cada 5 minutos hasta fin de mes.&quot;&quot;&quot;
+        est = {}
+        r = self._correr(est, lambda s, timeout=0: (True, &quot;&quot;))
+        self.assertTrue(r[&quot;ok&quot;])
+        self.assertEqual(r[&quot;correos&quot;], 0)
+        self.assertEqual(est[&quot;campanas_periodo&quot;], &quot;2026-10-05&quot;)
+        self.assertNotIn(&quot;campanas_ultimo&quot;, est)
+</code></pre>
+<ul>
+<li>[ ] <strong>Step 2: Correr y verificar que falla</strong></li>
+</ul>
+<pre><code class="language-bash">cd ~/Documents/Projects/Briefing\ Diario/bridge &amp;&amp; python3 test_campanas.py -v 2&gt;&amp;1 | tail -20
+</code></pre>
+<p>Esperado: FAIL con <code>AttributeError: module 'campanas' has no attribute 'periodo'</code>.</p>
+<ul>
+<li>[ ] <strong>Step 3: Escribir el estado y la publicación</strong></li>
+</ul>
+<p>Agregar al final de <code>bridge/campanas.py</code>:</p>
+<pre><code class="language-python"># ── Cuando corre y que ya se proceso ─────────────────────────────────────────
+#
+# El 5 y el 25, o la primera vez que Outlook este abierto despues de esa fecha.
+# No puede ser un cron fijo: esto depende de Outlook abierto, que se cierra
+# solo tras una hora y pide huella. Misma limitacion que el briefing diario
+# (ver el comentario de crons en wrangler.toml).
+import datetime as _dt
+import json as _json
+import urllib.error as _uerror
+import urllib.request as _urequest
+
+WORKER_URL = &quot;https://briefing-diario-pepe.josechain.workers.dev/ingest-campanas&quot;
+DIAS_PRIMERA = 90
+DIAS_PISO = 10
+DIAS_HOLGURA = 3
+
+
+def periodo(hoy: _dt.date) -&gt; str:
+    &quot;&quot;&quot;Etiqueta del periodo vigente: 'YYYY-MM-05' o 'YYYY-MM-25'.&quot;&quot;&quot;
+    if hoy.day &gt;= 25:
+        return &quot;%04d-%02d-25&quot; % (hoy.year, hoy.month)
+    if hoy.day &gt;= 5:
+        return &quot;%04d-%02d-05&quot; % (hoy.year, hoy.month)
+    anterior = hoy.replace(day=1) - _dt.timedelta(days=1)
+    return &quot;%04d-%02d-25&quot; % (anterior.year, anterior.month)
+
+
+def toca_correr(estado: dict, hoy: _dt.date) -&gt; bool:
+    return (estado or {}).get(&quot;campanas_periodo&quot;) != periodo(hoy)
+
+
+def dias_a_mirar(estado: dict, hoy: _dt.date) -&gt; int:
+    &quot;&quot;&quot;Desde el correo mas nuevo ya publicado, con holgura. La primera vez,
+    90 dias (lo que pide el spec).&quot;&quot;&quot;
+    ultimo = (estado or {}).get(&quot;campanas_ultimo&quot;)
+    if not ultimo:
+        return DIAS_PRIMERA
+    try:
+        desde = _dt.date.fromisoformat(str(ultimo))
+    except ValueError:
+        return DIAS_PRIMERA
+    dias = (hoy - desde).days + DIAS_HOLGURA
+    return max(DIAS_PISO, min(DIAS_PRIMERA, dias))
+
+
+def publicar(payload: dict, secret: str) -&gt; bool:
+    &quot;&quot;&quot;POST al worker del briefing. Devuelve si quedo guardado.&quot;&quot;&quot;
+    datos = _json.dumps(payload).encode()
+    req = _urequest.Request(
+        WORKER_URL, data=datos,
+        headers={
+            &quot;Content-Type&quot;: &quot;application/json&quot;,
+            &quot;Authorization&quot;: &quot;Bearer &quot; + secret,
+            # Cloudflare devuelve 403 (error 1010) al User-Agent de urllib.
+            &quot;User-Agent&quot;: (&quot;Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) &quot;
+                           &quot;AppleWebKit/537.36 (KHTML, like Gecko) &quot;
+                           &quot;Chrome/124.0 Safari/537.36 briefing-bridge&quot;),
+        })
+    try:
+        with _urequest.urlopen(req, timeout=60) as r:
+            print(&quot;[campanas] worker:&quot;, r.read().decode()[:160])
+            return True
+    except _uerror.HTTPError as e:
+        print(&quot;[campanas] error HTTP %s: %s&quot; % (e.code, (e.read() or b&quot;&quot;)[:160]))
+        return False
+    except Exception as e:
+        print(&quot;[campanas] no pude publicar:&quot;, e)
+        return False
+
+
+def correr(estado: dict, hoy: _dt.date, folder: str,
+           osa_fn, esc_fn, secret: str, url_fn=None) -&gt; dict:
+    &quot;&quot;&quot;Lee, publica y recien ahi marca el periodo como hecho.
+
+    El orden importa. Si marcaramos el periodo antes de publicar, un Outlook
+    cerrado o un worker caido harian que esos correos no se vuelvan a mirar
+    hasta el proximo 5 o 25 - y los del medio se pierden para siempre.&quot;&quot;&quot;
+    enviar = url_fn or publicar
+    correos = leer(folder, dias_a_mirar(estado, hoy), osa_fn, esc_fn)
+    if not correos:
+        # leer() devuelve [] tanto si osascript fallo como si no habia nada, y
+        # los dos casos tienen que terminar distinto: &quot;no hubo campanas&quot; es
+        # exito (se marca el periodo), &quot;Outlook no responde&quot; es fallo (no se
+        # marca, o esos correos se pierden hasta el proximo 5 o 25). Un ping
+        # trivial los separa.
+        vivo, _ = osa_fn('tell application &quot;Microsoft Outlook&quot; to return &quot;1&quot;', timeout=30)
+        if not vivo:
+            return {&quot;ok&quot;: False, &quot;correos&quot;: 0, &quot;motivo&quot;: &quot;outlook no responde&quot;}
+    if correos:
+        ok = enviar({&quot;correos&quot;: correos[:MAX_CORREOS]}, secret)
+        if not ok:
+            return {&quot;ok&quot;: False, &quot;correos&quot;: 0, &quot;motivo&quot;: &quot;publicacion fallida&quot;}
+        estado[&quot;campanas_ultimo&quot;] = correos[0][&quot;date&quot;]
+    else:
+        # Outlook contesto y no habia campanas: resultado valido, no fallo. Si
+        # lo tratamos como error, --auto reintentaria cada 5 minutos hasta fin
+        # de mes.
+        print(&quot;[campanas] 0 correos de campana en la ventana&quot;)
+    estado[&quot;campanas_periodo&quot;] = periodo(hoy)
+    return {&quot;ok&quot;: True, &quot;correos&quot;: len(correos)}
+</code></pre>
+<ul>
+<li>[ ] <strong>Step 4: Correr y verificar que pasa</strong></li>
+</ul>
+<pre><code class="language-bash">cd ~/Documents/Projects/Briefing\ Diario/bridge &amp;&amp; python3 test_campanas.py -v 2&gt;&amp;1 | tail -8
+</code></pre>
+<p>Esperado: 33 tests, OK.</p>
+<ul>
+<li>[ ] <strong>Step 5: Engancharlo al puente</strong></li>
+</ul>
+<p>En <code>bridge/ventura_bridge.py</code>, agregar el flag al parser de <code>main()</code> (junto a los que ya existen):</p>
+<pre><code class="language-python">    ap.add_argument(&quot;--campanas&quot;, action=&quot;store_true&quot;,
+                    help=&quot;Lee las campanas de Enviados y las publica (ignora el calendario)&quot;)
+</code></pre>
+<p>Y dentro de <code>main()</code>, después de que el script ya resolvió <code>folder</code> (la carpeta de enviados) y tiene el <code>secret</code> del Keychain, agregar:</p>
+<pre><code class="language-python">    # ── Campanas de descuento (5 y 25 de cada mes) ──
+    # Va en un try propio: que falle esto no puede tumbar el brief diario,
+    # que es lo importante.
+    try:
+        import campanas as _camp
+        _hoy = datetime.now().date()
+        if folder and (args.campanas or _camp.toca_correr(state, _hoy)):
+            print(&quot;[puente] campanas: periodo&quot;, _camp.periodo(_hoy),
+                  &quot;| ventana&quot;, _camp.dias_a_mirar(state, _hoy), &quot;dias&quot;)
+            _r = _camp.correr(state, _hoy, folder, osa, esc, secret)
+            print(&quot;[puente] campanas:&quot;, _r)
+            save_state(state)
+        else:
+            print(&quot;[puente] campanas: nada que hacer este periodo&quot;)
+    except Exception as _e:
+        print(&quot;[puente] campanas: fallo sin consecuencias para el brief:&quot;, _e)
+</code></pre>
+<p><strong>Antes de escribir esto, leer <code>main()</code> completa</strong> (<code>sed -n '657,736p' bridge/ventura_bridge.py</code>) y confirmar los nombres reales de las variables locales: <code>folder</code>, <code>secret</code>, <code>state</code>, <code>args</code>, y si <code>state</code> se carga con <code>load_state()</code> en <code>main()</code> o sólo en <code>--auto</code>. Si <code>state</code> no está disponible ahí, usar <code>state = load_state()</code> al inicio del bloque y <code>save_state(state)</code> al final.</p>
+<ul>
+<li>[ ] <strong>Step 6: Probar la corrida real, publicando de verdad</strong></li>
+</ul>
+<pre><code class="language-bash">cd ~/Documents/Projects/Briefing\ Diario/bridge &amp;&amp; python3 ventura_bridge.py --campanas 2&gt;&amp;1 | tail -25
+</code></pre>
+<p>Esperado: <code>[campanas] worker: OK - N correos de campana recibidos</code> con N ≥ 5, y <code>{'ok': True, 'correos': N}</code>.</p>
+<p>Verificar que el estado quedó escrito:</p>
+<pre><code class="language-bash">python3 -c &quot;import json,pathlib;print(json.dumps({k:v for k,v in json.loads(pathlib.Path.home().joinpath('.briefing_bridge_state.json').read_text()).items() if 'campanas' in k}, indent=2))&quot;
+</code></pre>
+<p>Esperado: <code>campanas_periodo</code> y <code>campanas_ultimo</code> presentes.</p>
+<p>Y que el brief diario sigue sano:</p>
+<pre><code class="language-bash">cd ~/Documents/Projects/Briefing\ Diario/bridge &amp;&amp; python3 ventura_bridge.py --dry-run 2&gt;&amp;1 | tail -15
+</code></pre>
+<p>Esperado: la misma salida de siempre, sin errores nuevos.</p>
+<ul>
+<li>[ ] <strong>Step 7: Commit</strong></li>
+</ul>
+<pre><code class="language-bash">cd ~/Documents/Projects/Briefing\ Diario &amp;&amp; git add -A bridge/ &amp;&amp; git commit -m &quot;Campanas: publicacion, estado del periodo y hook en el puente
+
+Co-Authored-By: Claude Opus 5 &lt;noreply@anthropic.com&gt;&quot;
+</code></pre>
+<hr />
+<h3 id="task-4-el-worker-del-briefing-recibe-y-expone-los-correos">Task 4: El worker del briefing recibe y expone los correos</h3>
+<p><strong>Files:</strong></p>
+<ul>
+<li>Modify: <code>~/Documents/Projects/Briefing Diario/worker.js</code> (insertar después del bloque <code>/ventura-emails</code>, que termina en la línea ~183)</li>
+</ul>
+<p><strong>Interfaces:</strong></p>
+<ul>
+<li>Consumes: <code>campanas.publicar</code> manda <code>{correos:[{id,subject,date,texto}]}</code> con <code>Authorization: Bearer &lt;INGEST_SECRET&gt;</code> (Tarea 3).</li>
+<li>
+<p>Produces: <code>POST /ingest-campanas</code> y <code>GET /campanas-correo?key=&lt;INGEST_SECRET&gt;</code> → <code>{"ts":"ISO"|null,"correos":[...]}</code>. KV key <code>ingest_campanas</code> en <code>BRIEFING_KV</code>.</p>
+</li>
+<li>
+<p>[ ] <strong>Step 1: Escribir la prueba que falla</strong></p>
+</li>
+</ul>
+<p><code>~/Documents/Projects/Briefing Diario/test_worker_campanas.mjs</code>:</p>
+<pre><code class="language-javascript">// Prueba los dos endpoints nuevos contra el worker.js real, con un KV falso.
+// No necesita wrangler ni red.
+import { test } from 'node:test';
+import assert from 'node:assert/strict';
+import fs from 'node:fs';
+import path from 'node:path';
+
+const SRC = fs.readFileSync(path.join(import.meta.dirname, 'worker.js'), 'utf8');
+
+function kvFalso() {
+  const m = new Map();
+  return { m, get: async k =&gt; (m.has(k) ? m.get(k) : null), put: async (k, v) =&gt; { m.set(k, v); } };
+}
+
+async function cargar() {
+  const tmp = path.join(import.meta.dirname, '.worker_test.mjs');
+  fs.writeFileSync(tmp, SRC);
+  try { return (await import('file://' + tmp + '?t=' + Date.now())).default; }
+  finally { fs.unlinkSync(tmp); }
+}
+
+const post = (body, auth) =&gt; new Request('https://x/ingest-campanas', {
+  method: 'POST',
+  headers: auth ? { Authorization: auth } : {},
+  body: JSON.stringify(body),
+});
+
+test('ingest-campanas sin secreto correcto da 401', async () =&gt; {
+  const w = await cargar();
+  const env = { BRIEFING_KV: kvFalso(), INGEST_SECRET: 'bueno' };
+  assert.equal((await w.fetch(post({ correos: [] }, 'Bearer malo'), env)).status, 401);
+  assert.equal((await w.fetch(post({ correos: [] }, null), env)).status, 401);
+});
+
+test('ingest-campanas sin la lista da 400', async () =&gt; {
+  const w = await cargar();
+  const env = { BRIEFING_KV: kvFalso(), INGEST_SECRET: 'bueno' };
+  assert.equal((await w.fetch(post({ nada: 1 }, 'Bearer bueno'), env)).status, 400);
+});
+
+test('ingest-campanas guarda y topea en 60', async () =&gt; {
+  const w = await cargar();
+  const kv = kvFalso();
+  const env = { BRIEFING_KV: kv, INGEST_SECRET: 'bueno' };
+  const correos = Array.from({ length: 70 }, (_, i) =&gt; ({ id: 'i' + i, subject: 'Campana', date: '2026-10-01', texto: 't' }));
+  const r = await w.fetch(post({ correos }, 'Bearer bueno'), env);
+  assert.equal(r.status, 200);
+  const guardado = JSON.parse(kv.m.get('ingest_campanas'));
+  assert.equal(guardado.correos.length, 60);
+  assert.ok(guardado.ts);
+});
+
+test('campanas-correo devuelve lo guardado, con CORS', async () =&gt; {
+  const w = await cargar();
+  const kv = kvFalso();
+  const env = { BRIEFING_KV: kv, INGEST_SECRET: 'bueno' };
+  await w.fetch(post({ correos: [{ id: '1', subject: 'Campana X', date: '2026-10-03', texto: 'hola' }] }, 'Bearer bueno'), env);
+  const r = await w.fetch(new Request('https://x/campanas-correo?key=bueno'), env);
+  assert.equal(r.status, 200);
+  assert.equal(r.headers.get('Access-Control-Allow-Origin'), '*');
+  assert.equal((await r.json()).correos[0].subject, 'Campana X');
+});
+
+test('campanas-correo con clave mala da 401 y vacio da forma valida', async () =&gt; {
+  const w = await cargar();
+  const env = { BRIEFING_KV: kvFalso(), INGEST_SECRET: 'bueno' };
+  assert.equal((await w.fetch(new Request('https://x/campanas-correo?key=malo'), env)).status, 401);
+  const r = await w.fetch(new Request('https://x/campanas-correo?key=bueno'), env);
+  assert.deepEqual(await r.json(), { ts: null, correos: [] });
+});
+</code></pre>
+<ul>
+<li>[ ] <strong>Step 2: Correr y verificar que falla</strong></li>
+</ul>
+<pre><code class="language-bash">cd ~/Documents/Projects/Briefing\ Diario &amp;&amp; node --test test_worker_campanas.mjs 2&gt;&amp;1 | tail -20
+</code></pre>
+<p>Esperado: los tests de 200 fallan (el worker cae a la respuesta de ruta desconocida, que no es 200 con ese cuerpo) — leer la salida real y confirmar que es por los endpoints faltantes, no por un error del harness.</p>
+<ul>
+<li>[ ] <strong>Step 3: Agregar los endpoints</strong></li>
+</ul>
+<p>Insertar en <code>~/Documents/Projects/Briefing Diario/worker.js</code> inmediatamente después del cierre del bloque <code>/ventura-emails</code> (la línea <code>}</code> que sigue a su <code>return new Response(...)</code>, ~línea 183) y antes de <code>if (url.pathname === '/run')</code>:</p>
+<pre><code class="language-javascript">    // Ingesta de las campanas de descuento leidas en la carpeta Enviados.
+    // Mismo secreto y mismo patron que /ingest-ventura. Lo escribe
+    // bridge/campanas.py el 5 y el 25 de cada mes.
+    if (url.pathname === '/ingest-campanas' &amp;&amp; request.method === 'POST') {
+      const auth = request.headers.get('Authorization') || '';
+      if (!env.INGEST_SECRET || auth !== `Bearer ${env.INGEST_SECRET}`) {
+        return new Response('No autorizado', { status: 401 });
+      }
+      try {
+        const body = await request.json();
+        if (!Array.isArray(body.correos)) {
+          return new Response('Se esperaba {correos:[...]}', { status: 400 });
+        }
+        const correos = body.correos.slice(0, 60);
+        await env.BRIEFING_KV.put('ingest_campanas', JSON.stringify({
+          ts: new Date().toISOString(),
+          correos
+        }));
+        return new Response(`OK - ${correos.length} correos de campana recibidos`, { status: 200 });
+      } catch (err) {
+        return new Response(`Error: ${err.message}`, { status: 400 });
+      }
+    }
+    // Lectura de las campanas ya ingeridas. La consume LB Planner por service
+    // binding para proponerlas en el modulo de Campanas.
+    if (url.pathname === '/campanas-correo' &amp;&amp; request.method === 'GET') {
+      const key = url.searchParams.get('key') || '';
+      if (!env.INGEST_SECRET || key !== env.INGEST_SECRET) {
+        return new Response('No autorizado', { status: 401 });
+      }
+      const raw = await env.BRIEFING_KV.get('ingest_campanas');
+      return new Response(raw || '{&quot;ts&quot;:null,&quot;correos&quot;:[]}', {
+        status: 200,
+        headers: {
+          'Content-Type': 'application/json; charset=utf-8',
+          'Access-Control-Allow-Origin': '*'
+        }
+      });
+    }
+</code></pre>
+<ul>
+<li>[ ] <strong>Step 4: Correr las pruebas y el chequeo de sintaxis</strong></li>
+</ul>
+<pre><code class="language-bash">cd ~/Documents/Projects/Briefing\ Diario &amp;&amp; node --check worker.js &amp;&amp; node --test test_worker_campanas.mjs 2&gt;&amp;1 | tail -10
+</code></pre>
+<p>Esperado: <code>node --check</code> sin salida (OK) y 5 tests pasando.</p>
+<ul>
+<li>[ ] <strong>Step 5: Desplegar y verificar en vivo</strong></li>
+</ul>
+<pre><code class="language-bash">cd ~/Documents/Projects/Briefing\ Diario &amp;&amp; grep -A2 &quot;\[triggers\]&quot; wrangler.toml &amp;&amp; npx wrangler deploy
+</code></pre>
+<p><code>crons</code> tiene que seguir siendo <code>[]</code>. Después:</p>
+<pre><code class="language-bash">cd ~/Documents/Projects/Briefing\ Diario/bridge &amp;&amp; python3 ventura_bridge.py --campanas 2&gt;&amp;1 | grep campanas
+</code></pre>
+<p>Esperado: <code>[campanas] worker: OK - N correos de campana recibidos</code>.</p>
+<p>Y la lectura, con el secreto del Keychain:</p>
+<pre><code class="language-bash">K=$(security find-generic-password -s briefing-ingest-secret -a briefing -w) &amp;&amp; curl -s -A &quot;Mozilla/5.0 briefing-bridge&quot; &quot;https://briefing-diario-pepe.josechain.workers.dev/campanas-correo?key=$K&quot; | python3 -c &quot;import json,sys; d=json.load(sys.stdin); print(d['ts'], len(d['correos']), 'correos'); [print(' ', c['date'], c['subject'][:60]) for c in d['correos']]&quot;
+</code></pre>
+<p>Esperado: la misma lista que vio el puente.</p>
+<p>Y que el brief diario sigue vivo:</p>
+<pre><code class="language-bash">curl -s &quot;https://briefing-diario-pepe.josechain.workers.dev/view&quot; -o /dev/null -w &quot;%{http_code}\n&quot;
+</code></pre>
+<p>Esperado: <code>200</code>.</p>
+<ul>
+<li>[ ] <strong>Step 6: Commit</strong></li>
+</ul>
+<pre><code class="language-bash">cd ~/Documents/Projects/Briefing\ Diario &amp;&amp; git add worker.js test_worker_campanas.mjs &amp;&amp; git commit -m &quot;Worker briefing: /ingest-campanas y /campanas-correo
+
+Co-Authored-By: Claude Opus 5 &lt;noreply@anthropic.com&gt;&quot;
+</code></pre>
+<hr />
+<h3 id="task-5-el-worker-de-lb-planner-extrae-las-acciones-y-las-valida">Task 5: El worker de LB Planner extrae las acciones y las valida</h3>
+<p>Es la pieza con más reglas y la única que puede inventar cosas. La validación es el muro: nada que no pase por <code>_campValidar</code> llega a la pantalla.</p>
+<p><strong>Files:</strong></p>
+<ul>
+<li>Modify: <code>/Users/josechain/lbplanner/worker.js</code> (insertar el endpoint después del bloque <code>/email-actions</code>; <code>_campValidar</code> y <code>CAMP_SP</code> a nivel de módulo, junto a <code>callClaude</code> ~línea 813)</li>
+<li>Create: <code>/Users/josechain/lbplanner/tests/campanas_valida.test.mjs</code></li>
+<li>Create: <code>/Users/josechain/lbplanner/tests/campaign_actions.test.mjs</code></li>
+</ul>
+<p><strong>Interfaces:</strong></p>
+<ul>
+<li>Consumes: <code>GET /campanas-correo?key=</code> del worker del briefing vía <code>env.BRIEFING_SERVICE</code> (Tarea 4); <code>env.BRIEFING_KEY</code>, <code>env.ANTHROPIC_API_KEY</code>; <code>callClaude(env, messages, system, maxTokens)</code>; <code>json(obj, status)</code>.</li>
+<li>
+<p>Produces: <code>GET /campaign-actions?key=&lt;syncKey&gt;</code> → <code>{ts, correos, acciones:[...], descartes:[...], error?}</code>. Función <code>_campValidar(parsed, ctx)</code> delimitada por los marcadores <code>// &lt;&lt;&lt;CAMPANAS-VALIDA&gt;&gt;&gt;</code> / <code>// &lt;&lt;&lt;FIN CAMPANAS-VALIDA&gt;&gt;&gt;</code>, para poder evaluarla desde Node sin importar el worker. Forma de cada acción, que consume la Tarea 6:</p>
+<ul>
+<li><code>{tipo:'nueva', confianza, correo, cita, campana:{name,dateStart,dateEnd,status,notes,franchises:[{id,clientId,lines[],sublines:[{id,name,discount}],notes}]}, incluir:true}</code></li>
+<li><code>{tipo:'suma', confianza, correo, cita, campanaId, nombreCampana, franchises:[...], incluir:true}</code></li>
+<li><code>{tipo:'amplia', confianza, correo, cita, campanaId, nombreCampana, dateEnd, incluir:true}</code></li>
+</ul>
+</li>
+<li>
+<p>[ ] <strong>Step 1: Escribir la prueba que falla</strong></p>
+</li>
+</ul>
+<p><code>/Users/josechain/lbplanner/tests/campanas_valida.test.mjs</code>:</p>
+<pre><code class="language-javascript">// Valida _campValidar contra respuestas inventadas del modelo.
+// Extrae la funcion de worker.js entre marcadores: worker.js se despliega como
+// archivo unico (y se pega en el editor de Cloudflare), asi que no se puede
+// partir en modulos.
+import { test } from 'node:test';
+import assert from 'node:assert/strict';
+import fs from 'node:fs';
+import path from 'node:path';
+
+const SRC = fs.readFileSync(path.join(import.meta.dirname, '..', 'worker.js'), 'utf8');
+const INI = '// &lt;&lt;&lt;CAMPANAS-VALIDA&gt;&gt;&gt;';
+const FIN = '// &lt;&lt;&lt;FIN CAMPANAS-VALIDA&gt;&gt;&gt;';
+assert.ok(SRC.includes(INI) &amp;&amp; SRC.includes(FIN), 'faltan los marcadores en worker.js');
+const BLOQUE = SRC.slice(SRC.indexOf(INI) + INI.length, SRC.indexOf(FIN));
+const validar = new Function(BLOQUE + '\nreturn _campValidar;')();
+
+const CTX = {
+  clientIds: ['cl_ax', 'cl_ck', 'cl_boss', 'cl_mango', 'cl_chilli'],
+  lineas: ['Hombre', 'Mujer', 'Nina', 'Nino', 'Kids', 'Toda la Tienda'],
+  campanas: [{ id: 'camp_1', name: 'Invierno 2026' }],
+};
+
+const nueva = (extra) =&gt; ({
+  acciones: [Object.assign({
+    tipo: 'nueva', confianza: 'alta', correo: 'Campana X', cita: 'desde hoy',
+    campana: {
+      name: 'Matrimonios y Graduados', dateStart: '2026-10-03', dateEnd: '2026-10-31',
+      status: 'ACTIVA', notes: '', franchises: [{ clientId: 'cl_ax', lines: ['Hombre'], sublines: [{ name: 'todas', discount: '30%' }], notes: '' }],
+    },
+  }, extra || {})],
+});
+
+test('una nueva valida pasa entera', () =&gt; {
+  const r = validar(nueva(), CTX);
+  assert.equal(r.acciones.length, 1);
+  const a = r.acciones[0];
+  assert.equal(a.tipo, 'nueva');
+  assert.equal(a.incluir, true);
+  assert.equal(a.campana.status, 'ACTIVA');
+  assert.equal(a.campana.franchises[0].clientId, 'cl_ax');
+  assert.equal(a.campana.franchises[0].sublines[0].discount, '30%');
+});
+
+test('tienda inventada se descarta y la campana cae si no queda ninguna', () =&gt; {
+  const p = nueva();
+  p.acciones[0].campana.franchises = [{ clientId: 'cl_inventado', lines: [], sublines: [] }];
+  const r = validar(p, CTX);
+  assert.equal(r.acciones.length, 0);
+  assert.ok(r.descartes.some(d =&gt; d.includes('cl_inventado')));
+});
+
+test('tienda repetida entra una sola vez', () =&gt; {
+  const p = nueva();
+  p.acciones[0].campana.franchises = [
+    { clientId: 'cl_ax', lines: [], sublines: [] },
+    { clientId: 'cl_ax', lines: [], sublines: [] },
+  ];
+  const r = validar(p, CTX);
+  assert.equal(r.acciones[0].campana.franchises.length, 1);
+  assert.ok(r.descartes.some(d =&gt; d.includes('repetida')));
+});
+
+test('linea inventada se cae pero la tienda queda', () =&gt; {
+  const p = nueva();
+  p.acciones[0].campana.franchises[0].lines = ['Hombre', 'MNG HE', 'Gafas'];
+  const r = validar(p, CTX);
+  assert.deepEqual(r.acciones[0].campana.franchises[0].lines, ['Hombre']);
+});
+
+test('estado invalido cae a PLANIFICADA', () =&gt; {
+  const p = nueva();
+  p.acciones[0].campana.status = 'ACTIVE';
+  assert.equal(validar(p, CTX).acciones[0].campana.status, 'PLANIFICADA');
+});
+
+test('fecha mal formada se vacia; sin fecha de inicio se descarta', () =&gt; {
+  const p = nueva();
+  p.acciones[0].campana.dateEnd = '31/10/2026';
+  assert.equal(validar(p, CTX).acciones[0].campana.dateEnd, '');
+  const q = nueva();
+  q.acciones[0].campana.dateStart = 'manana';
+  assert.equal(validar(q, CTX).acciones.length, 0);
+});
+
+test('fin antes del inicio: se vacia el fin, no se descarta la campana', () =&gt; {
+  const p = nueva();
+  p.acciones[0].campana.dateStart = '2026-10-10';
+  p.acciones[0].campana.dateEnd = '2026-10-01';
+  const r = validar(p, CTX);
+  assert.equal(r.acciones.length, 1);
+  assert.equal(r.acciones[0].campana.dateEnd, '');
+  assert.ok(r.descartes.some(d =&gt; d.includes('fin antes del inicio')));
+});
+
+test('nueva sin nombre se descarta', () =&gt; {
+  const p = nueva();
+  p.acciones[0].campana.name = '   ';
+  assert.equal(validar(p, CTX).acciones.length, 0);
+});
+
+test('dos descuentos quedan como dos sublineas', () =&gt; {
+  const p = nueva();
+  p.acciones[0].campana.franchises[0].sublines = [
+    { name: 'todas las prendas', discount: '50%' },
+    { name: 'prendas de invierno', discount: '30%' },
+  ];
+  const subs = validar(p, CTX).acciones[0].campana.franchises[0].sublines;
+  assert.equal(subs.length, 2);
+  assert.notEqual(subs[0].id, subs[1].id);
+});
+
+test('amplia con campana conocida pasa; con id desconocido se descarta', () =&gt; {
+  const ok = validar({ acciones: [{ tipo: 'amplia', confianza: 'alta', correo: 'Ampliacion', campanaId: 'camp_1', dateEnd: '2025-11-16' }] }, CTX);
+  assert.equal(ok.acciones[0].dateEnd, '2025-11-16');
+  assert.equal(ok.acciones[0].nombreCampana, 'Invierno 2026');
+  const no = validar({ acciones: [{ tipo: 'amplia', campanaId: 'camp_99', dateEnd: '2025-11-16' }] }, CTX);
+  assert.equal(no.acciones.length, 0);
+});
+
+test('amplia sin fecha valida se descarta', () =&gt; {
+  const r = validar({ acciones: [{ tipo: 'amplia', campanaId: 'camp_1', dateEnd: '16 de noviembre' }] }, CTX);
+  assert.equal(r.acciones.length, 0);
+});
+
+test('suma con campana conocida pasa', () =&gt; {
+  const r = validar({ acciones: [{ tipo: 'suma', confianza: 'media', correo: 'Continuando', campanaId: 'camp_1', franchises: [{ clientId: 'cl_ck', lines: ['Mujer'], sublines: [{ name: 'todo', discount: '40%' }] }] }] }, CTX);
+  assert.equal(r.acciones[0].tipo, 'suma');
+  assert.equal(r.acciones[0].campanaId, 'camp_1');
+});
+
+test('suma con campana no identificada se vuelve nueva con confianza baja, no se pierde', () =&gt; {
+  const r = validar({ acciones: [{ tipo: 'suma', confianza: 'alta', correo: 'Continuando con la misma campana', cita: 'para las otras tiendas', campanaId: 'camp_99', campana: { name: 'Dia de la Madre', dateStart: '2026-05-11' }, franchises: [{ clientId: 'cl_ck', lines: [], sublines: [] }] }] }, CTX);
+  assert.equal(r.acciones.length, 1);
+  assert.equal(r.acciones[0].tipo, 'nueva');
+  assert.equal(r.acciones[0].confianza, 'baja');
+  assert.equal(r.acciones[0].campana.name, 'Dia de la Madre');
+  assert.equal(r.acciones[0].campana.franchises.length, 1);
+});
+
+test('suma sin tiendas validas se descarta', () =&gt; {
+  const r = validar({ acciones: [{ tipo: 'suma', campanaId: 'camp_1', franchises: [] }] }, CTX);
+  assert.equal(r.acciones.length, 0);
+});
+
+test('tipo desconocido se descarta', () =&gt; {
+  assert.equal(validar({ acciones: [{ tipo: 'borra', campanaId: 'camp_1' }] }, CTX).acciones.length, 0);
+});
+
+test('basura no revienta', () =&gt; {
+  for (const p of [null, undefined, {}, { acciones: null }, { acciones: [null, 0, 'x'] }]) {
+    const r = validar(p, CTX);
+    assert.deepEqual(r.acciones, []);
+  }
+});
+
+test('confianza invalida cae a media', () =&gt; {
+  const p = nueva({ confianza: 'altisima' });
+  assert.equal(validar(p, CTX).acciones[0].confianza, 'media');
+});
+
+test('tope de 20 acciones', () =&gt; {
+  const p = { acciones: Array.from({ length: 30 }, () =&gt; nueva().acciones[0]) };
+  assert.ok(validar(p, CTX).acciones.length &lt;= 20);
+});
+</code></pre>
+<ul>
+<li>[ ] <strong>Step 2: Correr y verificar que falla</strong></li>
+</ul>
+<pre><code class="language-bash">cd /Users/josechain/lbplanner &amp;&amp; node --test tests/campanas_valida.test.mjs 2&gt;&amp;1 | tail -10
+</code></pre>
+<p>Esperado: FAIL con <code>faltan los marcadores en worker.js</code>.</p>
+<ul>
+<li>[ ] <strong>Step 3: Escribir el prompt y el validador</strong></li>
+</ul>
+<p>Insertar en <code>/Users/josechain/lbplanner/worker.js</code> justo <strong>antes</strong> de <code>async function callClaude(env, messages, system, maxTokens) {</code> (~línea 813). Todo ASCII puro, español sin acentos:</p>
+<pre><code class="language-javascript">// Prompt de extraccion de campanas desde el correo. Cada regla nace de un
+// correo real que la rompe. Ver el spec:
+// docs/superpowers/specs/2026-10-14-campanas-desde-correo-design.html
+const CAMP_SP = 'Eres el extractor de campanas de descuento de LB Planner, la app de Pepe ' +
+  '(gerente de Ventura Mall, La Paz, Bolivia). Recibis correos que Pepe mando a contabilidad ' +
+  'pidiendo subir campanas al sistema, con su FECHA DE ENVIO, la lista de TIENDAS con su id, ' +
+  'y las CAMPANAS ya cargadas en la app.\n\n' +
+  'Hay tres tipos de correo:\n' +
+  '1. NUEVA: anuncia una campana que no estaba. tipo &quot;nueva&quot;.\n' +
+  '2. CONTINUACION: &quot;continuando con la misma campana para las otras tiendas&quot; -&gt; suma tiendas ' +
+  'a una campana que YA existe. tipo &quot;suma&quot;, con el campanaId de la campana existente.\n' +
+  '3. AMPLIACION: &quot;ampliar en sistema la campana de referencia hasta el 16 de Noviembre&quot; -&gt; ' +
+  'cambia SOLO la fecha de fin. tipo &quot;amplia&quot;, con campanaId y dateEnd.\n\n' +
+  'REGLAS DURAS:\n' +
+  '- FECHAS RELATIVAS contra la fecha de envio del correo. &quot;Desde hoy y hasta fin de mes&quot; en un ' +
+  'correo del 3-oct-2026 es dateStart 2026-10-03 y dateEnd 2026-10-31. &quot;Hasta el domingo 12 de ' +
+  'abril (incluido)&quot; es dateEnd 2026-04-12. Siempre YYYY-MM-DD.\n' +
+  '- RESPETAR LAS EXCLUSIONES. Si el correo dice &quot;por el momento NO tomar en cuenta BOSS&quot;, ' +
+  'Boss NO entra.\n' +
+  '- VARIOS DESCUENTOS EN UNA CAMPANA son varias sublineas. &quot;50% de descuento (30% las prendas ' +
+  'de invierno)&quot; son DOS sublineas, no una.\n' +
+  '- &quot;MNG HE&quot; es una LINEA de la tienda Mango, no una tienda. La tienda va en clientId y la ' +
+  'linea en lines. Lo mismo &quot;MNG SHE&quot; (Mujer) y &quot;MNG Kids&quot; (Kids). Si el nombre termina en LP ' +
+  'es la tienda de La Paz.\n' +
+  '- lines SOLO puede contener estos valores exactos: Hombre, Mujer, Nina, Nino, Kids, ' +
+  'Toda la Tienda. Si el correo no distingue linea, dejalo vacio.\n' +
+  '- SOLO podes usar clientId de la lista de tiendas que te di, copiado tal cual. NUNCA inventes ' +
+  'un id ni uses el nombre en su lugar.\n' +
+  '- Para &quot;suma&quot; y &quot;amplia&quot;, el campanaId tiene que ser uno de la lista de campanas existentes. ' +
+  'Si no estas seguro de CUAL campana es, devolvela como &quot;nueva&quot; y pone &quot;confianza&quot;:&quot;baja&quot;.\n' +
+  '- DESCARTAR lo que no es una campana. &quot;RE: Campanas de Descuento Realizadas 2024&quot; es un ' +
+  'pedido de reporte, no una campana: no lo devuelvas.\n' +
+  '- MEJOR DUDAR QUE EQUIVOCARSE. Si algo no esta claro, &quot;confianza&quot;:&quot;baja&quot;. En &quot;cita&quot; pone la ' +
+  'frase textual del correo que origino la accion, para que Pepe pueda verificarla.\n' +
+  '- status solo puede ser PLANIFICADA, ACTIVA, FINALIZADA o CANCELADA.\n\n' +
+  'RESPONDE SOLO CON JSON VALIDO, sin texto alrededor ni bloques de codigo:\n' +
+  '{&quot;acciones&quot;:[' +
+  '{&quot;tipo&quot;:&quot;nueva&quot;,&quot;confianza&quot;:&quot;alta&quot;,&quot;correo&quot;:&quot;asunto del correo&quot;,&quot;cita&quot;:&quot;frase textual&quot;,' +
+  '&quot;campana&quot;:{&quot;name&quot;:&quot;...&quot;,&quot;dateStart&quot;:&quot;2026-10-03&quot;,&quot;dateEnd&quot;:&quot;2026-10-31&quot;,&quot;status&quot;:&quot;ACTIVA&quot;,' +
+  '&quot;notes&quot;:&quot;&quot;,&quot;franchises&quot;:[{&quot;clientId&quot;:&quot;...&quot;,&quot;lines&quot;:[&quot;Hombre&quot;],' +
+  '&quot;sublines&quot;:[{&quot;name&quot;:&quot;todas las prendas del archivo&quot;,&quot;discount&quot;:&quot;30%&quot;}],&quot;notes&quot;:&quot;&quot;}]}},' +
+  '{&quot;tipo&quot;:&quot;suma&quot;,&quot;confianza&quot;:&quot;media&quot;,&quot;correo&quot;:&quot;...&quot;,&quot;cita&quot;:&quot;...&quot;,&quot;campanaId&quot;:&quot;camp_...&quot;,' +
+  '&quot;franchises&quot;:[]},' +
+  '{&quot;tipo&quot;:&quot;amplia&quot;,&quot;confianza&quot;:&quot;alta&quot;,&quot;correo&quot;:&quot;...&quot;,&quot;cita&quot;:&quot;...&quot;,&quot;campanaId&quot;:&quot;camp_...&quot;,' +
+  '&quot;dateEnd&quot;:&quot;2025-11-16&quot;}]}';
+
+// &lt;&lt;&lt;CAMPANAS-VALIDA&gt;&gt;&gt;
+// Muro de contencion entre el modelo y la pantalla. Mismo criterio que
+// &quot;Registrar lo hecho&quot;: antes descartar algo valido que escribir algo que
+// Pepe no dijo. Pura a proposito, para poder probarla en Node sin desplegar
+// (tests/campanas_valida.test.mjs la extrae entre estos marcadores).
+function _campValidar(parsed, ctx) {
+  const ESTADOS = ['PLANIFICADA', 'ACTIVA', 'FINALIZADA', 'CANCELADA'];
+  const ids = {}, camps = {}, lineas = {};
+  ((ctx &amp;&amp; ctx.clientIds) || []).forEach(function (x) { ids[x] = 1; });
+  ((ctx &amp;&amp; ctx.campanas) || []).forEach(function (c) { if (c &amp;&amp; c.id) camps[c.id] = c; });
+  ((ctx &amp;&amp; ctx.lineas) || []).forEach(function (l) { lineas[l] = 1; });
+  const descartes = [], acciones = [];
+
+  function fecha(v) {
+    return (typeof v === 'string' &amp;&amp; /^\d{4}-\d{2}-\d{2}$/.test(v)) ? v : '';
+  }
+  function texto(v, n) {
+    return String(v == null ? '' : v).trim().slice(0, n);
+  }
+  function franquicias(arr, etiqueta) {
+    const vistos = {}, out = [];
+    (Array.isArray(arr) ? arr : []).forEach(function (f) {
+      if (!f || !ids[f.clientId]) {
+        descartes.push('tienda desconocida en ' + etiqueta + ': ' + ((f &amp;&amp; f.clientId) || '?'));
+        return;
+      }
+      if (vistos[f.clientId]) {
+        descartes.push('tienda repetida en ' + etiqueta + ': ' + f.clientId);
+        return;
+      }
+      vistos[f.clientId] = 1;
+      out.push({
+        id: 'fran_' + f.clientId,
+        clientId: f.clientId,
+        lines: (Array.isArray(f.lines) ? f.lines : []).filter(function (l) { return lineas[l]; }),
+        sublines: (Array.isArray(f.sublines) ? f.sublines : [])
+          .filter(function (s) { return s &amp;&amp; texto(s.name, 120); })
+          .slice(0, 8)
+          .map(function (s, k) {
+            return { id: 'sl_' + f.clientId + '_' + k, name: texto(s.name, 120), discount: texto(s.discount, 20) };
+          }),
+        notes: texto(f.notes, 300)
+      });
+    });
+    return out;
+  }
+
+  (Array.isArray(parsed &amp;&amp; parsed.acciones) ? parsed.acciones : []).slice(0, 20).forEach(function (a) {
+    if (!a || typeof a !== 'object') return;
+    const conf = (a.confianza === 'alta' || a.confianza === 'baja') ? a.confianza : 'media';
+    const correo = texto(a.correo, 160), cita = texto(a.cita, 300);
+
+    if (a.tipo === 'amplia') {
+      if (!camps[a.campanaId]) { descartes.push('ampliacion sin campana conocida: ' + (a.campanaId || '?')); return; }
+      const fin = fecha(a.dateEnd);
+      if (!fin) { descartes.push('ampliacion sin fecha valida: ' + (correo || '?')); return; }
+      acciones.push({ tipo: 'amplia', confianza: conf, correo: correo, cita: cita,
+        campanaId: a.campanaId, nombreCampana: camps[a.campanaId].name, dateEnd: fin, incluir: true });
+      return;
+    }
+
+    if (a.tipo === 'suma') {
+      const frs = franquicias(a.franchises, 'suma');
+      if (!frs.length) { descartes.push('suma sin tiendas validas: ' + (correo || '?')); return; }
+      if (camps[a.campanaId]) {
+        acciones.push({ tipo: 'suma', confianza: conf, correo: correo, cita: cita,
+          campanaId: a.campanaId, nombreCampana: camps[a.campanaId].name, franchises: frs, incluir: true });
+        return;
+      }
+      // El correo dice &quot;continuando con la misma campana&quot; pero no sabemos cual.
+      // Descartarla en silencio perderia el correo entero, que es peor:
+      // pasa como nueva con confianza baja y Pepe decide.
+      descartes.push('suma reconvertida a nueva, campana no identificada: ' + (correo || '?'));
+      const c0 = a.campana || {};
+      acciones.push({ tipo: 'nueva', confianza: 'baja', correo: correo, cita: cita,
+        campana: {
+          name: texto(c0.name, 120) || correo || 'Campana sin nombre',
+          dateStart: fecha(c0.dateStart), dateEnd: fecha(c0.dateEnd),
+          status: 'PLANIFICADA', notes: texto(c0.notes, 300), franchises: frs
+        }, incluir: true });
+      return;
+    }
+
+    if (a.tipo !== 'nueva') { descartes.push('tipo desconocido: ' + (a.tipo || '?')); return; }
+    const c = a.campana || {};
+    const nombre = texto(c.name, 120);
+    const frs2 = franquicias(c.franchises, nombre || 'campana nueva');
+    let ini = fecha(c.dateStart), fin2 = fecha(c.dateEnd);
+    if (!nombre) { descartes.push('campana nueva sin nombre'); return; }
+    if (!frs2.length) { descartes.push('campana nueva sin tiendas validas: ' + nombre); return; }
+    if (!ini) { descartes.push('campana nueva sin fecha de inicio: ' + nombre); return; }
+    if (fin2 &amp;&amp; fin2 &lt; ini) { descartes.push('fin antes del inicio, se deja vacio: ' + nombre); fin2 = ''; }
+    acciones.push({ tipo: 'nueva', confianza: conf, correo: correo, cita: cita,
+      campana: {
+        name: nombre, dateStart: ini, dateEnd: fin2,
+        status: ESTADOS.indexOf(c.status) &gt;= 0 ? c.status : 'PLANIFICADA',
+        notes: texto(c.notes, 300), franchises: frs2
+      }, incluir: true });
+  });
+
+  return { acciones: acciones, descartes: descartes };
+}
+// &lt;&lt;&lt;FIN CAMPANAS-VALIDA&gt;&gt;&gt;
+</code></pre>
+<ul>
+<li>[ ] <strong>Step 4: Correr y verificar que pasa</strong></li>
+</ul>
+<pre><code class="language-bash">cd /Users/josechain/lbplanner &amp;&amp; node --check worker.js &amp;&amp; node --test tests/campanas_valida.test.mjs 2&gt;&amp;1 | tail -10 &amp;&amp; LC_ALL=C grep -n '[^ -~]' worker.js | head
+</code></pre>
+<p>Esperado: 18 tests pasando, <code>node --check</code> limpio, y el <code>grep</code> de no-ASCII <strong>sin salida</strong>.</p>
+<ul>
+<li>[ ] <strong>Step 5: Agregar el endpoint</strong></li>
+</ul>
+<p>Insertar en <code>/Users/josechain/lbplanner/worker.js</code> inmediatamente después del cierre del bloque <code>if (p === '/email-actions' ...)</code>, antes del siguiente <code>if (p === ...)</code>:</p>
+<pre><code class="language-javascript">    // GET /campaign-actions?key=&lt;syncKey&gt;
+    // Trae las campanas que el puente leyo en la carpeta Enviados y hace que
+    // Claude las convierta en acciones sobre el modulo de Campanas.
+    // NO escribe nada: devuelve propuestas para la tarjeta de confirmacion.
+    if (p === '/campaign-actions' &amp;&amp; request.method === 'GET') {
+      const syncKey = url.searchParams.get('key') || '';
+      if (!syncKey) return json({ error: 'Falta key', correos: 0, acciones: [] }, 200);
+      const briefKey = env.BRIEFING_KEY;
+      if (!briefKey) return json({ error: 'Falta el secreto BRIEFING_KEY en el worker', correos: 0, acciones: [] }, 200);
+      let payload;
+      const briefPath = '/campanas-correo?key=' + encodeURIComponent(briefKey);
+      try {
+        // Service binding: un fetch a la URL publica de workers.dev desde otro
+        // Worker de la misma cuenta devuelve 404.
+        let r;
+        if (env.BRIEFING_SERVICE) {
+          r = await env.BRIEFING_SERVICE.fetch(new Request('https://briefing.internal' + briefPath));
+        } else {
+          r = await fetch((env.BRIEFING_URL || 'https://briefing-diario-pepe.josechain.workers.dev') + briefPath);
+        }
+        if (!r.ok) return json({ error: 'Briefing respondio ' + r.status + (env.BRIEFING_SERVICE ? ' (binding)' : ' (http)'), correos: 0, acciones: [] }, 200);
+        payload = await r.json();
+      } catch (err) {
+        return json({ error: 'No pude leer el briefing: ' + err.message, correos: 0, acciones: [] }, 200);
+      }
+      const correos = Array.isArray(payload.correos) ? payload.correos.slice(0, 30) : [];
+      if (!correos.length) {
+        return json({ ts: payload.ts || null, correos: 0, acciones: [], descartes: [], note: 'Sin correos de campana. Abri Outlook y corre el puente.' }, 200);
+      }
+      let clients = [], campanas = [];
+      try {
+        const blob = await env.LBP_KV.get('data:' + syncKey);
+        const parsedData = blob ? JSON.parse(blob) : {};
+        clients = (parsedData.clients || [])
+          .filter(function (c) { return c &amp;&amp; c.id; })
+          .map(function (c) { return { id: c.id, nombre: c.businessName || c.name || c.id }; });
+        campanas = (parsedData.campaigns || [])
+          .filter(function (c) { return c &amp;&amp; c.id; })
+          .map(function (c) {
+            return { id: c.id, name: c.name || '', dateStart: c.dateStart || '', dateEnd: c.dateEnd || '',
+                     status: c.status || '',
+                     tiendas: (c.franchises || []).map(function (f) { return f.clientId; }).filter(Boolean) };
+          });
+      } catch (err) {
+        return json({ error: 'No pude leer tus datos: ' + err.message, correos: correos.length, acciones: [] }, 200);
+      }
+      if (!clients.length) {
+        return json({ error: 'No tengo tus tiendas cargadas en la nube. Abri la app para que sincronice.', correos: correos.length, acciones: [] }, 200);
+      }
+      const LINEAS = ['Hombre', 'Mujer', 'Nina', 'Nino', 'Kids', 'Toda la Tienda'];
+      const ctx = { clientIds: clients.map(function (c) { return c.id; }), lineas: LINEAS, campanas: campanas };
+      const msg =
+        'TIENDAS (usa el id tal cual):\n' +
+        clients.map(function (c) { return '- ' + c.id + ' = ' + c.nombre; }).join('\n') + '\n\n' +
+        'LINEAS DE MANGO: Mango Mujer (SHE), Mango Hombre (HE), Mango Ninos (Kids). ' +
+        'Hay dos tiendas Mango: Santa Cruz y La Paz; las de La Paz llevan LP detras del nombre. ' +
+        'El Outlet Express es una minitienda del atrio donde se juntan prendas de varias tiendas, ' +
+        'normalmente al 70%.\n\n' +
+        'CAMPANAS YA CARGADAS:\n' +
+        (campanas.length
+          ? campanas.map(function (c) {
+              return '- ' + c.id + ' | ' + c.name + ' | ' + (c.dateStart || '?') + ' a ' + (c.dateEnd || '?') +
+                     ' | ' + (c.status || '?') + ' | tiendas: ' + (c.tiendas.join(', ') || 'ninguna');
+            }).join('\n')
+          : '(ninguna)') + '\n\n' +
+        'CORREOS ENVIADOS:\n' +
+        correos.map(function (e, i) {
+          return '[' + (i + 1) + '] FECHA DE ENVIO: ' + (e.date || '?') +
+                 '\nASUNTO: ' + String(e.subject || '').slice(0, 160) +
+                 '\nCUERPO:\n' + String(e.texto || '').slice(0, 6000);
+        }).join('\n\n---\n\n');
+      const raw = await callClaude(env, [{ role: 'user', content: msg }], CAMP_SP, 8192);
+      if (!raw) {
+        // callClaude devuelve '' ante cualquier fallo (falta la key, 429, red).
+        // Devolver acciones:[] sin decir nada se veria como &quot;no hay nada que
+        // cargar&quot;, que es exactamente la conclusion equivocada.
+        return json({ ts: payload.ts || null, correos: correos.length, acciones: [], descartes: [],
+                      error: 'La IA no respondio. Reintenta en un rato.' }, 200);
+      }
+      let parsed = null;
+      try {
+        const m = String(raw).match(/\{[\s\S]*\}/);
+        parsed = m ? JSON.parse(m[0]) : null;
+      } catch (err) { parsed = null; }
+      if (!parsed) {
+        return json({ ts: payload.ts || null, correos: correos.length, acciones: [], descartes: [],
+                      error: 'La IA no devolvio JSON valido.' }, 200);
+      }
+      const out = _campValidar(parsed, ctx);
+      return json({ ts: payload.ts || null, correos: correos.length,
+                    acciones: out.acciones, descartes: out.descartes }, 200);
+    }
+</code></pre>
+<ul>
+<li>[ ] <strong>Step 6: Probar el endpoint con un briefing falso</strong></li>
+</ul>
+<p>Es la prueba del punto 2 de Review Focus: <code>callClaude</code> devuelve <code>''</code> ante cualquier fallo (falta la key, 429, red caída), y una respuesta <code>{acciones:[]}</code> sin más se lee en pantalla como «no hay nada que cargar», que es la conclusión exactamente equivocada.</p>
+<p><code>/Users/josechain/lbplanner/tests/campaign_actions.test.mjs</code>:</p>
+<pre><code class="language-javascript">// Prueba /campaign-actions contra el worker.js real, con el briefing y el KV
+// falsos y SIN llamar a Anthropic. Cubre los caminos de degradacion: lo que
+// no se puede leer tiene que decirlo, no devolver una lista vacia.
+import { test } from 'node:test';
+import assert from 'node:assert/strict';
+import fs from 'node:fs';
+import path from 'node:path';
+
+const SRC = fs.readFileSync(path.join(import.meta.dirname, '..', 'worker.js'), 'utf8');
+
+async function cargar() {
+  const tmp = path.join(import.meta.dirname, '.worker_lbp_test.mjs');
+  fs.writeFileSync(tmp, SRC);
+  try { return (await import('file://' + tmp + '?t=' + Date.now())).default; }
+  finally { fs.unlinkSync(tmp); }
+}
+
+const CORREO = { id: '1', subject: 'Campana X', date: '2026-10-03', texto: 'Desde hoy y hasta fin de mes en AX' };
+const DATOS = JSON.stringify({
+  clients: [{ id: 'cl_ax', businessName: 'AX' }, { id: 'cl_ck', name: 'CK' }],
+  campaigns: [{ id: 'camp_1', name: 'Invierno 2026', dateStart: '2026-06-01', dateEnd: '2026-07-31', status: 'FINALIZADA', franchises: [{ clientId: 'cl_ax' }] }]
+});
+
+function entorno(opts) {
+  const o = opts || {};
+  return {
+    BRIEFING_KEY: o.sinBriefKey ? undefined : 'bk',
+    // Sin ANTHROPIC_API_KEY a proposito: callClaude devuelve '' sin salir a la red.
+    LBP_KV: { get: async k =&gt; (k === 'data:lbp_x' ? (o.datos === undefined ? DATOS : o.datos) : null), put: async () =&gt; {} },
+    BRIEFING_SERVICE: {
+      fetch: async () =&gt; (o.briefStatus &amp;&amp; o.briefStatus !== 200)
+        ? new Response('no', { status: o.briefStatus })
+        : new Response(JSON.stringify({ ts: '2026-10-14T10:00:00Z', correos: o.correos === undefined ? [CORREO] : o.correos }), { status: 200 })
+    }
+  };
+}
+
+const pedir = (key) =&gt; new Request('https://x/campaign-actions?key=' + (key === undefined ? 'lbp_x' : key));
+
+test('sin key avisa en vez de fallar', async () =&gt; {
+  const r = await (await cargar()).fetch(pedir(''), entorno());
+  const b = await r.json();
+  assert.equal(r.status, 200);
+  assert.match(b.error, /key/i);
+  assert.deepEqual(b.acciones, []);
+});
+
+test('sin BRIEFING_KEY lo dice', async () =&gt; {
+  const b = await (await (await cargar()).fetch(pedir(), entorno({ sinBriefKey: true }))).json();
+  assert.match(b.error, /BRIEFING_KEY/);
+});
+
+test('briefing caido lo dice y marca que fue por binding', async () =&gt; {
+  const b = await (await (await cargar()).fetch(pedir(), entorno({ briefStatus: 500 }))).json();
+  assert.match(b.error, /500/);
+  assert.match(b.error, /binding/);
+});
+
+test('sin correos no es un error: es una nota con instruccion', async () =&gt; {
+  const b = await (await (await cargar()).fetch(pedir(), entorno({ correos: [] }))).json();
+  assert.equal(b.error, undefined);
+  assert.equal(b.correos, 0);
+  assert.deepEqual(b.acciones, []);
+  assert.match(b.note, /Outlook/);
+});
+
+test('sin tiendas en la nube pide sincronizar', async () =&gt; {
+  const b = await (await (await cargar()).fetch(pedir(), entorno({ datos: JSON.stringify({ clients: [] }) }))).json();
+  assert.match(b.error, /tiendas/i);
+});
+
+test('datos corruptos en KV no revientan el endpoint', async () =&gt; {
+  const b = await (await (await cargar()).fetch(pedir(), entorno({ datos: '{no es json' }))).json();
+  assert.ok(b.error);
+  assert.deepEqual(b.acciones, []);
+});
+
+test('la IA sin responder NO se ve como &quot;nada que cargar&quot;', async () =&gt; {
+  // Este es el caso de Review Focus #2: hay correos, hay tiendas, y callClaude
+  // devuelve '' porque falta ANTHROPIC_API_KEY.
+  const b = await (await (await cargar()).fetch(pedir(), entorno())).json();
+  assert.equal(b.correos, 1);
+  assert.deepEqual(b.acciones, []);
+  assert.ok(b.error, 'tiene que haber un error visible, no una lista vacia muda');
+  assert.match(b.error, /IA/);
+});
+</code></pre>
+<p>Correr:</p>
+<pre><code class="language-bash">cd /Users/josechain/lbplanner &amp;&amp; node --test tests/campaign_actions.test.mjs 2&gt;&amp;1 | tail -10
+</code></pre>
+<p>Esperado: 7 tests OK. Si <code>Response</code> no existe, el Node de este Mac es viejo: <code>node --version</code> tiene que dar 18+ (hoy da v24.14.1).</p>
+<ul>
+<li>[ ] <strong>Step 7: Desplegar y verificar con los correos reales</strong></li>
+</ul>
+<pre><code class="language-bash">cd /Users/josechain/lbplanner &amp;&amp; node --check worker.js &amp;&amp; LC_ALL=C grep -c '[^ -~]' worker.js; grep -A2 &quot;\[triggers\]&quot; wrangler.toml &amp;&amp; npx wrangler secret list --name life-planner | head -20
+</code></pre>
+<p><code>grep -c</code> tiene que dar <code>0</code>. <code>crons</code> tiene que seguir en <code>["* * * * *"]</code>. Después:</p>
+<pre><code class="language-bash">cd /Users/josechain/lbplanner &amp;&amp; npx wrangler deploy
+</code></pre>
+<p>Y la prueba de verdad — reemplazar <code>&lt;SYNCKEY&gt;</code> por el de Pepe (<code>lbp_0mnvmyv9uh8wciya</code>):</p>
+<pre><code class="language-bash">curl -s &quot;https://life-planner.josechain.workers.dev/campaign-actions?key=lbp_0mnvmyv9uh8wciya&quot; | python3 -m json.tool | head -80
+</code></pre>
+<p>Esperado, y hay que <strong>leerlo contra los correos reales uno por uno</strong>:</p>
+<ul>
+<li><code>correos</code> ≥ 5</li>
+<li>las fechas relativas resueltas contra la fecha de envío</li>
+<li>BOSS excluido donde el correo lo excluye</li>
+<li>dos sublíneas donde hay dos descuentos</li>
+<li>la continuación del 14-jul apuntando a la campaña del 31-jul (o, si no la identifica, como <code>nueva</code> con <code>confianza: "baja"</code> — eso también es correcto)</li>
+<li><code>RE: Campañas de Descuento Realizadas 2024</code> <strong>no</strong> aparece como acción</li>
+<li><code>descartes</code> legible: lo que se cayó y por qué</li>
+</ul>
+<p>Si una regla del prompt no se cumple, se ajusta el prompt y se vuelve a correr <strong>este mismo comando</strong> antes de seguir.</p>
+<p><strong>Desviación declarada respecto al spec.</strong> El spec pide esta capa como «los 5 correos como casos fijos y el resultado esperado escrito a mano». No se hace así: la extracción pasa por Claude, que no es determinista, y un resultado esperado literal daría una prueba que falla por razones que no son errores. Lo que sí queda automatizado es todo lo que <strong>sí</strong> es determinista: la conversión del cuerpo (Tarea 1), la validación de lo que devuelve el modelo (Tarea 5, Step 1 — 18 casos), la degradación cuando el modelo no responde (Step 6) y la escritura (Tarea 6). Esta capa queda como una verificación manual con criterios escritos, que es lo que de verdad se puede sostener. Si más adelante molesta, lo que se puede fijar es el <em>contrato</em>: un par de correos de fixture y aserciones laxas (que la fecha resuelta caiga en el mes del envío, que BOSS no aparezca cuando el correo lo excluye) en vez del JSON entero.</p>
+<ul>
+<li>[ ] <strong>Step 8: Commit</strong></li>
+</ul>
+<pre><code class="language-bash">cd /Users/josechain/lbplanner &amp;&amp; git add worker.js tests/campanas_valida.test.mjs tests/campaign_actions.test.mjs &amp;&amp; git commit -m &quot;Worker: /campaign-actions con extraccion y validacion de campanas
+
+Co-Authored-By: Claude Opus 5 &lt;noreply@anthropic.com&gt;&quot;
+</code></pre>
+<hr />
+<h3 id="task-6-la-app-escribe-las-acciones-sobre-datacampaigns">Task 6: La app escribe las acciones sobre <code>data.campaigns</code></h3>
+<p><strong>Files:</strong></p>
+<ul>
+<li>Modify: <code>/Users/josechain/lbplanner/LifeBusinessPlanner2026.html</code> (insertar <code>window._campAplicar</code> justo antes de <code>window._hechoInventario</code>, línea 2066)</li>
+<li>Create: <code>/Users/josechain/lbplanner/tests/camp_aplicar.test.mjs</code></li>
+<li>Create: <code>/Users/josechain/lbplanner/patch_campanas_aplicar.py</code></li>
+</ul>
+<p><strong>Interfaces:</strong></p>
+<ul>
+<li>Consumes: las acciones validadas de la Tarea 5.</li>
+<li>
+<p>Produces: <code>window._campAplicar(data, acciones) -&gt; {campaigns: [...], res: {nuevas, sumadas, ampliadas, omitidas, detalle:[], fallos:[]}}</code>. Pura: no toca estado de React, no muta <code>data</code>.</p>
+</li>
+<li>
+<p>[ ] <strong>Step 1: Escribir la prueba que falla</strong></p>
+</li>
+</ul>
+<p><code>/Users/josechain/lbplanner/tests/camp_aplicar.test.mjs</code>:</p>
+<pre><code class="language-javascript">// Prueba window._campAplicar extrayendola del HTML, igual que ya se probaba
+// _buildWeeklyReport en Node. No necesita navegador.
+import { test } from 'node:test';
+import assert from 'node:assert/strict';
+import fs from 'node:fs';
+import path from 'node:path';
+
+const HTML = fs.readFileSync(path.join(import.meta.dirname, '..', 'LifeBusinessPlanner2026.html'), 'utf8');
+const INI = 'window._campAplicar = function';
+const i = HTML.indexOf(INI);
+assert.ok(i &gt; 0, 'no encuentro window._campAplicar en el HTML');
+const FIN = '\n};\n';
+const j = HTML.indexOf(FIN, i);
+assert.ok(j &gt; i, 'no encuentro el cierre de _campAplicar');
+const win = {};
+new Function('window', HTML.slice(i, j + FIN.length))(win);
+const aplicar = win._campAplicar;
+
+const fran = (clientId, lines, subs) =&gt; ({
+  id: 'fran_' + clientId, clientId,
+  lines: lines || [], sublines: subs || [{ id: 'sl_0', name: 'todo', discount: '30%' }], notes: ''
+});
+
+const BASE = () =&gt; ({
+  campaigns: [{
+    id: 'camp_vieja', name: 'Invierno 2026', dateStart: '2026-06-01', dateEnd: '2026-07-31',
+    status: 'FINALIZADA', notes: '', franchises: [fran('cl_ax')]
+  }]
+});
+
+const accNueva = (over) =&gt; Object.assign({
+  tipo: 'nueva', confianza: 'alta', correo: 'Campana X', cita: '', incluir: true,
+  campana: { name: 'Matrimonios y Graduados', dateStart: '2026-10-03', dateEnd: '2026-10-31',
+             status: 'ACTIVA', notes: '', franchises: [fran('cl_ck', ['Hombre'])] }
+}, over || {});
+
+test('una nueva se agrega adelante y no toca las existentes', () =&gt; {
+  const data = BASE();
+  const antes = JSON.stringify(data);
+  const r = aplicar(data, [accNueva()]);
+  assert.equal(r.campaigns.length, 2);
+  assert.equal(r.campaigns[0].name, 'Matrimonios y Graduados');
+  assert.equal(r.campaigns[0].origen, 'correo');
+  assert.ok(r.campaigns[0].id.startsWith('camp_'));
+  assert.deepEqual(r.campaigns[1], data.campaigns[0]);
+  assert.equal(r.res.nuevas, 1);
+  assert.equal(JSON.stringify(data), antes, 'no debe mutar data');
+});
+
+test('las acciones destildadas no se aplican', () =&gt; {
+  const r = aplicar(BASE(), [accNueva({ incluir: false })]);
+  assert.equal(r.campaigns.length, 1);
+  assert.equal(r.res.nuevas, 0);
+});
+
+test('la misma tanda dos veces no duplica', () =&gt; {
+  const data = BASE();
+  const uno = aplicar(data, [accNueva()]);
+  const dos = aplicar({ campaigns: uno.campaigns }, [accNueva()]);
+  assert.equal(dos.campaigns.length, 2);
+  assert.equal(dos.res.nuevas, 0);
+  assert.equal(dos.res.omitidas, 1);
+  assert.ok(dos.res.fallos.some(f =&gt; f.includes('ya existia')));
+});
+
+test('mismo nombre con otra fecha de inicio SI entra', () =&gt; {
+  const data = BASE();
+  const uno = aplicar(data, [accNueva()]);
+  const otra = accNueva();
+  otra.campana = Object.assign({}, otra.campana, { dateStart: '2027-10-03' });
+  const dos = aplicar({ campaigns: uno.campaigns }, [otra]);
+  assert.equal(dos.campaigns.length, 3);
+});
+
+test('suma agrega solo las tiendas que no estaban', () =&gt; {
+  const r = aplicar(BASE(), [{
+    tipo: 'suma', incluir: true, campanaId: 'camp_vieja', nombreCampana: 'Invierno 2026',
+    franchises: [fran('cl_ax'), fran('cl_boss'), fran('cl_mango')]
+  }]);
+  const c = r.campaigns.find(x =&gt; x.id === 'camp_vieja');
+  assert.deepEqual(c.franchises.map(f =&gt; f.clientId), ['cl_ax', 'cl_boss', 'cl_mango']);
+  assert.equal(r.res.sumadas, 2);
+  assert.equal(r.campaigns.length, 1);
+});
+
+test('suma sin tiendas nuevas se informa y no cambia nada', () =&gt; {
+  const r = aplicar(BASE(), [{
+    tipo: 'suma', incluir: true, campanaId: 'camp_vieja', nombreCampana: 'Invierno 2026',
+    franchises: [fran('cl_ax')]
+  }]);
+  assert.equal(r.campaigns[0].franchises.length, 1);
+  assert.equal(r.res.omitidas, 1);
+});
+
+test('amplia cambia unicamente dateEnd', () =&gt; {
+  const data = BASE();
+  const r = aplicar(data, [{
+    tipo: 'amplia', incluir: true, campanaId: 'camp_vieja', nombreCampana: 'Invierno 2026', dateEnd: '2026-11-16'
+  }]);
+  const c = r.campaigns[0], v = data.campaigns[0];
+  assert.equal(c.dateEnd, '2026-11-16');
+  assert.equal(c.name, v.name);
+  assert.equal(c.dateStart, v.dateStart);
+  assert.equal(c.status, v.status);
+  assert.deepEqual(c.franchises, v.franchises);
+  assert.equal(r.res.ampliadas, 1);
+});
+
+test('suma o amplia sobre una campana borrada se informa, no revienta', () =&gt; {
+  const r = aplicar(BASE(), [
+    { tipo: 'suma', incluir: true, campanaId: 'camp_no', nombreCampana: 'Fantasma', franchises: [fran('cl_ck')] },
+    { tipo: 'amplia', incluir: true, campanaId: 'camp_no', nombreCampana: 'Fantasma', dateEnd: '2026-12-01' }
+  ]);
+  assert.equal(r.campaigns.length, 1);
+  assert.equal(r.res.fallos.length, 2);
+  assert.ok(r.res.fallos[0].includes('ya no existe'));
+});
+
+test('ids de campana y de franquicia unicos en la misma tanda', () =&gt; {
+  const a = accNueva(), b = accNueva();
+  b.campana = Object.assign({}, b.campana, { name: 'Otra', franchises: [fran('cl_boss'), fran('cl_mango')] });
+  const r = aplicar(BASE(), [a, b]);
+  const ids = r.campaigns.map(c =&gt; c.id).concat(
+    r.campaigns.flatMap(c =&gt; (c.franchises || []).map(f =&gt; f.id)));
+  assert.equal(new Set(ids).size, ids.length);
+});
+
+test('sin campanas previas funciona igual', () =&gt; {
+  const r = aplicar({}, [accNueva()]);
+  assert.equal(r.campaigns.length, 1);
+});
+
+test('basura no revienta', () =&gt; {
+  for (const acc of [null, undefined, [], [null, 0, 'x', {}, { tipo: 'raro', incluir: true }]]) {
+    const r = aplicar(BASE(), acc);
+    assert.equal(r.campaigns.length, 1);
+  }
+});
+</code></pre>
+<ul>
+<li>[ ] <strong>Step 2: Correr y verificar que falla</strong></li>
+</ul>
+<pre><code class="language-bash">cd /Users/josechain/lbplanner &amp;&amp; node --test tests/camp_aplicar.test.mjs 2&gt;&amp;1 | tail -8
+</code></pre>
+<p>Esperado: FAIL con <code>no encuentro window._campAplicar en el HTML</code>.</p>
+<ul>
+<li>[ ] <strong>Step 3: Escribir el parche</strong></li>
+</ul>
+<p><code>/Users/josechain/lbplanner/patch_campanas_aplicar.py</code>. Ojo con la regla: <strong>ningún <code>\n</code> literal</strong> en los strings que se insertan; va <code>\\n</code>.</p>
+<pre><code class="language-python">#!/usr/bin/env python3
+&quot;&quot;&quot;Inserta window._campAplicar antes de window._hechoInventario (v5.36).&quot;&quot;&quot;
+import re
+import subprocess
+
+F = 'LifeBusinessPlanner2026.html'
+html = open(F, encoding='utf-8').read()
+original = len(html)
+
+ANCLA = 'window._hechoInventario = function(d){'
+assert html.count(ANCLA) == 1, 'ancla no unica: %d' % html.count(ANCLA)
+assert '_campAplicar' not in html, 'ya esta aplicado'
+
+NUEVO = r&quot;&quot;&quot;// Escribe las acciones de campana que vinieron del correo sobre una copia de
+// los datos. Pura: recibe data, devuelve {campaigns, res}. No muta data ni
+// toca estado de React, asi se puede probar en Node antes de desplegar
+// (tests/camp_aplicar.test.mjs).
+window._campAplicar = function(data, acciones){
+  var ts = Date.now();
+  var camps = ((data &amp;&amp; data.campaigns) || []).map(function(c){
+    return Object.assign({}, c, {franchises:(c.franchises||[]).slice()});
+  });
+  var res = {nuevas:0, sumadas:0, ampliadas:0, omitidas:0, detalle:[], fallos:[]};
+  var buscar = function(id){
+    for (var i=0;i&lt;camps.length;i++) if (camps[i].id===id) return i;
+    return -1;
+  };
+  var norm = function(s){ return String(s||'').trim().toLowerCase(); };
+  (acciones||[]).forEach(function(a, k){
+    if (!a || typeof a !== 'object' || !a.incluir) return;
+    if (a.tipo==='nueva') {
+      var c = a.campana || {};
+      // Guardar dos veces la misma tanda (reabrir la tarjeta, doble click)
+      // duplicaria la campana. Mismo nombre y misma fecha de inicio = la misma.
+      var dup = camps.filter(function(x){
+        return norm(x.name)===norm(c.name) &amp;&amp; (x.dateStart||'')===(c.dateStart||'');
+      })[0];
+      if (dup) { res.omitidas++; res.fallos.push('ya existia: '+(c.name||'?')); return; }
+      camps = [Object.assign({}, c, {
+        id:'camp_'+ts+'_'+k,
+        franchises:(c.franchises||[]).map(function(f,j){
+          return Object.assign({}, f, {id:'fran_'+ts+'_'+k+'_'+j});
+        }),
+        origen:'correo', createdAt:ts, updatedAt:ts
+      })].concat(camps);
+      res.nuevas++; res.detalle.push('🆕 '+(c.name||'(sin nombre)'));
+      return;
+    }
+    if (a.tipo!=='suma' &amp;&amp; a.tipo!=='amplia') { res.fallos.push('accion desconocida'); return; }
+    var i = buscar(a.campanaId);
+    if (i &lt; 0) { res.fallos.push('la campana ya no existe: '+(a.nombreCampana||a.campanaId||'?')); return; }
+    if (a.tipo==='amplia') {
+      camps[i] = Object.assign({}, camps[i], {dateEnd:a.dateEnd, updatedAt:ts});
+      res.ampliadas++;
+      res.detalle.push('📅 '+camps[i].name+' → '+a.dateEnd);
+      return;
+    }
+    var ya = {};
+    (camps[i].franchises||[]).forEach(function(f){ if (f) ya[f.clientId]=1; });
+    var suma = (a.franchises||[]).filter(function(f){ return f &amp;&amp; !ya[f.clientId]; })
+      .map(function(f,j){ return Object.assign({}, f, {id:'fran_'+ts+'_'+k+'_'+j}); });
+    if (!suma.length) {
+      res.omitidas++;
+      res.fallos.push('sin tiendas nuevas que sumar a '+camps[i].name);
+      return;
+    }
+    camps[i] = Object.assign({}, camps[i], {
+      franchises:(camps[i].franchises||[]).concat(suma), updatedAt:ts});
+    res.sumadas += suma.length;
+    res.detalle.push('➕ '+suma.length+' tienda'+(suma.length&gt;1?'s':'')+' a '+camps[i].name);
+  });
+  return {campaigns: camps, res: res};
+};
+
+&quot;&quot;&quot;
+
+html = html.replace(ANCLA, NUEVO + ANCLA, 1)
+html = re.sub(r&quot;window\.LBP_VERSION = '[^']+'&quot;, &quot;window.LBP_VERSION = '5.36'&quot;, html, count=1)
+
+open(F, 'w', encoding='utf-8').write(html)
+print('guardado: %d -&gt; %d bytes' % (original, len(html)))
+
+scripts = re.findall(r'&lt;script[^&gt;]*&gt;(.*?)&lt;/script&gt;', html, re.DOTALL)
+open('/tmp/check_camp.js', 'w').write(max(scripts, key=len))
+r = subprocess.run(['node', '--check', '/tmp/check_camp.js'], capture_output=True, text=True)
+print('node --check PASSED' if r.returncode == 0 else 'node --check FAILED:\n' + r.stderr[:800])
+</code></pre>
+<p><strong>Antes de correrlo</strong>, verificar el formato real de la versión:</p>
+<pre><code class="language-bash">cd /Users/josechain/lbplanner &amp;&amp; grep -n &quot;LBP_VERSION = &quot; LifeBusinessPlanner2026.html | head -3
+</code></pre>
+<p>Verificado el 14-oct: línea 25, <code>window.LBP_VERSION = '5.35';</code>. Si cambió, ajustar la regex del parche a lo que haya.</p>
+<ul>
+<li>[ ] <strong>Step 4: Aplicar el parche y correr las pruebas</strong></li>
+</ul>
+<pre><code class="language-bash">cd /Users/josechain/lbplanner &amp;&amp; cp LifeBusinessPlanner2026.html /tmp/lbp_antes_v536.html &amp;&amp; python3 patch_campanas_aplicar.py &amp;&amp; node --test tests/camp_aplicar.test.mjs 2&gt;&amp;1 | tail -8
+</code></pre>
+<p>Esperado: <code>node --check PASSED</code> y 11 tests OK. Si algo falla, <code>cp /tmp/lbp_antes_v536.html LifeBusinessPlanner2026.html</code> y corregir.</p>
+<ul>
+<li>[ ] <strong>Step 5: Correrlo contra los datos reales de la nube</strong></li>
+</ul>
+<pre><code class="language-bash">cd /Users/josechain/lbplanner &amp;&amp; curl -s &quot;https://life-planner.josechain.workers.dev/sync?key=lbp_0mnvmyv9uh8wciya&quot; -o /tmp/lbp_data.json &amp;&amp; node -e &quot;
+const fs=require('fs');
+const html=fs.readFileSync('LifeBusinessPlanner2026.html','utf8');
+const i=html.indexOf('window._campAplicar = function'), j=html.indexOf('\n};\n', i);
+const win={}; new Function('window', html.slice(i, j+4))(win);
+const data=JSON.parse(fs.readFileSync('/tmp/lbp_data.json','utf8'));
+const antes=JSON.stringify(data.campaigns||[]);
+console.log('campanas antes:', (data.campaigns||[]).length);
+const r=win._campAplicar(data, []);
+console.log('con 0 acciones -&gt;', r.campaigns.length, 'campanas |', r.res);
+console.log('data intacta:', JSON.stringify(data.campaigns||[])===antes);
+&quot;
+</code></pre>
+<p>Esperado: la misma cantidad de campañas, <code>res</code> en cero, <code>data intacta: true</code>.</p>
+<ul>
+<li>[ ] <strong>Step 6: Commit</strong></li>
+</ul>
+<pre><code class="language-bash">cd /Users/josechain/lbplanner &amp;&amp; git add LifeBusinessPlanner2026.html patch_campanas_aplicar.py tests/camp_aplicar.test.mjs &amp;&amp; git commit -m &quot;App: _campAplicar escribe campanas del correo sobre una copia (v5.36)
+
+Co-Authored-By: Claude Opus 5 &lt;noreply@anthropic.com&gt;&quot;
+</code></pre>
+<hr />
+<h3 id="task-7-el-informe-semanal-cuenta-las-campanas">Task 7: El informe semanal cuenta las campañas</h3>
+<p>Hueco que encontré al leer el código, no estaba en el spec. El spec justifica la tarjeta de confirmación diciendo <em>«una campaña mal cargada se propaga al informe semanal»</em>. <strong>Hoy no se propaga ninguna:</strong> <code>_buildWeeklyReport</code> filtra por <code>status === 'COMPLETED'</code> y <code>'ACTIVE' || 'EN_CURSO'</code> (<code>LifeBusinessPlanner2026.html:620-625</code>), pero el módulo sólo escribe <code>PLANIFICADA | ACTIVA | FINALIZADA | CANCELADA</code> (<code>:18091</code>). Ninguna campaña aparece nunca en el informe — tampoco «Invierno 2026», la única que hay. Sin esto, llenar el módulo no cambia nada en el informe.</p>
+<p><strong>Files:</strong></p>
+<ul>
+<li>Modify: <code>/Users/josechain/lbplanner/LifeBusinessPlanner2026.html:619-625</code></li>
+<li>Create: <code>/Users/josechain/lbplanner/tests/informe_campanas.test.mjs</code></li>
+</ul>
+<p><strong>Interfaces:</strong></p>
+<ul>
+<li>Consumes: <code>data.campaigns</code> tal como lo escribe el módulo y la Tarea 6.</li>
+<li>
+<p>Produces: nada nuevo; <code>rep.campaignsDone</code> y <code>rep.campaignsActive</code> empiezan a traer datos.</p>
+</li>
+<li>
+<p>[ ] <strong>Step 1: Escribir la prueba que falla</strong></p>
+</li>
+</ul>
+<p><code>/Users/josechain/lbplanner/tests/informe_campanas.test.mjs</code>:</p>
+<pre><code class="language-javascript">// Chequea sobre el texto del HTML que los filtros de campanas del informe
+// usan los estados que el modulo escribe de verdad.
+import { test } from 'node:test';
+import assert from 'node:assert/strict';
+import fs from 'node:fs';
+import path from 'node:path';
+
+const HTML = fs.readFileSync(path.join(import.meta.dirname, '..', 'LifeBusinessPlanner2026.html'), 'utf8');
+
+test('los estados del modulo siguen siendo estos cuatro', () =&gt; {
+  assert.ok(HTML.includes(&quot;var CAMP_STATUSES = ['PLANIFICADA','ACTIVA','FINALIZADA','CANCELADA']&quot;),
+    'cambiaron los estados del modulo: hay que revisar el informe');
+});
+
+test('el informe cuenta las finalizadas', () =&gt; {
+  const i = HTML.indexOf('var campaignsDone');
+  assert.ok(i &gt; 0);
+  const bloque = HTML.slice(i, i + 600);
+  assert.ok(/FINALIZADA/.test(bloque), 'el informe no reconoce FINALIZADA');
+});
+
+test('el informe cuenta las activas y las planificadas', () =&gt; {
+  const i = HTML.indexOf('var campaignsActive');
+  assert.ok(i &gt; 0);
+  const bloque = HTML.slice(i, i + 600);
+  assert.ok(/'ACTIVA'/.test(bloque), 'el informe no reconoce ACTIVA');
+  assert.ok(/'PLANIFICADA'/.test(bloque), 'el informe ignora las planificadas');
+});
+</code></pre>
+<ul>
+<li>[ ] <strong>Step 2: Correr y verificar que falla</strong></li>
+</ul>
+<pre><code class="language-bash">cd /Users/josechain/lbplanner &amp;&amp; node --test tests/informe_campanas.test.mjs 2&gt;&amp;1 | tail -10
+</code></pre>
+<p>Esperado: pasa el primero, fallan los otros dos.</p>
+<ul>
+<li>[ ] <strong>Step 3: Arreglar los filtros</strong></li>
+</ul>
+<p>Reemplazar en <code>LifeBusinessPlanner2026.html</code> el bloque de las líneas 619-625. Buscar exactamente:</p>
+<pre><code class="language-javascript">    var campaignsDone = (data.campaigns || []).filter(function(c) {
+      return c.status === 'COMPLETED' &amp;&amp; inWin((c.dateEnd || c.endDate) ? new Date(c.dateEnd || c.endDate).getTime() : null);
+    }).map(function(c) { return c.name + (c.dateEnd ? ' (fin ' + dstr(c.dateEnd) + ')' : ''); });
+    var campaignsActive = (data.campaigns || []).filter(function(c) {
+      return c.status === 'ACTIVE' || c.status === 'EN_CURSO';
+    }).map(function(c) { return c.name + (c.dateStart ? ' (desde ' + dstr(c.dateStart) + ')' : ''); });
+</code></pre>
+<p>y poner:</p>
+<pre><code class="language-javascript">    // Los estados que escribe el modulo de Campanas son PLANIFICADA / ACTIVA /
+    // FINALIZADA / CANCELADA (CAMP_STATUSES). El informe filtraba por
+    // COMPLETED / ACTIVE / EN_CURSO, que nadie escribe nunca: ninguna campana
+    // aparecia aca. Se dejan los nombres viejos por si quedo algun dato de
+    // antes.
+    var campaignsDone = (data.campaigns || []).filter(function(c) {
+      return (c.status === 'FINALIZADA' || c.status === 'COMPLETED') &amp;&amp;
+        inWin((c.dateEnd || c.endDate) ? new Date(c.dateEnd || c.endDate).getTime() : null);
+    }).map(function(c) { return c.name + (c.dateEnd ? ' (fin ' + dstr(c.dateEnd) + ')' : ''); });
+    var campaignsActive = (data.campaigns || []).filter(function(c) {
+      return c.status === 'ACTIVA' || c.status === 'PLANIFICADA' ||
+        c.status === 'ACTIVE' || c.status === 'EN_CURSO';
+    }).map(function(c) { return c.name + (c.dateStart ? ' (desde ' + dstr(c.dateStart) + ')' : ''); });
+</code></pre>
+<p>Y el bloque de conteo de <code>/chat</code> (<code>:709-711</code>) usa <code>c.status==='ACTIVE'</code> y <code>c.endDate</code>: cambiar <code>c.status==='ACTIVE'</code> por <code>(c.status==='ACTIVA'||c.status==='ACTIVE')</code> y <code>c.status==='COMPLETED'</code> por <code>(c.status==='FINALIZADA'||c.status==='COMPLETED')</code>, y <code>c.endDate</code> por <code>(c.dateEnd||c.endDate)</code>. <strong>Leer esas líneas primero</strong> (<code>sed -n '705,715p'</code>) y reemplazar sobre el texto exacto.</p>
+<ul>
+<li>[ ] <strong>Step 4: Correr las pruebas</strong></li>
+</ul>
+<pre><code class="language-bash">cd /Users/josechain/lbplanner &amp;&amp; node --test tests/informe_campanas.test.mjs tests/camp_aplicar.test.mjs 2&gt;&amp;1 | tail -8 &amp;&amp; python3 -c &quot;
+import re,subprocess
+h=open('LifeBusinessPlanner2026.html',encoding='utf-8').read()
+s=re.findall(r'&lt;script[^&gt;]*&gt;(.*?)&lt;/script&gt;',h,re.DOTALL)
+open('/tmp/check_inf.js','w').write(max(s,key=len))
+r=subprocess.run(['node','--check','/tmp/check_inf.js'],capture_output=True,text=True)
+print('node --check PASSED' if r.returncode==0 else r.stderr[:600])
+&quot;
+</code></pre>
+<p>Esperado: todos los tests OK y <code>node --check PASSED</code>.</p>
+<ul>
+<li>[ ] <strong>Step 5: Verificar que ahora sí aparece en el informe real</strong></li>
+</ul>
+<pre><code class="language-bash">cd /Users/josechain/lbplanner &amp;&amp; node -e &quot;
+const fs=require('fs');
+const html=fs.readFileSync('LifeBusinessPlanner2026.html','utf8');
+const i=html.indexOf('var campaignsDone');
+console.log(html.slice(i-120, i+900));
+&quot; &amp;&amp; python3 -c &quot;
+import json
+d=json.load(open('/tmp/lbp_data.json'))
+for c in d.get('campaigns',[]):
+    print(c.get('status'), '|', c.get('name'), '|', c.get('dateStart'), '-&gt;', c.get('dateEnd'))
+&quot;
+</code></pre>
+<p>Esperado: ver el estado real de las campañas de Pepe y confirmar que caen en una de las dos listas con los filtros nuevos.</p>
+<ul>
+<li>[ ] <strong>Step 6: Commit</strong></li>
+</ul>
+<pre><code class="language-bash">cd /Users/josechain/lbplanner &amp;&amp; git add LifeBusinessPlanner2026.html tests/informe_campanas.test.mjs &amp;&amp; git commit -m &quot;Informe: reconocer los estados reales de campana (ninguna aparecia)
+
+Co-Authored-By: Claude Opus 5 &lt;noreply@anthropic.com&gt;&quot;
+</code></pre>
+<hr />
+<h3 id="task-8-la-tarjeta-de-confirmacion">Task 8: La tarjeta de confirmación</h3>
+<p>Mismo criterio que «Registrar lo hecho»: cada acción se destilda, los textos se editan, y lo dudoso sale señalado con la frase del correo que lo originó.</p>
+<p><strong>Files:</strong></p>
+<ul>
+<li>Modify: <code>/Users/josechain/lbplanner/LifeBusinessPlanner2026.html</code> (componente <code>CampanasCorreo</code> antes de <code>var CampaignsScreen</code> en la línea 18096; botón en el <code>page-header</code> de esa pantalla; estado y modal dentro de <code>CampaignsScreen</code>)</li>
+<li>Create: <code>/Users/josechain/lbplanner/patch_campanas_ui.py</code></li>
+</ul>
+<p><strong>Interfaces:</strong></p>
+<ul>
+<li>Consumes: <code>GET /campaign-actions?key=</code> (Tarea 5), <code>window._campAplicar</code> (Tarea 6), <code>window.LBP_WORKER_URL</code>, el <code>Modal</code> existente, <code>CAMP_STATUS_COLORS</code>, <code>CAMP_DEFAULT_LINES</code>.</li>
+<li>
+<p>Produces: <code>CampanasCorreo({data, setData, onDone})</code>.</p>
+</li>
+<li>
+<p>[ ] <strong>Step 1: Escribir el parche</strong></p>
+</li>
+</ul>
+<p><code>/Users/josechain/lbplanner/patch_campanas_ui.py</code>:</p>
+<pre><code class="language-python">#!/usr/bin/env python3
+&quot;&quot;&quot;Tarjeta de confirmacion de campanas desde el correo (v5.37).&quot;&quot;&quot;
+import re
+import subprocess
+
+F = 'LifeBusinessPlanner2026.html'
+html = open(F, encoding='utf-8').read()
+original = len(html)
+
+A1 = 'var CampaignsScreen = function CampaignsScreen(_ref_camp) {'
+assert html.count(A1) == 1, 'ancla CampaignsScreen no unica'
+assert 'CampanasCorreo' not in html, 'ya esta aplicado'
+
+COMPONENTE = r&quot;&quot;&quot;// Tarjeta de confirmacion de las campanas que el puente leyo en el correo.
+// NADA se escribe sin un click explicito en Guardar: los correos tienen
+// matices finos (el 70% del Outlet Express, que en Chillibeans solo entran
+// las gafas, que AX y CK arrancan el lunes y no el viernes) y una campana mal
+// cargada se propaga al informe semanal.
+var CampanasCorreo = function CampanasCorreo(props) {
+  var data = props.data, setData = props.setData, onDone = props.onDone;
+  var _a = useState('cargando'), fase = _a[0], setFase = _a[1];
+  var _b = useState(null), lote = _b[0], setLote = _b[1];
+  var _c = useState(''), err = _c[0], setErr = _c[1];
+  var _d = useState(null), hecho = _d[0], setHecho = _d[1];
+  var clientes = data.clients || [];
+  var nombreTienda = function(id){
+    var c = clientes.filter(function(x){return x.id===id;})[0];
+    return c ? (c.businessName || c.name || id) : id;
+  };
+  var traer = function(){
+    var key = localStorage.getItem('lbp_sync_key') || '';
+    if (!window.LBP_WORKER_URL || !key) { setFase(''); setErr('Configura el Worker URL en Cloud &amp; Sync.'); return; }
+    setFase('cargando'); setErr('');
+    fetch(window.LBP_WORKER_URL+'/campaign-actions?key='+encodeURIComponent(key))
+      .then(function(r){return r.json();})
+      .then(function(res){
+        setFase('');
+        if (!res || res.error) { setErr((res &amp;&amp; res.error) || 'No pude leer el correo.'); return; }
+        var acc = (res.acciones||[]).map(function(a){ return Object.assign({}, a, {incluir: a.incluir !== false}); });
+        if (!acc.length) { setErr(res.note || 'No encontre campanas nuevas en tus correos enviados.'); return; }
+        setLote({acciones:acc, correos:res.correos||0, descartes:res.descartes||[], ts:res.ts||null});
+      })
+      .catch(function(){ setFase(''); setErr('Error de red al leer el correo.'); });
+  };
+  useEffect(function(){ traer(); }, []);
+  var tocar = function(i, mut){
+    setLote(function(l){
+      return Object.assign({}, l, {acciones: l.acciones.map(function(a,j){ return j===i ? mut(a) : a; })});
+    });
+  };
+  var guardar = function(){
+    if (!lote) return;
+    var r = window._campAplicar(data, lote.acciones);
+    setData(function(prev){ return Object.assign({}, prev, {campaigns: window._campAplicar(prev, lote.acciones).campaigns}); });
+    setLote(null); setErr(''); setHecho(r.res);
+  };
+  var CONF = {alta:null, media:{c:'#F59E0B',t:'revisar'}, baja:{c:'#F44336',t:'poco seguro'}};
+  var chip = function(txt, color){
+    return React.createElement('span',{style:{fontSize:9,padding:'2px 7px',borderRadius:8,background:color+'22',color:color,fontWeight:700,whiteSpace:'nowrap'}},txt);
+  };
+  if (hecho) {
+    var total = hecho.nuevas + hecho.sumadas + hecho.ampliadas;
+    return React.createElement('div',null,
+      React.createElement('div',{style:{fontSize:15,fontWeight:800,marginBottom:8}},
+        total ? '✅ Listo' : 'No se guardo nada'),
+      React.createElement('div',{style:{fontSize:12,color:'var(--text-dim)',marginBottom:10}},
+        hecho.nuevas+' campana'+(hecho.nuevas===1?'':'s')+' nueva'+(hecho.nuevas===1?'':'s')+
+        ' · '+hecho.sumadas+' tienda'+(hecho.sumadas===1?'':'s')+' sumada'+(hecho.sumadas===1?'':'s')+
+        ' · '+hecho.ampliadas+' ampliada'+(hecho.ampliadas===1?'':'s')),
+      hecho.detalle.map(function(d,i){
+        return React.createElement('div',{key:i,style:{fontSize:12,padding:'3px 0'}},d);
+      }),
+      hecho.fallos.length ? React.createElement('div',{style:{marginTop:10,padding:8,borderRadius:8,background:'#F59E0B18'}},
+        React.createElement('div',{style:{fontSize:11,fontWeight:700,marginBottom:4}},'Omitido:'),
+        hecho.fallos.map(function(f,i){
+          return React.createElement('div',{key:i,style:{fontSize:11,color:'var(--text-dim)'}},'· '+f);
+        })) : null,
+      React.createElement('button',{className:'btn btn-primary',style:{marginTop:14,width:'100%'},
+        onClick:function(){ onDone &amp;&amp; onDone(); }},'Cerrar')
+    );
+  }
+  if (fase==='cargando') {
+    return React.createElement('div',{style:{padding:'24px 0',textAlign:'center'}},
+      React.createElement('div',{style:{fontSize:28,marginBottom:8}},'📧'),
+      React.createElement('div',{style:{fontSize:13,color:'var(--text-dim)'}},'Leyendo tus correos enviados…'));
+  }
+  if (err || !lote) {
+    return React.createElement('div',null,
+      React.createElement('div',{style:{fontSize:13,marginBottom:12}}, err || 'Sin novedades.'),
+      React.createElement('div',{style:{display:'flex',gap:8}},
+        React.createElement('button',{className:'btn btn-secondary',style:{flex:1},onClick:traer},'Reintentar'),
+        React.createElement('button',{className:'btn btn-primary',style:{flex:1},onClick:function(){ onDone &amp;&amp; onDone(); }},'Cerrar')));
+  }
+  var marcadas = lote.acciones.filter(function(a){return a.incluir;}).length;
+  return React.createElement('div',null,
+    React.createElement('div',{style:{fontSize:12,color:'var(--text-dim)',marginBottom:10}},
+      lote.correos+' correo'+(lote.correos===1?'':'s')+' leido'+(lote.correos===1?'':'s')+
+      ' · '+lote.acciones.length+' propuesta'+(lote.acciones.length===1?'':'s')+
+      '. Revisa y destilda lo que no corresponda: nada se guarda hasta que le des Guardar.'),
+    lote.acciones.map(function(a,i){
+      var cf = CONF[a.confianza];
+      var cab = a.tipo==='nueva' ? '🆕 Campana nueva'
+              : a.tipo==='suma'  ? '➕ Sumar tiendas a '+(a.nombreCampana||'?')
+              :                    '📅 Ampliar '+(a.nombreCampana||'?');
+      var frs = a.tipo==='nueva' ? ((a.campana&amp;&amp;a.campana.franchises)||[]) : (a.franchises||[]);
+      return React.createElement('div',{key:i,style:{border:'1px solid var(--border)',borderRadius:10,padding:10,marginBottom:8,opacity:a.incluir?1:0.45}},
+        React.createElement('div',{style:{display:'flex',alignItems:'center',gap:8,marginBottom:6}},
+          React.createElement('input',{type:'checkbox',checked:!!a.incluir,
+            onChange:function(){ tocar(i,function(x){return Object.assign({},x,{incluir:!x.incluir});}); },
+            style:{width:16,height:16,accentColor:'#9C68D6',cursor:'pointer'}}),
+          React.createElement('div',{style:{flex:1,fontSize:12,fontWeight:800}},cab),
+          cf ? chip(cf.t, cf.c) : null),
+        a.tipo==='nueva' ? React.createElement('div',null,
+          React.createElement('input',{value:(a.campana&amp;&amp;a.campana.name)||'',
+            onChange:function(e){ var v=e.target.value; tocar(i,function(x){return Object.assign({},x,{campana:Object.assign({},x.campana,{name:v})});}); },
+            style:{width:'100%',fontSize:13,fontWeight:700,padding:'5px 7px',borderRadius:6,border:'1px solid var(--border)',background:'var(--bg)',color:'var(--text)',marginBottom:5}}),
+          React.createElement('div',{style:{display:'flex',gap:6,marginBottom:5}},
+            React.createElement('input',{type:'date',value:(a.campana&amp;&amp;a.campana.dateStart)||'',
+              onChange:function(e){ var v=e.target.value; tocar(i,function(x){return Object.assign({},x,{campana:Object.assign({},x.campana,{dateStart:v})});}); },
+              style:{flex:1,fontSize:11,padding:'4px 6px',borderRadius:6,border:'1px solid var(--border)',background:'var(--bg)',color:'var(--text)'}}),
+            React.createElement('input',{type:'date',value:(a.campana&amp;&amp;a.campana.dateEnd)||'',
+              onChange:function(e){ var v=e.target.value; tocar(i,function(x){return Object.assign({},x,{campana:Object.assign({},x.campana,{dateEnd:v})});}); },
+              style:{flex:1,fontSize:11,padding:'4px 6px',borderRadius:6,border:'1px solid var(--border)',background:'var(--bg)',color:'var(--text)'}}),
+            React.createElement('select',{value:(a.campana&amp;&amp;a.campana.status)||'PLANIFICADA',
+              onChange:function(e){ var v=e.target.value; tocar(i,function(x){return Object.assign({},x,{campana:Object.assign({},x.campana,{status:v})});}); },
+              style:{fontSize:11,padding:'4px 6px',borderRadius:6,border:'1px solid var(--border)',background:'var(--bg)',color:'var(--text)'}},
+              CAMP_STATUSES.map(function(s){ return React.createElement('option',{key:s,value:s},s); })))
+        ) : null,
+        a.tipo==='amplia' ? React.createElement('div',{style:{marginBottom:5}},
+          React.createElement('span',{style:{fontSize:11,color:'var(--text-dim)',marginRight:6}},'Nueva fecha de fin:'),
+          React.createElement('input',{type:'date',value:a.dateEnd||'',
+            onChange:function(e){ var v=e.target.value; tocar(i,function(x){return Object.assign({},x,{dateEnd:v});}); },
+            style:{fontSize:11,padding:'4px 6px',borderRadius:6,border:'1px solid var(--border)',background:'var(--bg)',color:'var(--text)'}})
+        ) : null,
+        frs.map(function(f,fi){
+          return React.createElement('div',{key:fi,style:{fontSize:11,padding:'4px 0 4px 8px',borderLeft:'2px solid var(--border)',marginTop:4}},
+            React.createElement('div',{style:{fontWeight:700}},nombreTienda(f.clientId)+
+              (f.lines&amp;&amp;f.lines.length?' · '+f.lines.join(', '):'')),
+            (f.sublines||[]).map(function(s,si){
+              return React.createElement('div',{key:si,style:{display:'flex',gap:5,marginTop:3}},
+                React.createElement('input',{value:s.name||'',
+                  onChange:function(e){ var v=e.target.value;
+                    tocar(i,function(x){
+                      var cp=JSON.parse(JSON.stringify(x));
+                      var lst = cp.tipo==='nueva' ? cp.campana.franchises : cp.franchises;
+                      lst[fi].sublines[si].name=v; return cp;
+                    }); },
+                  style:{flex:1,fontSize:11,padding:'3px 5px',borderRadius:5,border:'1px solid var(--border)',background:'var(--bg)',color:'var(--text)'}}),
+                React.createElement('input',{value:s.discount||'',
+                  onChange:function(e){ var v=e.target.value;
+                    tocar(i,function(x){
+                      var cp=JSON.parse(JSON.stringify(x));
+                      var lst = cp.tipo==='nueva' ? cp.campana.franchises : cp.franchises;
+                      lst[fi].sublines[si].discount=v; return cp;
+                    }); },
+                  style:{width:60,fontSize:11,padding:'3px 5px',borderRadius:5,border:'1px solid var(--border)',background:'var(--bg)',color:'var(--text)'}}));
+            }),
+            f.notes ? React.createElement('div',{style:{fontSize:10,color:'var(--text-dim)',marginTop:2}},f.notes) : null);
+        }),
+        // La cita del correo es lo que hace revisable una propuesta dudosa.
+        a.cita &amp;&amp; a.confianza!=='alta' ? React.createElement('div',{style:{fontSize:10,fontStyle:'italic',color:'var(--text-dim)',marginTop:6,paddingTop:6,borderTop:'1px dashed var(--border)'}},
+          '“'+a.cita+'”'+(a.correo?' — '+a.correo:'')) : null);
+    }),
+    lote.descartes.length ? React.createElement('details',{style:{marginTop:6}},
+      React.createElement('summary',{style:{fontSize:11,color:'var(--text-dim)',cursor:'pointer'}},
+        'Descartado por la validacion ('+lote.descartes.length+')'),
+      lote.descartes.map(function(d,i){
+        return React.createElement('div',{key:i,style:{fontSize:10,color:'var(--text-dim)',padding:'2px 0 2px 10px'}},'· '+d);
+      })) : null,
+    React.createElement('div',{style:{display:'flex',gap:8,marginTop:14,position:'sticky',bottom:0,background:'var(--card)',paddingTop:8}},
+      React.createElement('button',{className:'btn btn-secondary',style:{flex:1},onClick:function(){ onDone &amp;&amp; onDone(); }},'Cancelar'),
+      React.createElement('button',{className:'btn btn-primary',style:{flex:2},disabled:!marcadas,onClick:guardar},
+        marcadas ? ('Guardar '+marcadas) : 'Nada marcado'))
+  );
+};
+
+&quot;&quot;&quot;
+
+html = html.replace(A1, COMPONENTE + A1, 1)
+
+# Estado del modal dentro de CampaignsScreen, junto a los otros useState.
+A2 = &quot;  var _cFilter=useState(''),_cFilter2=_slicedToArray(_cFilter,2),cFilter=_cFilter2[0],setCFilter=_cFilter2[1];&quot;
+assert html.count(A2) == 1, 'ancla cFilter no unica'
+html = html.replace(A2, A2 + &quot;\n  var _corrOpen=useState(false),_corrOpen2=_slicedToArray(_corrOpen,2),corrOpen=_corrOpen2[0],setCorrOpen=_corrOpen2[1];&quot;, 1)
+
+# Boton en el encabezado, antes de &quot;Export All&quot;.
+A3 = &quot;        },'\U0001F4CB Export All'),&quot;
+assert html.count(A3) == 1, 'ancla Export All no unica'
+BOTON = (&quot;        React.createElement('button',{className:'btn btn-secondary btn-sm',style:{fontSize:11},&quot;
+         &quot;title:'Traer campanas de los correos enviados',&quot;
+         &quot;onClick:function(){setCorrOpen(true);}},'\U0001F4E7 Del correo'),\n&quot;)
+html = html.replace(A3, A3 + '\n' + BOTON, 1)
+
+# Modal al final del return de CampaignsScreen: se cuelga del mismo lugar que
+# los otros modales de la pantalla. Se ancla en el modal de campana existente.
+# Verificado el 14-oct en la linea 18288: seis espacios y SIN espacios
+# alrededor de &quot;&amp;&amp;&quot;. Asi se renderizan los modales de esta pantalla.
+A4 = &quot;      cModal&amp;&amp;React.createElement(Modal,{&quot;
+assert html.count(A4) == 1, 'ancla cModal no unica: %d' % html.count(A4)
+MODAL = (&quot;      corrOpen&amp;&amp;React.createElement(Modal,{title:'\U0001F4E7 Campanas desde el correo',&quot;
+         &quot;onClose:function(){setCorrOpen(false);}},&quot;
+         &quot;React.createElement(CampanasCorreo,{data:data,setData:setData,&quot;
+         &quot;onDone:function(){setCorrOpen(false);}})),\n&quot;)
+html = html.replace(A4, MODAL + A4, 1)
+
+html = re.sub(r&quot;window\.LBP_VERSION = '[^']+'&quot;, &quot;window.LBP_VERSION = '5.37'&quot;, html, count=1)
+
+open(F, 'w', encoding='utf-8').write(html)
+print('guardado: %d -&gt; %d bytes' % (original, len(html)))
+
+scripts = re.findall(r'&lt;script[^&gt;]*&gt;(.*?)&lt;/script&gt;', html, re.DOTALL)
+open('/tmp/check_ui.js', 'w').write(max(scripts, key=len))
+r = subprocess.run(['node', '--check', '/tmp/check_ui.js'], capture_output=True, text=True)
+print('node --check PASSED' if r.returncode == 0 else 'node --check FAILED:\n' + r.stderr[:900])
+</code></pre>
+<p><strong>Antes de correrlo</strong>, confirmar los cuatro anclajes:</p>
+<pre><code class="language-bash">cd /Users/josechain/lbplanner &amp;&amp; for a in &quot;var CampaignsScreen = function CampaignsScreen(_ref_camp) {&quot; &quot;var _cFilter=useState('')&quot; &quot;Export All&quot; &quot;      cModal&amp;&amp;React.createElement(Modal,{&quot;; do printf '%-62s -&gt; ' &quot;$a&quot;; grep -cF &quot;$a&quot; LifeBusinessPlanner2026.html; done
+</code></pre>
+<p>Los cuatro tienen que dar <code>1</code>. El de <code>cModal</code> está verificado en la línea 18288 con <strong>seis espacios de sangría y sin espacios alrededor de <code>&amp;&amp;</code></strong> — así se escriben los modales de esta pantalla. Si alguno no da 1, leer el final del <code>return</code> de <code>CampaignsScreen</code> (<code>sed -n '18286,18300p'</code>) y ajustar al texto real. El modal tiene que quedar <strong>dentro</strong> del <code>React.createElement('div', null, ...)</code> que devuelve la pantalla, no después.</p>
+<ul>
+<li>[ ] <strong>Step 2: Aplicar y verificar sintaxis</strong></li>
+</ul>
+<pre><code class="language-bash">cd /Users/josechain/lbplanner &amp;&amp; cp LifeBusinessPlanner2026.html /tmp/lbp_antes_v537.html &amp;&amp; python3 patch_campanas_ui.py &amp;&amp; node --test tests/*.test.mjs 2&gt;&amp;1 | tail -8
+</code></pre>
+<p>Esperado: <code>node --check PASSED</code> y todos los tests anteriores siguen pasando. Si falla, <code>cp /tmp/lbp_antes_v537.html LifeBusinessPlanner2026.html</code>.</p>
+<ul>
+<li>[ ] <strong>Step 3: Verificar los nombres que usa el componente</strong></li>
+</ul>
+<p>El componente usa <code>useState</code>, <code>useEffect</code>, <code>Modal</code>, <code>CAMP_STATUSES</code>, <code>React</code>, <code>localStorage</code>. Confirmar que están en alcance en ese punto del archivo:</p>
+<pre><code class="language-bash">cd /Users/josechain/lbplanner &amp;&amp; node -e &quot;
+const fs=require('fs');
+const h=fs.readFileSync('LifeBusinessPlanner2026.html','utf8');
+const pos=h.indexOf('var CampanasCorreo');
+for (const n of ['var useState','var useEffect','var Modal =','function Modal','var CAMP_STATUSES']) {
+  const i=h.indexOf(n);
+  console.log(n, i&gt;0 ? (i&lt;pos ? 'OK (antes)' : 'PROBLEMA: definido despues') : 'no encontrado');
+}
+&quot;
+</code></pre>
+<p>Esperado: <code>useState</code>, <code>useEffect</code> y <code>CAMP_STATUSES</code> antes del componente. <code>Modal</code> puede estar definido después si es una <code>function</code> izada — verificar cómo se declara y, si es <code>var Modal = function</code>, mover el componente después de <code>Modal</code> o referenciarlo en tiempo de render (ya lo hace: el modal se crea dentro de <code>CampaignsScreen</code>, que corre mucho después).</p>
+<ul>
+<li>[ ] <strong>Step 4: Desplegar y probar en el navegador</strong></li>
+</ul>
+<pre><code class="language-bash">cd /Users/josechain/lbplanner &amp;&amp; git add -A &amp;&amp; git commit -m &quot;App: tarjeta de confirmacion de campanas desde el correo (v5.37)
+
+Co-Authored-By: Claude Opus 5 &lt;noreply@anthropic.com&gt;&quot; &amp;&amp; git push
+</code></pre>
+<p>Después, en el navegador. <strong>El shell está cacheado por el service worker (SWR): la versión nueva aparece en el SEGUNDO refresh.</strong> Si no aparece: consola → <code>caches.keys().then(ks=&gt;Promise.all(ks.map(k=&gt;caches.delete(k))))</code> y recargar con <code>?cb=1</code>.</p>
+<ol>
+<li>Abrir <code>https://josechain-eng.github.io/ibplanner/LifeBusinessPlanner2026.html</code> (ojo: repo <code>ibplanner</code>).</li>
+<li>Confirmar <code>v5.37</code> al fondo del modal Cloud &amp; Sync.</li>
+<li>Ir a Campaigns → botón <strong>📧 Del correo</strong>.</li>
+<li><strong>Abrir la consola ANTES</strong> (regla del proyecto: la consola dice la causa en 2 segundos).</li>
+<li>Verificar: carga, muestra las propuestas con los nombres reales de las tiendas, las citas aparecen en las de confianza media/baja, destildar baja el contador del botón, editar un descuento se refleja.</li>
+<li><strong>Destildar TODO y darle Cancelar.</strong> Confirmar en Campaigns que no se creó nada.</li>
+<li>Recién entonces, marcar una sola y guardar. Verificar que apareció en el módulo con sus tiendas, líneas y descuentos.</li>
+<li>Volver a abrir <strong>📧 Del correo</strong> y guardar la misma otra vez: tiene que decir <code>ya existia</code>, no duplicar.</li>
+</ol>
+<ul>
+<li>[ ] <strong>Step 5: Verificar que no se tocó nada más</strong></li>
+</ul>
+<pre><code class="language-bash">cd /Users/josechain/lbplanner &amp;&amp; curl -s &quot;https://life-planner.josechain.workers.dev/sync?key=lbp_0mnvmyv9uh8wciya&quot; | python3 -c &quot;
+import json,sys
+d=json.load(sys.stdin)
+print('campanas:', len(d.get('campaigns',[])), '| tareas:', len(d.get('tasks',[])), '| reuniones:', len(d.get('meetings',[])), '| clientes:', len(d.get('clients',[])), '| proyectos:', len(d.get('projects',[])))
+for c in d.get('campaigns',[]):
+    print(' ', c.get('origen','manual'), '|', c.get('status'), '|', c.get('name'), '|', len(c.get('franchises',[])), 'tiendas')
+&quot;
+</code></pre>
+<p>Esperado: <code>tareas: 113</code>, <code>reuniones: 38</code>, <code>clientes: 9</code>, proyectos sin cambio respecto a la línea base, y las campañas nuevas marcadas <code>origen: correo</code>. <strong>Cualquier cambio en tareas o reuniones es un bug y hay que pararlo acá.</strong></p>
+<ul>
+<li>[ ] <strong>Step 6: Commit del aviso push y cierre</strong></li>
+</ul>
+<p>El spec pide un push: <em>«3 campañas nuevas detectadas en tus correos»</em>. Agregar al worker del briefing, dentro de <code>/ingest-campanas</code>, justo antes del <code>return new Response('OK ...')</code>:</p>
+<pre><code class="language-javascript">        // Aviso a Pepe de que hay campanas esperando revision. Va por el
+        // service binding: desde otro Worker de la cuenta, la URL publica de
+        // workers.dev devuelve 404.
+        if (correos.length &amp;&amp; env.LBP_SERVICE) {
+          try {
+            await env.LBP_SERVICE.fetch(new Request('https://lbp.internal/push-campanas', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ n: correos.length })
+            }));
+          } catch (err) { /* el aviso es secundario: la ingesta ya quedo guardada */ }
+        }
+</code></pre>
+<p>Y en <code>/Users/josechain/lbplanner/worker.js</code>, junto a <code>/test-push</code>:</p>
+<pre><code class="language-javascript">    // POST /push-campanas  {n}  -&gt; aviso a todos los devices registrados.
+    // Lo llama el worker del briefing cuando el puente encontro campanas.
+    if (p === '/push-campanas' &amp;&amp; request.method === 'POST') {
+      let n = 0;
+      try { n = parseInt((await request.json()).n, 10) || 0; } catch (err) { n = 0; }
+      if (!n) return json({ sent: 0, note: 'nada que avisar' });
+      const registry = JSON.parse(await env.LBP_KV.get('synckeys_registry') || '[]');
+      let sent = 0;
+      for (const syncKey of registry) {
+        const subs = JSON.parse(await env.LBP_KV.get('subs:' + syncKey) || '[]');
+        for (const sub of subs) {
+          try {
+            await sendPush(sub, {
+              title: '🏷 Campanas en tu correo',
+              body: n + ' correo' + (n === 1 ? '' : 's') + ' de campana listo' + (n === 1 ? '' : 's') +
+                    ' para revisar en Campaigns.',
+              alarmId: 'camp_' + Date.now(), vibration: 'long'
+            });
+            sent++;
+          } catch (err) { /* un device caido no frena a los demas */ }
+        }
+      }
+      return json({ sent });
+    }
+</code></pre>
+<p>Verificar y desplegar los dos:</p>
+<pre><code class="language-bash">cd /Users/josechain/lbplanner &amp;&amp; node --check worker.js &amp;&amp; LC_ALL=C grep -c '[^ -~]' worker.js &amp;&amp; npx wrangler deploy
+cd ~/Documents/Projects/Briefing\ Diario &amp;&amp; node --check worker.js &amp;&amp; node --test test_worker_campanas.mjs 2&gt;&amp;1|tail -4 &amp;&amp; grep -A2 &quot;\[triggers\]&quot; wrangler.toml &amp;&amp; npx wrangler deploy
+</code></pre>
+<p><code>grep -c</code> del worker de LBP tiene que dar <code>0</code>; <code>crons</code> del briefing tiene que seguir <code>[]</code>.</p>
+<p>Prueba fin a fin, con Outlook abierto:</p>
+<pre><code class="language-bash">cd ~/Documents/Projects/Briefing\ Diario/bridge &amp;&amp; python3 ventura_bridge.py --campanas 2&gt;&amp;1 | grep -i campana
+</code></pre>
+<p>Esperado: el POST en 200 y <strong>un push en el teléfono de Pepe</strong>. Si no llega, <code>GET /push-log?key=lbp_0mnvmyv9uh8wciya</code> dice el error exacto.</p>
+<pre><code class="language-bash">cd /Users/josechain/lbplanner &amp;&amp; git add worker.js &amp;&amp; git commit -m &quot;Worker: /push-campanas avisa cuando hay campanas por revisar
+
+Co-Authored-By: Claude Opus 5 &lt;noreply@anthropic.com&gt;&quot; &amp;&amp; git push
+cd ~/Documents/Projects/Briefing\ Diario &amp;&amp; git add worker.js &amp;&amp; git commit -m &quot;Worker briefing: avisar a LB Planner tras ingerir campanas
+
+Co-Authored-By: Claude Opus 5 &lt;noreply@anthropic.com&gt;&quot;
+</code></pre>
+<hr />
+<h2 id="lo-que-queda-afuera-igual-que-en-el-spec">Lo que queda afuera, igual que en el spec</h2>
+<p>El Excel adjunto (el módulo no llega a nivel prenda), escribir de vuelta al correo, y cualquier acción sobre el sistema de contabilidad.</p>
+<h2 id="verificado-antes-de-entregar-este-plan">Verificado antes de entregar este plan</h2>
+<p>El código de este plan no está sólo escrito: se armó y se corrió en un sandbox el 14-oct, con los tests del propio plan.</p>
+<ul>
+<li><strong>34 pruebas de Python</strong> (Tareas 1, 2 y 3) — OK.</li>
+<li><strong>18 pruebas del validador</strong> (Tarea 5) — OK.</li>
+<li><strong>11 pruebas de <code>_campAplicar</code></strong> (Tarea 6) — OK.</li>
+</ul>
+<p>Eso <strong>encontró un error real en el primer conversor</strong>: Word mete un <code>&lt;p class=MsoNormal&gt;</code> dentro de cada celda, así que convertir <code>&lt;/p&gt;</code> en salto de línea desarmaba cada fila de tabla en varias líneas (2 de 8 pruebas en rojo). El conversor que quedó en el plan es la versión corregida, que procesa las tablas aparte. La tabla del correo del 11-may es justamente el caso que lo rompía.</p>
+<p>Lo que <strong>no</strong> está verificado y sólo se puede comprobar corriéndolo: el AppleScript contra Outlook (Tarea 1 Step 1, Tarea 2 Step 5, Tarea 3 Step 6), los endpoints desplegados, la extracción con Claude, y la pantalla en el navegador. Cada uno tiene su paso con el comando y el resultado esperado.</p>
+<h2 id="lo-que-hay-que-verificarle-a-pepe-cuando-este-todo">Lo que hay que verificarle a Pepe cuando esté todo</h2>
+<ul>
+<li>Que las fechas de las 5 campañas conocidas quedaron como él las recuerda (es el único que puede confirmarlo).</li>
+<li>Que «la misma campaña» se identificó bien en la continuación del 14-jul. Si no, el spec ya lo anticipa: sale como nueva con confianza baja y él la destilda.</li>
+<li>Que el 5 o el 25, abriendo Outlook, le llega el push solo.</li>
+</ul>
+<div class="foot">Etiquetas: [DATO] leído en el original · [DATO-2ª] citado por un tercero · [VENDOR] lo dice la propia tienda o herramienta · [INF]/[EST] inferencia o estimación.</div>
+</div></body></html>
