@@ -118,3 +118,25 @@ test('push-campanas sin BRIEFING_KEY en el worker no queda abierto', async () =>
   const env = Object.assign(envPush(), { BRIEFING_KEY: undefined });
   assert.equal((await w.fetch(pushReq('Bearer bk'), env)).status, 401);
 });
+
+// El KV guarda hasta 60 correos pero el endpoint mandaba al modelo solo los 30
+// mas nuevos: con 2025 + 2026 cargados, los mas viejos no llegaban nunca y
+// desaparecian sin dejar rastro. Los dos topes tienen que ser el mismo numero.
+test('el endpoint manda al modelo todo lo que el KV puede guardar', async () => {
+  const SRC_LBP = fs.readFileSync(path.join(import.meta.dirname, '..', 'worker.js'), 'utf8');
+  const m = SRC_LBP.match(/payload\.correos\.slice\(0,\s*(\d+)\)/);
+  assert.ok(m, 'no encuentro el slice de correos en /campaign-actions');
+  assert.equal(Number(m[1]), 60, 'el tope del endpoint tiene que igualar el del KV (60)');
+});
+
+// callClaude devuelve '' ante CUALQUIER fallo (falta la clave, 400, 429, red)
+// y el endpoint decia siempre "La IA no respondio", que no permite distinguir
+// una clave faltante de un limite de uso. Me costo un ciclo de diagnostico a
+// ciegas el 14-oct; a Pepe le costaria mas.
+test('el error dice POR QUE no respondio la IA', async () => {
+  const w = await cargar();
+  const env = entorno();            // sin ANTHROPIC_API_KEY a proposito
+  const b = await (await w.fetch(pedir(), env)).json();
+  assert.ok(b.error, 'tiene que haber error');
+  assert.match(b.error, /ANTHROPIC_API_KEY/i, 'el motivo concreto, no "no respondio"');
+});

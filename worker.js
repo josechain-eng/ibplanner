@@ -538,7 +538,7 @@ async function handleRequest(request, env) {
       } catch (err) {
         return json({ error: 'No pude leer el briefing: ' + err.message, correos: 0, acciones: [] }, 200);
       }
-      const correos = Array.isArray(payload.correos) ? payload.correos.slice(0, 30) : [];
+      const correos = Array.isArray(payload.correos) ? payload.correos.slice(0, 60) : [];
       if (!correos.length) {
         return json({ ts: payload.ts || null, correos: 0, acciones: [], descartes: [], note: 'Sin correos de campana. Abri Outlook y corre el puente.' }, 200);
       }
@@ -587,13 +587,14 @@ async function handleRequest(request, env) {
                  '\nASUNTO: ' + String(e.subject || '').slice(0, 160) +
                  '\nCUERPO:\n' + String(e.texto || '').slice(0, 6000);
         }).join('\n\n---\n\n');
-      const raw = await callClaude(env, [{ role: 'user', content: msg }], CAMP_SP, 16384);
+      const diag = {};
+      const raw = await callClaude(env, [{ role: 'user', content: msg }], CAMP_SP, 16384, diag);
       if (!raw) {
         // callClaude devuelve '' ante cualquier fallo (falta la key, 429, red).
         // Devolver acciones:[] sin decir nada se veria como "no hay nada que
         // cargar", que es exactamente la conclusion equivocada.
         return json({ ts: payload.ts || null, correos: correos.length, acciones: [], descartes: [],
-                      error: 'La IA no respondio. Reintenta en un rato.' }, 200);
+                      error: 'La IA no respondio: ' + (diag.motivo || 'motivo desconocido') }, 200);
       }
       let parsed = null;
       try {
@@ -613,7 +614,13 @@ async function handleRequest(request, env) {
       if (!apiKey) return json({ error: 'ANTHROPIC_API_KEY not set.' }, 500);
       const { messages, systemPrompt, area } = await request.json();
       if (!messages || !Array.isArray(messages)) return json({ error: 'messages array required' }, 400);
-      const content = await callClaude(env, messages, systemPrompt || ('You are a strategic business consultant for Ventura Mall. Help brainstorm ' + (area || 'business') + ' ideas.'), 4096);
+      const diagChat = {};
+      const content = await callClaude(env, messages, systemPrompt || ('You are a strategic business consultant for Ventura Mall. Help brainstorm ' + (area || 'business') + ' ideas.'), 4096, diagChat);
+      // Sin esto, un fallo de la API se ve en la app como una respuesta vacia:
+      // el asistente "no hace nada" y no hay forma de saber por que. La clave
+      // ausente ya se contempla arriba; esto cubre el resto (sin credito,
+      // limite de uso, pedido rechazado, red caida).
+      if (!content) return json({ content: '', error: 'La IA no respondio: ' + (diagChat.motivo || 'motivo desconocido') });
       return json({ content });
     }
 
@@ -1164,21 +1171,28 @@ function _campValidar(parsed, ctx) {
 }
 // <<<FIN CAMPANAS-VALIDA>>>
 
-async function callClaude(env, messages, system, maxTokens) {
+async function callClaude(env, messages, system, maxTokens, diag) {
+  const apunta = function(motivo) { if (diag) diag.motivo = motivo; return ''; };
   const apiKey = env.ANTHROPIC_API_KEY;
-  if (!apiKey) return '';
+  if (!apiKey) return apunta('falta el secreto ANTHROPIC_API_KEY en el worker');
   try {
     const res = await fetch('https://api.anthropic.com/v1/messages', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', 'x-api-key': apiKey, 'anthropic-version': '2023-06-01' },
       body: JSON.stringify({ model: 'claude-opus-5', max_tokens: maxTokens || 2048, thinking: { type: 'disabled' }, system, messages })
     });
-    if (!res.ok) return '';
+    if (!res.ok) {
+      let detalle = '';
+      try { detalle = (await res.text()).slice(0, 300); } catch (e2) { detalle = ''; }
+      return apunta('la API respondio ' + res.status + ' ' + detalle);
+    }
     const data = await res.json();
     const textBlock = Array.isArray(data.content) ? data.content.find(function(b){ return b && b.type === 'text'; }) : null;
-    return textBlock ? textBlock.text : '';
+    if (!textBlock) return apunta('la API no devolvio bloque de texto (stop_reason: ' + (data.stop_reason || '?') + ')');
+    if (data.stop_reason === 'max_tokens') apunta('la respuesta se corto por max_tokens');
+    return textBlock.text;
   } catch(e) {
-    return '';
+    return apunta('fallo de red: ' + (e && e.message));
   }
 }
 
