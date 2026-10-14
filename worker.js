@@ -567,7 +567,7 @@ async function handleRequest(request, env) {
       // no de lo que opine el modelo.
       const ctx = { clientIds: clients.map(function (c) { return c.id; }), lineas: LINEAS,
                     campanas: campanas, hoy: _hoyBolivia() };
-      const msg =
+      const contexto =
         'TIENDAS (usa el id tal cual):\n' +
         clients.map(function (c) { return '- ' + c.id + ' = ' + c.nombre; }).join('\n') + '\n\n' +
         'LINEAS DE MANGO: Mango Mujer (SHE), Mango Hombre (HE), Mango Ninos (Kids). ' +
@@ -580,35 +580,50 @@ async function handleRequest(request, env) {
               return '- ' + c.id + ' | ' + c.name + ' | ' + (c.dateStart || '?') + ' a ' + (c.dateEnd || '?') +
                      ' | ' + (c.status || '?') + ' | tiendas: ' + (c.tiendas.join(', ') || 'ninguna');
             }).join('\n')
-          : '(ninguna)') + '\n\n' +
-        'CORREOS ENVIADOS:\n' +
-        correos.map(function (e, i) {
+          : '(ninguna)') + '\n\n';
+      function cuerpoCorreos(lista) {
+        return 'CORREOS ENVIADOS:\n' + lista.map(function (e, i) {
           return '[' + (i + 1) + '] FECHA DE ENVIO: ' + (e.date || '?') +
                  '\nASUNTO: ' + String(e.subject || '').slice(0, 160) +
                  '\nCUERPO:\n' + String(e.texto || '').slice(0, 6000);
         }).join('\n\n---\n\n');
-      const diag = {};
-      const raw = await callClaude(env, [{ role: 'user', content: msg }], CAMP_SP, 16384, diag);
-      if (!raw) {
-        // callClaude devuelve '' ante cualquier fallo (falta la key, 429, red).
-        // Devolver acciones:[] sin decir nada se veria como "no hay nada que
-        // cargar", que es exactamente la conclusion equivocada.
-        return json({ ts: payload.ts || null, correos: correos.length, acciones: [], descartes: [],
-                      error: 'La IA no respondio: ' + (diag.motivo || 'motivo desconocido') }, 200);
       }
-      let parsed = null;
-      try {
-        const m = String(raw).match(/\{[\s\S]*\}/);
-        parsed = m ? JSON.parse(m[0]) : null;
-      } catch (err) { parsed = null; }
-      if (!parsed) {
-        return json({ ts: payload.ts || null, correos: correos.length, acciones: [], descartes: [],
-                      error: 'La IA no devolvio JSON valido.' }, 200);
+      // En TANDAS PARALELAS. Una sola llamada con 36 correos genero tanta
+      // salida que Cloudflare corto el pedido con 524 a los 2:06 (medido con
+      // los correos reales de 2025+2026). Partido en grupos, cada respuesta es
+      // corta y el tiempo total es el de la tanda mas lenta, no la suma.
+      // El regimen normal (5 y 25, pocos correos) entra en una sola tanda.
+      const POR_TANDA = 10;
+      const tandas = [];
+      for (let i = 0; i < correos.length; i += POR_TANDA) tandas.push(correos.slice(i, i + POR_TANDA));
+      const resultados = await Promise.all(tandas.map(async function (grupo, gi) {
+        const d = {};
+        const texto = await callClaude(env, [{ role: 'user', content: contexto + cuerpoCorreos(grupo) }],
+                                       CAMP_SP, 8192, d);
+        if (!texto) return { acciones: [], fallo: 'tanda ' + (gi + 1) + ' de ' + tandas.length + ': ' + (d.motivo || 'sin respuesta') };
+        try {
+          const m = String(texto).match(/\{[\s\S]*\}/);
+          const p2 = m ? JSON.parse(m[0]) : null;
+          if (!p2 || !Array.isArray(p2.acciones)) return { acciones: [], fallo: 'tanda ' + (gi + 1) + ': la IA no devolvio JSON valido' };
+          return { acciones: p2.acciones, fallo: null };
+        } catch (err) {
+          return { acciones: [], fallo: 'tanda ' + (gi + 1) + ': JSON ilegible' };
+        }
+      }));
+      const fallos = resultados.map(function (r) { return r.fallo; }).filter(Boolean);
+      const juntas = [];
+      resultados.forEach(function (r) { r.acciones.forEach(function (a) { juntas.push(a); }); });
+      if (!juntas.length) {
+        return json({ ts: payload.ts || null, correos: correos.length, acciones: [], descartes: fallos,
+                      error: 'La IA no respondio: ' + (fallos[0] || 'motivo desconocido') }, 200);
       }
-      const out = _campValidar(parsed, ctx);
+      // Un solo _campValidar sobre el total: la deteccion de nombres repetidos
+      // tiene que ver todas las tandas juntas, no cada una por separado.
+      const out = _campValidar({ acciones: juntas }, ctx);
       return json({ ts: payload.ts || null, correos: correos.length,
-                    acciones: out.acciones, descartes: out.descartes }, 200);
+                    acciones: out.acciones, descartes: out.descartes.concat(fallos) }, 200);
     }
+
     if (p === '/chat' && request.method === 'POST') {
       const apiKey = env.ANTHROPIC_API_KEY;
       if (!apiKey) return json({ error: 'ANTHROPIC_API_KEY not set.' }, 500);
@@ -1100,7 +1115,7 @@ function _campValidar(parsed, ctx) {
     return out;
   }
 
-  (Array.isArray(parsed && parsed.acciones) ? parsed.acciones : []).slice(0, 20).forEach(function (a) {
+  (Array.isArray(parsed && parsed.acciones) ? parsed.acciones : []).slice(0, 60).forEach(function (a) {
     if (!a || typeof a !== 'object') return;
     const conf = (a.confianza === 'alta' || a.confianza === 'baja') ? a.confianza : 'media';
     const correo = texto(a.correo, 160), cita = texto(a.cita, 300);

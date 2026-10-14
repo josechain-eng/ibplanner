@@ -158,9 +158,11 @@ test('confianza invalida cae a media', () => {
   assert.equal(validar(p, CTX).acciones[0].confianza, 'media');
 });
 
-test('tope de 20 acciones', () => {
-  const p = { acciones: Array.from({ length: 30 }, () => nueva().acciones[0]) };
-  assert.ok(validar(p, CTX).acciones.length <= 20);
+test('hay tope de acciones y aguanta los dos anios cargados', () => {
+  const p = { acciones: Array.from({ length: 200 }, () => nueva().acciones[0]) };
+  const r = validar(p, CTX);
+  assert.ok(r.acciones.length <= 60, 'tiene que haber tope');
+  assert.ok(r.acciones.length >= 30, 'pero no tan bajo que corte 36 correos de dos anios');
 });
 
 // ── Estado derivado de las fechas (no de lo que dijo el modelo) ──

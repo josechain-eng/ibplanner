@@ -140,3 +140,90 @@ test('el error dice POR QUE no respondio la IA', async () => {
   assert.ok(b.error, 'tiene que haber error');
   assert.match(b.error, /ANTHROPIC_API_KEY/i, 'el motivo concreto, no "no respondio"');
 });
+
+// ── Tandas paralelas ──
+// Una sola llamada con 36 correos genero tanta salida que Cloudflare corto con
+// 524 a los 2:06 (medido el 14-oct-2026 con los correos reales de 2025+2026).
+// Se parte en grupos y se llama en paralelo: cada respuesta es corta y el
+// tiempo total es el de la tanda mas lenta, no la suma.
+function envConIA(porLlamada, contador) {
+  return {
+    ANTHROPIC_API_KEY: 'sk-test',
+    BRIEFING_KEY: 'bk',
+    LBP_KV: { get: async k => (k === 'data:lbp_x' ? DATOS : null), put: async () => {} },
+    BRIEFING_SERVICE: {
+      fetch: async () => new Response(JSON.stringify({
+        ts: 't',
+        correos: Array.from({ length: 36 }, (_, i) => ({
+          id: 'i' + i, subject: 'Campana ' + i, date: '2026-0' + (i % 9 + 1) + '-01', texto: 'cuerpo ' + i })),
+      }), { status: 200 }),
+    },
+  };
+}
+
+async function conIAStub(fn, respuestas) {
+  const real = globalThis.fetch;
+  let n = 0;
+  globalThis.fetch = async (u, o) => {
+    if (String(u).includes('api.anthropic.com')) {
+      const cuerpo = JSON.parse(o.body);
+      const idx = n++;
+      return new Response(JSON.stringify({
+        content: [{ type: 'text', text: JSON.stringify(respuestas(idx, cuerpo)) }],
+        stop_reason: 'end_turn',
+      }), { status: 200 });
+    }
+    return real(u, o);
+  };
+  try { return { res: await fn(), llamadas: () => n }; }
+  finally { globalThis.fetch = real; }
+}
+
+test('36 correos se reparten en varias llamadas, no una sola', async () => {
+  const w = await cargar();
+  let llamadas = 0;
+  const out = await conIAStub(async () => {
+    return (await w.fetch(pedir(), envConIA())).json();
+  }, (i) => {
+    llamadas = Math.max(llamadas, i + 1);
+    return { acciones: [{
+      tipo: 'nueva', confianza: 'alta', correo: 'tanda ' + i,
+      campana: { name: 'Campana tanda ' + i, dateStart: '2026-03-01', dateEnd: '2026-03-31',
+        franchises: [{ clientId: 'cl_ax', lines: [], sublines: [] }] } }] };
+  });
+  assert.ok(out.llamadas() > 1, 'tiene que partirse en mas de una llamada, hubo ' + out.llamadas());
+  const b = await out.res;
+  assert.equal(b.acciones.length, out.llamadas(), 'se juntan los resultados de todas las tandas');
+  const nombres = b.acciones.map(a => a.campana.name);
+  assert.equal(new Set(nombres).size, nombres.length, 'no se pierde ni se duplica ninguna tanda');
+});
+
+test('si una tanda falla, las demas igual llegan', async () => {
+  const w = await cargar();
+  const real = globalThis.fetch;
+  let n = 0;
+  globalThis.fetch = async (u, o) => {
+    if (String(u).includes('api.anthropic.com')) {
+      if (n++ === 0) return new Response('boom', { status: 500 });
+      return new Response(JSON.stringify({
+        content: [{ type: 'text', text: JSON.stringify({ acciones: [{
+          tipo: 'nueva', confianza: 'alta', correo: 'ok',
+          campana: { name: 'Sobreviviente ' + n, dateStart: '2026-03-01',
+            franchises: [{ clientId: 'cl_ax', lines: [], sublines: [] }] } }] }) }],
+        stop_reason: 'end_turn' }), { status: 200 });
+    }
+    return real(u, o);
+  };
+  try {
+    const b = await (await w.fetch(pedir(), envConIA())).json();
+    assert.ok(b.acciones.length >= 1, 'las tandas buenas llegan igual');
+    assert.ok(b.descartes.some(d => /tanda/i.test(d)), 'la tanda fallida se informa');
+  } finally { globalThis.fetch = real; }
+});
+
+test('el validador no corta en 20 cuando hay muchos correos', async () => {
+  const SRC_LBP = fs.readFileSync(path.join(import.meta.dirname, '..', 'worker.js'), 'utf8');
+  const m = SRC_LBP.match(/\.slice\(0,\s*(\d+)\)\.forEach\(function \(a\)/);
+  assert.ok(m, 'no encuentro el tope de acciones del validador');
+  assert.ok(Number(m[1]) >= 60, 'con 60 correos pueden salir mas de 20 campanas, hay ' + m[1]);
+});
