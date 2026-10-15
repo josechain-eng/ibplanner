@@ -22,7 +22,7 @@
 <script>
 (function() {
   // ── Version ──────────────────────────────────────────────────────────────
-  window.LBP_VERSION = '5.40';
+  window.LBP_VERSION = '5.41';
 
   // ── PWA Install prompt ───────────────────────────────────────────────────
   window._installPrompt = null;
@@ -2087,6 +2087,26 @@ window._ckMarcar = function(html, idx, textoEsperado){
 // noviembre, asi que aparece como activa en todos los informes siguientes y
 // nunca llega a completadas. El informe mira esto, no el campo.
 // CANCELADA es una decision de Pepe y manda sobre las fechas.
+// Si la app esta por generar una clave de sincronizacion nueva TENIENDO datos
+// locales. Eso no es una instalacion nueva: significa que la clave se perdio, y
+// que a partir de ahi este equipo va a sincronizar contra un almacen propio sin
+// que nadie se entere.
+// Paso de verdad: el 9-oct-2026 la Mac de Pepe perdio su clave, siguio
+// sincronizando cinco dias a un almacen separado, y lo noto recien cuando un
+// proyecto que habia creado no aparecia en el celular. Para entonces habia 20
+// proyectos de un lado y 114 tareas y 9 clientes del otro.
+window._claveHuerfana = function(claveGuardada, datosCrudos){
+  if (claveGuardada) return null;
+  var d = null;
+  try { d = datosCrudos ? JSON.parse(datosCrudos) : null; } catch(e) { return null; }
+  if (!d || typeof d !== 'object' || Array.isArray(d)) return null;
+  var n = 0;
+  ['tasks','projects','clients','meetings','campaigns','documents','journal','transactions']
+    .forEach(function(k){ n += ((d[k] && d[k].length) || 0); });
+  if (!n) return null;
+  return { registros: n, cuando: new Date().toISOString() };
+};
+
 window._campVigencia = function(c, hoyMs){
   if (!c) return 'ACTIVA';
   if (c.status === 'CANCELADA') return 'CANCELADA';
@@ -17773,6 +17793,13 @@ var SyncSettingsButton = function SyncSettingsButton(_ref_ssb) {
   var _useState_ssb9 = useState(''), _useState_ssb10 = _slicedToArray(_useState_ssb9, 2), connStatus = _useState_ssb10[0], setConnStatus = _useState_ssb10[1];
   var _useState_ssb11 = useState(localStorage.getItem('lbp_push_registered') === '1'), _useState_ssb12 = _slicedToArray(_useState_ssb11, 2), pushRegistered = _useState_ssb12[0], setPushRegistered = _useState_ssb12[1];
   var isConnected = !!workerUrl;
+  // Lo escribe el bloque que genera la clave, en el componente principal. Se lee
+  // aca porque es aca donde se muestra: son dos ambitos distintos y referenciar
+  // la variable del otro deja la app en blanco (pasado el 15-oct-2026; ni
+  // node --check ni las pruebas de funciones puras lo ven, solo el render).
+  var _avisoClave = (function(){
+    try { return JSON.parse(localStorage.getItem('lbp_aviso_clave') || 'null'); } catch(e) { return null; }
+  })();
   var _lsSt = useState(localStorage.getItem('lbp_last_sync')), _lsSt2 = _slicedToArray(_lsSt, 2), lastSync = _lsSt2[0], setLastSync = _lsSt2[1];
   var _gcalS1 = useState(localStorage.getItem('lbp_gcal_connected') === '1'), _gcalS2 = _slicedToArray(_gcalS1, 2), gcalConnected = _gcalS2[0], setGcalConnected = _gcalS2[1];
   var _gcalS3 = useState(''), _gcalS4 = _slicedToArray(_gcalS3, 2), gcalStatus = _gcalS4[0], setGcalStatus = _gcalS4[1];
@@ -17956,6 +17983,25 @@ var SyncSettingsButton = function SyncSettingsButton(_ref_ssb) {
           ),
           /*#__PURE__*/React.createElement('div', { id:'_fullBackupStatus', style:{fontSize:11,color:'#a5b4fc',minHeight:14} })
         ),
+
+        _avisoClave ? /*#__PURE__*/React.createElement('div', {
+          style:{marginBottom:16,padding:'10px 12px',borderRadius:10,background:'rgba(245,158,11,0.12)',
+                 border:'1px solid rgba(245,158,11,0.45)'}
+        },
+          /*#__PURE__*/React.createElement('div', {style:{fontSize:12,fontWeight:700,color:'#F59E0B',marginBottom:4}},
+            '\u26A0 Este equipo gener\u00f3 una clave de sincronizaci\u00f3n NUEVA'),
+          /*#__PURE__*/React.createElement('div', {style:{fontSize:11,lineHeight:1.5,color:'var(--text-primary)'}},
+            'Pas\u00f3 el ' + String(_avisoClave.cuando || '').slice(0,10) + ', teniendo ya ' + _avisoClave.registros +
+            ' registros guardados. Eso quiere decir que se perdi\u00f3 la clave anterior: desde entonces este equipo ' +
+            'sincroniza en un espacio propio y tus otros dispositivos NO ven estos cambios. ' +
+            'Si ten\u00e9s la app en otro equipo, copi\u00e1 su clave y peg\u00e1la abajo en ' +
+            '\u201cUSE SYNC KEY FROM ANOTHER DEVICE\u201d.'),
+          /*#__PURE__*/React.createElement('button', {
+            onClick:function(){ try{localStorage.removeItem('lbp_aviso_clave');}catch(e){} window.location.reload(); },
+            style:{marginTop:8,background:'transparent',border:'1px solid rgba(245,158,11,0.5)',borderRadius:8,
+                   padding:'5px 10px',color:'#F59E0B',cursor:'pointer',fontSize:11}
+          }, 'Ya lo resolv\u00ed, no avisar m\u00e1s')
+        ) : null,
 
         /*#__PURE__*/React.createElement('div', { style:{marginBottom:16} },
           /*#__PURE__*/React.createElement('label', { style:{fontSize:12, color:'var(--text-muted)', display:'block', marginBottom:4} }, 'USE SYNC KEY FROM ANOTHER DEVICE'),
@@ -19322,7 +19368,20 @@ var App = function App() {
   var isConnected = !!workerUrl;
   var syncKey = (function() {
     var k = localStorage.getItem('lbp_sync_key');
-    if (!k) { k = 'lbp_' + Math.random().toString(36).slice(2,10) + Math.random().toString(36).slice(2,10); localStorage.setItem('lbp_sync_key', k); }
+    if (!k) {
+      // Antes de generar una clave nueva: mirar si ya hay datos. Si los hay, la
+      // clave se perdio y este equipo esta por quedar sincronizando solo.
+      var _huerfana = null;
+      try { _huerfana = window._claveHuerfana(k, localStorage.getItem('lbp2026_data')); } catch(e) {}
+      k = 'lbp_' + Math.random().toString(36).slice(2,10) + Math.random().toString(36).slice(2,10);
+      localStorage.setItem('lbp_sync_key', k);
+      if (_huerfana) {
+        try {
+          localStorage.setItem('lbp_aviso_clave', JSON.stringify(
+            Object.assign({ clave: k }, _huerfana)));
+        } catch(e) {}
+      }
+    }
     return k;
   })();
   useEffect(function() {
