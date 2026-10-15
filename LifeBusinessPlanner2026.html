@@ -22,7 +22,7 @@
 <script>
 (function() {
   // ── Version ──────────────────────────────────────────────────────────────
-  window.LBP_VERSION = '5.42';
+  window.LBP_VERSION = '5.43';
 
   // ── PWA Install prompt ───────────────────────────────────────────────────
   window._installPrompt = null;
@@ -47,6 +47,44 @@
     if (!window.LBP_WORKER_URL) return Promise.resolve(null);
     return fetch(window.LBP_WORKER_URL + path, opts).catch(function() { return null; });
   }
+
+  // ── Quien es este equipo ──────────────────────────────────────────────
+  // El 15-oct-2026 un almacen de sincronizacion viejo seguia recibiendo
+  // cambios y no hubo manera de saber desde donde. El User-Agent no alcanza:
+  // dos perfiles del mismo Chrome lo comparten letra por letra, y la app
+  // instalada tambien. Por eso van los dos datos juntos: un id que vive en el
+  // localStorage (y por lo tanto es distinto en cada perfil y en cada
+  // navegador) y un nombre legible para que Pepe lo reconozca de un vistazo.
+  window._lbpNombreEquipo = function(ua, instalada) {
+    ua = String(ua || '');
+    var nav = /Edg\//.test(ua) ? 'Edge'
+            : /OPR\//.test(ua) ? 'Opera'
+            : /Chrome\//.test(ua) ? 'Chrome'
+            : /Firefox\//.test(ua) ? 'Firefox'
+            : /Safari\//.test(ua) ? 'Safari'
+            : 'navegador';
+    var so = /iPhone|iPad/.test(ua) ? 'iPhone/iPad'
+           : /Android/.test(ua) ? 'Android'
+           : /Mac OS X|Macintosh/.test(ua) ? 'Mac'
+           : /Windows/.test(ua) ? 'Windows'
+           : 'equipo';
+    return nav + ' en ' + so + (instalada ? ' (app instalada)' : ' (pestaña)');
+  };
+
+  window._lbpEquipo = function() {
+    var id = '';
+    try { id = localStorage.getItem('lbp_equipo_id') || ''; } catch(e) {}
+    if (!id) {
+      id = Math.random().toString(36).slice(2, 8);
+      try { localStorage.setItem('lbp_equipo_id', id); } catch(e) {}
+    }
+    var instalada = false;
+    try {
+      instalada = !!(window.matchMedia && window.matchMedia('(display-mode: standalone)').matches)
+                  || navigator.standalone === true;
+    } catch(e) {}
+    return { id: id, nombre: window._lbpNombreEquipo(navigator.userAgent, instalada) };
+  };
 
   // ── Daily info: weather-code map + retail/holiday calendar (Santa Cruz, Bolivia) ──
   // WMO weather codes → [emoji, descripción]
@@ -1082,7 +1120,7 @@
         _workerFetch('/sync', {
           method: 'POST',
           headers: {'Content-Type':'application/json'},
-          body: JSON.stringify({syncKey: syncKey, data: stamped})
+          body: JSON.stringify({syncKey: syncKey, data: stamped, equipo: window._lbpEquipo()})
         }).then(function(r){ console.log('[LBP SYNC] Push result:', r && r.status); });
       };
       console.log('[LBP SYNC] Pulling cloud before push...');
@@ -1119,7 +1157,7 @@
     _pendingSyncData = null;
     localStorage.setItem('lbp_last_save', saveTime.toString());
     var stamped = Object.assign({}, toFlush, { _cloudSaveTime: saveTime });
-    var payload = JSON.stringify({ syncKey: syncKey, data: stamped });
+    var payload = JSON.stringify({ syncKey: syncKey, data: stamped, equipo: window._lbpEquipo() });
     // NO usar sendBeacon ni keepalive: ambos limitan el body a ~64KB y el blob es ~4MB,
     // así que fallaban SIEMPRE (por eso el celular no sincronizaba al cambiar de app).
     // Un fetch normal en visibilitychange:hidden alcanza a completar porque la página
@@ -17800,6 +17838,9 @@ var SyncSettingsButton = function SyncSettingsButton(_ref_ssb) {
   var _avisoClave = (function(){
     try { return JSON.parse(localStorage.getItem('lbp_aviso_clave') || 'null'); } catch(e) { return null; }
   })();
+  var _equipo = (function(){
+    try { return window._lbpEquipo(); } catch(e) { return { id:'?', nombre:'desconocido' }; }
+  })();
   var _lsSt = useState(localStorage.getItem('lbp_last_sync')), _lsSt2 = _slicedToArray(_lsSt, 2), lastSync = _lsSt2[0], setLastSync = _lsSt2[1];
   var _gcalS1 = useState(localStorage.getItem('lbp_gcal_connected') === '1'), _gcalS2 = _slicedToArray(_gcalS1, 2), gcalConnected = _gcalS2[0], setGcalConnected = _gcalS2[1];
   var _gcalS3 = useState(''), _gcalS4 = _slicedToArray(_gcalS3, 2), gcalStatus = _gcalS4[0], setGcalStatus = _gcalS4[1];
@@ -17957,6 +17998,17 @@ var SyncSettingsButton = function SyncSettingsButton(_ref_ssb) {
           /*#__PURE__*/React.createElement('div', { style:{fontSize:11,color:'#fbbf24',opacity:0.85,lineHeight:1.5} },
             '\u26A0\uFE0F Si cambias de dispositivo, SIM o se borra el navegador, necesitas este key para recuperar tus datos. Gu\u00E1rdalo en tus notas o en otro lugar seguro.'
           )
+        ),
+
+        // Quien es este equipo. Se muestra para poder cruzarlo con lo que
+        // quedo anotado en la nube: si un almacen recibe cambios de un equipo
+        // que no deberia, este es el numero que hay que buscar ventana por
+        // ventana hasta dar con el.
+        /*#__PURE__*/React.createElement('div', { style:{marginBottom:16,fontSize:11,color:'var(--text-muted)'} },
+          'Este equipo: ',
+          /*#__PURE__*/React.createElement('span', { style:{color:'var(--text-primary)'} }, _equipo.nombre),
+          ' \u00B7 ',
+          /*#__PURE__*/React.createElement('span', { style:{fontFamily:'monospace',color:'#fbbf24'} }, _equipo.id)
         ),
 
         /*#__PURE__*/React.createElement('div', { style:{marginBottom:16,display:'flex',gap:8,alignItems:'center',padding:'10px 12px',background:'rgba(74,222,128,0.08)',border:'1px solid rgba(74,222,128,0.25)',borderRadius:10} },

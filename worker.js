@@ -141,7 +141,7 @@ async function handleRequest(request, env) {
 
     // POST /sync  \u2192  save full data blob for a sync key
     if (p === '/sync' && request.method === 'POST') {
-      const { syncKey, data } = await request.json();
+      const { syncKey, data, equipo } = await request.json();
       if (!syncKey) return json({ error: 'missing syncKey' }, 400);
       const serialized = JSON.stringify(data);
       const MAX_BYTES = 20 * 1024 * 1024; // 20 MB safety limit (KV hard limit is 25 MB)
@@ -154,6 +154,7 @@ async function handleRequest(request, env) {
         }, 413);
       }
       await env.LBP_KV.put(`data:${syncKey}`, serialized, { expirationTtl: 60 * 60 * 24 * 365 });
+      await anotarQuienEscribe(env, syncKey, equipo, request);
       const sizeMB = (serialized.length / (1024 * 1024)).toFixed(2);
       return json({ ok: true, sizeMB });
     }
@@ -953,6 +954,33 @@ M\u00e1ximo 6 items por lista. S\u00e9 conciso y espec\u00edfico.`;
 // list() costs 1 op each call; get() costs 1 op from a 100k/day quota.
 // We call scheduledHandler every minute (1,440\u00d7/day) so list() burns the
 // 1,000 list-op free-tier limit before 17:00 every day.
+// Deja constancia de QUE equipo escribio en cada clave de sincronizacion.
+// Nacio el 15-oct-2026: un almacen viejo seguia recibiendo cambios y no habia
+// forma de saber de donde salian. El User-Agent no alcanza, porque dos
+// perfiles del mismo Chrome lo comparten identico; el id lo manda el cliente
+// desde su localStorage, que si es distinto en cada perfil.
+// Solo escribe cuando cambia el equipo o cuando paso mas de una hora: KV da
+// 1000 escrituras por dia y cada guardado ya gasta una.
+const QUIEN_MAX = 10;
+const QUIEN_CADA_MS = 60 * 60 * 1000;
+async function anotarQuienEscribe(env, syncKey, equipo, request) {
+  try {
+    const id = (equipo && String(equipo.id || '').slice(0, 24)) || 'sin-id';
+    const nombre = (equipo && String(equipo.nombre || '').slice(0, 60)) || '';
+    const ua = String(request.headers.get('user-agent') || '').slice(0, 160);
+    const clave = `quien:${syncKey}`;
+    const previos = JSON.parse((await env.LBP_KV.get(clave)) || '[]');
+    const ultimo = previos.length ? previos[previos.length - 1] : null;
+    const ahora = Date.now();
+    if (ultimo && ultimo.id === id && (ahora - (ultimo.t || 0)) < QUIEN_CADA_MS) return;
+    previos.push({ t: ahora, id, nombre, ua });
+    await env.LBP_KV.put(clave, JSON.stringify(previos.slice(-QUIEN_MAX)),
+      { expirationTtl: 60 * 60 * 24 * 90 });
+  } catch (e) {
+    // El registro es diagnostico: jamas debe tumbar un guardado de datos.
+  }
+}
+
 async function registerSyncKey(env, syncKey) {
   const registry = JSON.parse(await env.LBP_KV.get('synckeys_registry') || '[]');
   if (!registry.includes(syncKey)) {
