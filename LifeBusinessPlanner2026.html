@@ -22,7 +22,7 @@
 <script>
 (function() {
   // ── Version ──────────────────────────────────────────────────────────────
-  window.LBP_VERSION = '5.41';
+  window.LBP_VERSION = '5.42';
 
   // ── PWA Install prompt ───────────────────────────────────────────────────
   window._installPrompt = null;
@@ -18247,10 +18247,14 @@ var SyncSettingsButton = function SyncSettingsButton(_ref_ssb) {
               migState && migState.complete && /*#__PURE__*/React.createElement('p', {
                 style:{fontSize:11,color:migState.errors?'#fbbf24':'#4ade80',margin:'4px 0 0',fontWeight:600}
               }, migState.msg)
-            ),
-          /*#__PURE__*/React.createElement('div', { style:{marginTop:10, fontSize:10, color:'rgba(255,255,255,0.25)', textAlign:'right'} },
-            'v' + (window.LBP_VERSION || '?')
-          )
+            )
+        ),
+        // La version va FUERA del bloque isConnected. Es lo que se mira para
+        // confirmar que cargo la ultima subida, y hace falta justo cuando algo
+        // esta mal: el 15-oct-2026 un equipo quedo sin URL del worker, el modal
+        // se acorto a la mitad y encima desaparecio el unico dato de version.
+        /*#__PURE__*/React.createElement('div', { style:{marginTop:10, fontSize:10, color:'rgba(255,255,255,0.25)', textAlign:'right'} },
+          'v' + (window.LBP_VERSION || '?')
         )
       )
     )
