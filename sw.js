@@ -140,9 +140,12 @@ self.addEventListener('periodicsync', function(event) {
         .then(function(result) {
           var alarms = result.alarms || [];
           var now = Date.now();
-          // Fire alarms that are due within the last 4 hours (broader window than cloud push)
+          // Ventana de 15 minutos. Eran 4 HORAS: como la nube deja en la lista toda
+          // alarma que no alcanzo a disparar, esta repesca las sacaba horas despues,
+          // a cualquier hora suelta (16-oct-2026: un aviso de las 10:00 salio 10:17).
+          // Un recordatorio de hace 3 horas no recuerda nada, solo molesta.
           var due = alarms.filter(function(a) {
-            return a.triggerAt <= now && (now - a.triggerAt) < 4 * 3600000;
+            return a.triggerAt <= now && (now - a.triggerAt) < 15 * 60000;
           });
           if (!due.length) return;
           return caches.open('lbp-fired-v1').then(function(firedCache) {
@@ -151,18 +154,22 @@ self.addEventListener('periodicsync', function(event) {
                 var parts = k.url.split('/fired/');
                 return parts[1] ? decodeURIComponent(parts[1]) : '';
               });
+              // Las alarmas del KV traen alarmId, NO id: esto deduplicaba contra
+              // undefined, o sea contra nada util.
               var toFire = due.filter(function(a) {
-                return firedIds.indexOf(a.id) === -1;
+                return a.alarmId && firedIds.indexOf(a.alarmId) === -1;
               });
               return Promise.all(toFire.map(function(a) {
                 return firedCache.put(
-                  new Request('https://lbp.local/fired/' + encodeURIComponent(a.id)),
+                  new Request('https://lbp.local/fired/' + encodeURIComponent(a.alarmId)),
                   new Response(String(now))
                 ).then(function() {
                   return showAlarm(
                     a.title || 'Recordatorio',
                     a.body || '',
-                    'lbp_ps_' + a.id,
+                    // Misma etiqueta que el push y que el aviso local: Android funde
+                    // las copias en una fila en vez de apilar una por cada camino.
+                    'lbp_' + a.alarmId,
                     a.vibration || 'long'
                   );
                 });
@@ -267,11 +274,12 @@ self.addEventListener('message', function(e) {
         var fired = keys.map(function(k) { var pr = k.url.split('/fired/'); return pr[1] ? decodeURIComponent(pr[1]) : ''; });
         return Promise.all((d.alarms || []).map(function(a) {
           var age = now2 - a.triggerAt;
-          if (age >= 0 && age < 3600000) {
+          // 15 minutos, no 1 hora: misma razon que la repesca de periodicsync.
+          if (age >= 0 && age < 15 * 60000) {
             var fkey = 'm_' + a.alarmId;
             if (fired.indexOf(fkey) !== -1) return;  // ya mostrada antes → no repetir
             return fc.put(new Request('https://lbp.local/fired/' + encodeURIComponent(fkey)), new Response(String(now2)))
-              .then(function() { return showAlarm(a.title, '(Missed) ' + a.body, 'lbp_m_' + a.alarmId, a.vibration); });
+              .then(function() { return showAlarm(a.title, '(Missed) ' + a.body, 'lbp_' + a.alarmId, a.vibration); });
           } else if (a.triggerAt > now2) { scheduleOne(a.alarmId, a.triggerAt, a.title, a.body, a.vibration); }
         }));
       });

@@ -15,6 +15,12 @@ const CORS = {
   'Access-Control-Allow-Headers': 'Content-Type',
 };
 
+// Ventana unica de las alarmas: el cron dispara lo vencido hace menos de esto, y
+// nada mas viejo se guarda ni sobrevive en la lista. Una sola fuente para las tres
+// reglas (aceptar, disparar, purgar); antes cada una usaba un numero distinto.
+const VENTANA_ALARMA_MS = 6 * 60 * 1000;
+const ALARM_LOG_MAX = 40;
+
 function json(data, status = 200) {
   return new Response(JSON.stringify(data), {
     status,
@@ -183,8 +189,12 @@ async function handleRequest(request, env) {
     if (p === '/alarm' && request.method === 'POST') {
       const { syncKey, alarmId, triggerAt, title, body, vibration } = await request.json();
       if (!syncKey) return json({ error: 'missing syncKey' }, 400);
+      // Misma regla que /alarms/batch: no se guarda lo que ya no se puede disparar.
+      if (typeof triggerAt !== 'number' || triggerAt <= Date.now() - VENTANA_ALARMA_MS) {
+        return json({ ok: true, ignorada: 'vencida' });
+      }
       const alarms = JSON.parse(await env.LBP_KV.get(`alarms:${syncKey}`) || '[]');
-      const filtered = alarms.filter(a => a.alarmId !== alarmId);
+      const filtered = alarms.filter(a => a.alarmId !== alarmId && a.triggerAt > Date.now() - VENTANA_ALARMA_MS);
       filtered.push({ alarmId, triggerAt, title, body, vibration: vibration || 'long' });
       await env.LBP_KV.put(`alarms:${syncKey}`, JSON.stringify(filtered), { expirationTtl: 60 * 60 * 24 * 365 });
       await registerSyncKey(env, syncKey);
@@ -204,7 +214,11 @@ async function handleRequest(request, env) {
       const byId = {};
       for (const a of existing) { if (a && a.alarmId) byId[a.alarmId] = a; }
       for (const a of alarms) { if (a && a.alarmId) byId[a.alarmId] = a; }
-      const merged = Object.keys(byId).map(k => byId[k]).filter(a => a && typeof a.triggerAt === 'number' && a.triggerAt > now - 60 * 60 * 1000);
+      // Solo sobrevive lo que el cron TODAVIA puede disparar (su ventana es de 6 min).
+      // Antes se guardaba todo lo de la ultima hora: una alarma que entraba tarde no
+      // se disparaba nunca y quedaba en la lista, y la repesca del telefono la sacaba
+      // horas despues a cualquier hora (16-oct-2026).
+      const merged = Object.keys(byId).map(k => byId[k]).filter(a => a && typeof a.triggerAt === 'number' && a.triggerAt > now - VENTANA_ALARMA_MS);
       await env.LBP_KV.put(`alarms:${syncKey}`, JSON.stringify(merged), { expirationTtl: 60 * 60 * 24 * 365 });
       await registerSyncKey(env, syncKey);
       return json({ ok: true, count: merged.length });
@@ -327,6 +341,19 @@ async function handleRequest(request, env) {
       if (!k) return json({ error: 'missing key' }, 400);
       const log = JSON.parse(await env.LBP_KV.get('push_log:' + k) || '[]');
       return json({ key: k, entries: log.length, log });
+    }
+
+    // GET /alarm-log?key=  ->  que alarmas mando el cron, cuando y con cuanto atraso.
+    // Responde "lo que se ve en el telefono, salio de aca?" sin tener que suponer.
+    if (p === '/alarm-log' && request.method === 'GET') {
+      const k = url.searchParams.get('key');
+      if (!k) return json({ error: 'missing key' }, 400);
+      const log = JSON.parse(await env.LBP_KV.get('alarm_log:' + k) || '[]');
+      return json({
+        key: k,
+        entries: log.length,
+        log: log.map(e => Object.assign({}, e, { hora: new Date(e.t).toISOString() })),
+      });
     }
 
     if (p === '/debug-smart' && request.method === 'GET') {
@@ -2001,8 +2028,17 @@ async function scheduledHandler(event, env) {
       // (Fetching+parsing the full data blob every minute is expensive and, on the
       // heavy 12:00 UTC tick that also refreshes rates + builds the AI briefing, it
       // pushed the invocation over its limit and aborted the briefing send.)
-      const timeDue = alarms.filter(a => a.triggerAt <= now && (now - a.triggerAt) < 6 * 60 * 1000);
-      if (!timeDue.length) continue;
+      const timeDue = alarms.filter(a => a.triggerAt <= now && (now - a.triggerAt) < VENTANA_ALARMA_MS);
+      if (!timeDue.length) {
+        // Aunque no haya nada que disparar, saca de la lista lo que ya nunca va a
+        // dispararse. Si queda ahi, la repesca del telefono lo muestra mas tarde a
+        // una hora que no corresponde. Solo escribe cuando de verdad hay que limpiar.
+        const vivas = alarms.filter(a => a.triggerAt > now - VENTANA_ALARMA_MS);
+        if (vivas.length !== alarms.length) {
+          await env.LBP_KV.put(name, JSON.stringify(vivas), { expirationTtl: 60 * 60 * 24 * 365 });
+        }
+        continue;
+      }
 
       // Only NOW load the synced data to validate owners: an alarm whose entity is
       // completed/cancelled/archived is STALE (a stale client keeps re-registering it).
@@ -2028,13 +2064,20 @@ async function scheduledHandler(event, env) {
 
       const due = timeDue.filter(a => !isDead(a.alarmId));
 
+      // Constancia de cada alarma enviada. Sin esto no habia forma de saber si una
+      // notificacion salio de la nube o de alguno de los caminos del telefono, y un
+      // diagnostico de alarmas repetidas se volvia adivinanza (16-oct-2026).
+      const anotados = [];
       if (due.length) {
         const subs = JSON.parse(await env.LBP_KV.get(`subs:${syncKey}`) || '[]');
         for (const alarm of due) {
+          let enviados = 0, fallados = 0;
           for (const sub of subs) {
             try {
               await sendPush(sub, { title: alarm.title, body: alarm.body, alarmId: alarm.alarmId, vibration: alarm.vibration || 'long' });
+              enviados++;
             } catch (e) {
+              fallados++;
               // Subscription expired \u2014 remove it
               if (e.status === 404 || e.status === 410) {
                 const updated = subs.filter(s => s.endpoint !== sub.endpoint);
@@ -2042,13 +2085,23 @@ async function scheduledHandler(event, env) {
               }
             }
           }
+          anotados.push({ t: now, alarmId: alarm.alarmId, programada: alarm.triggerAt, atraso_s: Math.round((now - alarm.triggerAt) / 1000), subs: subs.length, enviados, fallados });
         }
       }
 
-      // Remove fired alarms AND every stale (dead-owner) alarm.
-      const remaining = alarms.filter(a => !due.find(d => d.alarmId === a.alarmId) && !isDead(a.alarmId));
+      // Remove fired alarms, every stale (dead-owner) alarm, and anything the cron
+      // can no longer fire: lo que queda vencido en la lista termina saliendo tarde
+      // por la repesca del telefono.
+      const remaining = alarms.filter(a => !due.find(d => d.alarmId === a.alarmId) && !isDead(a.alarmId) && a.triggerAt > now - VENTANA_ALARMA_MS);
       if (remaining.length !== alarms.length) {
-        await env.LBP_KV.put(name, JSON.stringify(remaining));
+        await env.LBP_KV.put(name, JSON.stringify(remaining), { expirationTtl: 60 * 60 * 24 * 365 });
+      }
+      if (anotados.length) {
+        try {
+          const clave = `alarm_log:${syncKey}`;
+          const previo = JSON.parse((await env.LBP_KV.get(clave)) || '[]');
+          await env.LBP_KV.put(clave, JSON.stringify(previo.concat(anotados).slice(-ALARM_LOG_MAX)), { expirationTtl: 60 * 60 * 24 * 30 });
+        } catch (e) { /* el registro es diagnostico: jamas debe tumbar un envio */ }
       }
      } catch (e) { /* per-syncKey guard: never let one key abort the smart-notif block below */ }
     }
