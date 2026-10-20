@@ -1,7 +1,7 @@
-// Ningun basurero de tarjeta borra sin preguntar.
+// Ningun basurero borra sin red de seguridad.
 // 19-oct-2026: Pepe apreto el basurero queriendo el lapiz y perdio una tarea.
-// Verificado en el navegador sobre 16 pantallas: todas preguntan, cancelar no
-// toca los datos y confirmar borra.
+// v5.56: lo que vive en los datos se borra con DESHACER de 6 s; los adjuntos,
+// que no se pueden restaurar (el archivo sale de IndexedDB), siguen preguntando.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
@@ -11,11 +11,30 @@ import { fileURLToPath } from 'node:url';
 const raiz = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const html = fs.readFileSync(path.join(raiz, 'LifeBusinessPlanner2026.html'), 'utf8');
 
-test('existe el helper y el cartel propio de la app', () => {
+test('existen los dos caminos: deshacer y preguntar', () => {
+  assert.ok(html.includes('function _borrarConDeshacer(nombre, hacerBorrado)'));
+  assert.ok(html.includes('window._lbpAvisoDeshacer = function(nombre, restaurar)'),
+            'falta el puente de la barra de deshacer');
   assert.ok(html.includes('function _pedirConfirmacionBorrar(nombre, alBorrar)'));
-  assert.ok(html.includes('window._lbpConfirmarBorrar = function(nombre, alBorrar)'),
-            'falta el puente global');
-  assert.ok(html.includes("'\\u00bfSeguro que quer\\u00e9s eliminar '"), 'falta el texto del cartel');
+  assert.ok(html.includes("'DESHACER'"), 'falta el boton de deshacer');
+});
+
+test('deshacer saca la lapida, o la sincronizacion vuelve a borrar', () => {
+  const i = html.indexOf('function _borrarConDeshacer');
+  const cuerpo = html.slice(i, i + 3000);
+  assert.ok(/delete dels\[item\.id\]/.test(cuerpo), 'no limpia _deletedIds al restaurar');
+  assert.ok(/_deletedIds: dels/.test(cuerpo), 'no devuelve las lapidas limpias');
+});
+
+test('al restaurar una reunion se limpia el evento de calendario', () => {
+  // El evento de Google SI se borro y no vuelve: dejar el id apuntaria a la nada.
+  const i = html.indexOf('function _borrarConDeshacer');
+  assert.ok(/delete vuelve\.gcalEventId/.test(html.slice(i, i + 3000)));
+});
+
+test('los adjuntos siguen preguntando (no se pueden restaurar)', () => {
+  assert.ok(/_pedirConfirmacionBorrar\(\(a && \(a\.name \|\| a\.title\)\)/.test(html),
+            'los adjuntos deberian seguir con confirmacion');
 });
 
 test('si el cartel aun no monto, igual pregunta', () => {
@@ -34,14 +53,14 @@ test('ningun basurero de tarjeta llama a del() directo', () => {
     const trozo = html.slice(a, fin === -1 ? a + 6000 : Math.min(fin, a + 6000));
     for (const m of trozo.matchAll(/\b(del|delLog|deleteImport)\((\w+)\.id\)/g)) {
       const antes = trozo.slice(Math.max(0, m.index - 60), m.index);
-      if (!antes.includes('_pedirConfirmacionBorrar')) sueltos.push(m[0]);
+      if (!antes.includes('_pedirConfirmacionBorrar') && !antes.includes('_borrarConDeshacer')) sueltos.push(m[0]);
     }
     k += 5;
   }
   assert.deepEqual([...new Set(sueltos)], [], 'estos borran sin preguntar');
 });
 
-test('la confirmacion dice QUE se va a borrar', () => {
+test('el aviso dice QUE se borro', () => {
   assert.ok(html.includes('function _nombreDe(x)'), 'falta el nombre legible');
-  assert.ok(html.includes('_pedirConfirmacionBorrar(_nombreDe('), 'no se le pasa el nombre');
+  assert.ok(html.includes('_borrarConDeshacer(_nombreDe('), 'no se le pasa el nombre');
 });

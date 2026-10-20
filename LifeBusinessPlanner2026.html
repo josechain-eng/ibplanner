@@ -22,7 +22,7 @@
 <script>
 (function() {
   // ── Version ──────────────────────────────────────────────────────────────
-  window.LBP_VERSION = '5.55';
+  window.LBP_VERSION = '5.57';
 
   // ── PWA Install prompt ───────────────────────────────────────────────────
   window._installPrompt = null;
@@ -4103,6 +4103,53 @@ function _nombreDe(x) {
 // lapiz y se le da sin querer (paso el 19-oct-2026 y se perdio una tarea).
 // Usa el cartel propio de la app; si todavia no monto, cae al del navegador
 // para no quedarse nunca sin preguntar.
+var _LBP_LISTAS = ['tasks','projects','meetings','journal','goals','habits','routines',
+  'medications','householdTasks','workouts','clients','documents','books','bucketList',
+  'references','resources','services','content','transactions','imports','campaigns',
+  'accounts','travel','recipes','groceryItems','outfits','skinProducts','quickLinks',
+  'brainstorm','workoutTemplates','clientJourney'];
+
+// Borra y deja 6 segundos para arrepentirse. Un toque menos que confirmar cada
+// vez, con la misma red: el basurero esta al lado del lapiz.
+function _borrarConDeshacer(nombre, hacerBorrado) {
+  var antes = (typeof window !== 'undefined' && window._getDataGlobal) ? window._getDataGlobal() : null;
+  hacerBorrado();
+  if (!antes || !window._setDataGlobal || !window._lbpAvisoDeshacer) return;
+  setTimeout(function () {   // el borrado recien se ve en el proximo render
+    var despues = window._getDataGlobal();
+    if (!despues) return;
+    var lista = null, item = null, pos = -1;
+    for (var i = 0; i < _LBP_LISTAS.length && !lista; i++) {
+      var k = _LBP_LISTAS[i], a = antes[k], b = despues[k] || [];
+      if (!Array.isArray(a) || a.length !== b.length + 1) continue;
+      var hay = {};
+      for (var j = 0; j < b.length; j++) if (b[j] && b[j].id) hay[b[j].id] = 1;
+      for (var j2 = 0; j2 < a.length; j2++) {
+        if (a[j2] && a[j2].id && !hay[a[j2].id]) { lista = k; item = a[j2]; pos = j2; break; }
+      }
+    }
+    // Si no se puede identificar que se fue, no se ofrece un boton que no sabria restaurar.
+    if (!lista) return;
+    window._lbpAvisoDeshacer(nombre, function () {
+      window._setDataGlobal(function (d) {
+        var arr = (d[lista] || []).slice();
+        for (var q = 0; q < arr.length; q++) if (arr[q] && arr[q].id === item.id) return d;
+        var vuelve = item;
+        // El evento de Google Calendar SI se borro y no vuelve: se limpia el id
+        // para que el boton de calendario cree uno nuevo en vez de apuntar a la nada.
+        if (item.gcalEventId) { vuelve = Object.assign({}, item); delete vuelve.gcalEventId; }
+        arr.splice(Math.min(pos, arr.length), 0, vuelve);
+        // Sacar la lapida: si queda, la sincronizacion lo vuelve a borrar.
+        var dels = Object.assign({}, d._deletedIds || {});
+        delete dels[item.id];
+        var nd = Object.assign({}, d, {_deletedIds: dels});
+        nd[lista] = arr;
+        return nd;
+      });
+    });
+  }, 0);
+}
+
 function _pedirConfirmacionBorrar(nombre, alBorrar) {
   if (typeof window !== 'undefined' && window._lbpConfirmarBorrar) {
     window._lbpConfirmarBorrar(nombre, alBorrar);
@@ -5877,7 +5924,7 @@ var GoalsScreen = function GoalsScreen(_ref19) {
       }
     }, "\u270F\uFE0F"), " ", /*#__PURE__*/React.createElement("button", {
       className: "btn btn-danger btn-sm btn-icon",
-      onClick: function onClick(e) { e.stopPropagation(); _pedirConfirmacionBorrar(_nombreDe(g), function(){ del(g.id); }); }
+      onClick: function onClick(e) { e.stopPropagation(); _borrarConDeshacer(_nombreDe(g), function(){ del(g.id); }); }
     }, "\uD83D\uDDD1")))), g.vision && /*#__PURE__*/React.createElement("div", {
       style: {
         fontSize: 12,
@@ -6382,7 +6429,7 @@ var ProjectsScreen = function ProjectsScreen(_ref20) {
       }
     },prRptLoad&&prRptProject&&prRptProject.id===p.id?'⏳':'📊'), /*#__PURE__*/React.createElement("button", {
       className: "btn btn-danger btn-sm btn-icon", title: "Eliminar",
-      onClick: function (e) { e.stopPropagation(); _pedirConfirmacionBorrar(_nombreDe(p), function(){ del(p.id); }); }
+      onClick: function (e) { e.stopPropagation(); _borrarConDeshacer(_nombreDe(p), function(){ del(p.id); }); }
     }, "\uD83D\uDDD1")))), p.description && /*#__PURE__*/React.createElement("div", {
       style: {
         marginBottom: 8
@@ -7004,7 +7051,7 @@ var TasksScreen = function TasksScreen(_ref21) {
         }))),
       /*#__PURE__*/React.createElement("button", {
         className: "btn btn-danger btn-sm", title: "Eliminar",
-        onClick: function (e) { e.stopPropagation(); _pedirConfirmacionBorrar(_nombreDe(t), function(){ del(t.id); }); }
+        onClick: function (e) { e.stopPropagation(); _borrarConDeshacer(_nombreDe(t), function(){ del(t.id); }); }
       }, "\uD83D\uDDD1")));
   })), modal && /*#__PURE__*/React.createElement(Modal, {
     title: editItem ? "Edit Task" : "New Task",
@@ -7494,7 +7541,7 @@ var ClientsScreen = function ClientsScreen(_ref24) {
       }
     }, "✏️"), " ", /*#__PURE__*/React.createElement("button", {
       className: "btn btn-danger btn-sm",
-      onClick: function onClick(e) { e.stopPropagation(); _pedirConfirmacionBorrar(_nombreDe(c), function(){ del(c.id); }); }
+      onClick: function onClick(e) { e.stopPropagation(); _borrarConDeshacer(_nombreDe(c), function(){ del(c.id); }); }
     }, "\uD83D\uDDD1")),
 
     /*#__PURE__*/React.createElement('button',{className:'btn btn-secondary btn-sm',style:{fontSize:11,marginTop:6,width:'100%',height:36,justifyContent:'center'},
@@ -8165,7 +8212,7 @@ var FinanceScreen = function FinanceScreen(_ref25) {
       }
     }, "\u270F\uFE0F"), " ", /*#__PURE__*/React.createElement("button", {
       className: "btn btn-danger btn-sm btn-icon",
-      onClick: function onClick(e) { e.stopPropagation(); _pedirConfirmacionBorrar(_nombreDe(t), function(){ del(t.id); }); }
+      onClick: function onClick(e) { e.stopPropagation(); _borrarConDeshacer(_nombreDe(t), function(){ del(t.id); }); }
     }, "\uD83D\uDDD1")));
   })),
   fnRepOpen&&/*#__PURE__*/React.createElement(Modal,{
@@ -8684,7 +8731,7 @@ var MeetingsScreen = function MeetingsScreen(_ref26) {
       }
     },mePrepLoad&&mePrepItem&&mePrepItem.id===m.id?'⏳':'🤖'), " ", /*#__PURE__*/React.createElement("button",{className:"btn btn-secondary btn-sm",style:{fontSize:10},title:"Grabar reunión",onClick:function(e){e.stopPropagation();recOpen(m);}}, '🎙️'), " ",localStorage.getItem('lbp_gcal_connected')=='1' && /*#__PURE__*/React.createElement("button",{className:"btn btn-secondary btn-sm",style:{fontSize:11,padding:'2px 6px',color:m.gcalEventId?'#4ade80':'#fb923c'},title:m.gcalEventId?'\u2705 Synced to GCal — tap to re-sync':'\u26A0\uFE0F Not in GCal — tap to sync now',onClick:function(e){e.stopPropagation();if(window._gcalPush)window._gcalPush(m);}}, m.gcalEventId ? '📅✅' : '📅⚠️'), " ",/*#__PURE__*/React.createElement("button",{className:"btn btn-secondary btn-sm",style:{fontSize:10,color:m.followedUp?'#4ade80':'var(--text-dim)',background:m.followedUp?'rgba(74,222,128,.15)':''},title:m.followedUp?"Seguimiento marcado — click para desmarcar":"Marcar como seguimiento hecho",onClick:function(e){e.stopPropagation();setData(function(d){return Object.assign({},d,{meetings:(d.meetings||[]).map(function(x){return x.id===m.id?Object.assign({},x,{followedUp:!x.followedUp}):x;})});});}},m.followedUp?'✅':'📋'), " ",/*#__PURE__*/React.createElement("button", {
       className: "btn btn-danger btn-sm",
-      onClick: function onClick(e) { e.stopPropagation(); _pedirConfirmacionBorrar(_nombreDe(m), function(){ del(m.id); }); }
+      onClick: function onClick(e) { e.stopPropagation(); _borrarConDeshacer(_nombreDe(m), function(){ del(m.id); }); }
     }, "🗑"))), m.isOnline ? /*#__PURE__*/React.createElement("div", {
       style: {
         fontSize: 12,
@@ -9220,7 +9267,7 @@ var ContentScreen = function ContentScreen(_ref28) {
       }
     }, "\u270F\uFE0F"), " ", /*#__PURE__*/React.createElement("button", {
       className: "btn btn-danger btn-sm",
-      onClick: function onClick(e) { e.stopPropagation(); _pedirConfirmacionBorrar(_nombreDe(c), function(){ del(c.id); }); }
+      onClick: function onClick(e) { e.stopPropagation(); _borrarConDeshacer(_nombreDe(c), function(){ del(c.id); }); }
     }, "\uD83D\uDDD1")))), c.description && /*#__PURE__*/React.createElement("div", {
       style: {
         fontSize: 12,
@@ -9768,7 +9815,7 @@ var JournalScreen = function JournalScreen(_ref31) {
       className: "btn btn-danger btn-sm btn-icon",
       onClick: function onClick(ev) {
         ev.stopPropagation();
-        _pedirConfirmacionBorrar(_nombreDe(e), function(){ del(e.id); });
+        _borrarConDeshacer(_nombreDe(e), function(){ del(e.id); });
       }
     }, "\uD83D\uDDD1")))), e.content && /*#__PURE__*/React.createElement("div", {
       style: {
@@ -10375,7 +10422,7 @@ var HabitsScreen = function HabitsScreen(_ref38) {
       className: "btn btn-danger btn-sm",
       onClick: function onClick(e) {
         e.stopPropagation();
-        _pedirConfirmacionBorrar(_nombreDe(h), function(){ del(h.id); });
+        _borrarConDeshacer(_nombreDe(h), function(){ del(h.id); });
       }
     }, "\uD83D\uDDD1")));
   })), modal && habCoRes&&/*#__PURE__*/React.createElement(Modal,{
@@ -10703,7 +10750,7 @@ var BucketListScreen = function BucketListScreen(_ref39) {
       }
     }, "\u270F\uFE0F"), " ", /*#__PURE__*/React.createElement("button", {
       className: "btn btn-danger btn-sm btn-icon",
-      onClick: function onClick(e) { e.stopPropagation(); _pedirConfirmacionBorrar(_nombreDe(item), function(){ del(item.id); }); }
+      onClick: function onClick(e) { e.stopPropagation(); _borrarConDeshacer(_nombreDe(item), function(){ del(item.id); }); }
     }, "\uD83D\uDDD1")));
   }), done.length > 0 && /*#__PURE__*/React.createElement(React.Fragment, null, /*#__PURE__*/React.createElement("button", {
     className: "btn btn-secondary",
@@ -10748,7 +10795,7 @@ var BucketListScreen = function BucketListScreen(_ref39) {
       }
     }, "Completed: ", item.completedDate)), /*#__PURE__*/React.createElement("button", {
       className: "btn btn-danger btn-sm",
-      onClick: function onClick(e) { e.stopPropagation(); _pedirConfirmacionBorrar(_nombreDe(item), function(){ del(item.id); }); }
+      onClick: function onClick(e) { e.stopPropagation(); _borrarConDeshacer(_nombreDe(item), function(){ del(item.id); }); }
     }, "\uD83D\uDDD1")));
   }))), modal && /*#__PURE__*/React.createElement(Modal, {
     title: "Add Bucket List Item",
@@ -10965,7 +11012,7 @@ var TravelScreen = function TravelScreen(_ref40) {
       className: "className=",
       onClick: function onClick(e) {
         e.stopPropagation();
-        _pedirConfirmacionBorrar(_nombreDe(p), function(){ del(p.id); });
+        _borrarConDeshacer(_nombreDe(p), function(){ del(p.id); });
       }
     }, "\uD83D\uDDD1")))), p.accommodation && /*#__PURE__*/React.createElement("div", {
       style: {
@@ -11250,7 +11297,7 @@ var BooksScreen = function BooksScreen(_ref41) {
       }
     }, "\u270F\uFE0F"), " ", /*#__PURE__*/React.createElement("button", {
       className: "btn btn-danger btn-sm btn-icon",
-      onClick: function onClick(e) { e.stopPropagation(); _pedirConfirmacionBorrar(_nombreDe(b), function(){ del(b.id); }); }
+      onClick: function onClick(e) { e.stopPropagation(); _borrarConDeshacer(_nombreDe(b), function(){ del(b.id); }); }
     }, "\uD83D\uDDD1")));
   })), modal && /*#__PURE__*/React.createElement(Modal, {
     title: "Add Book",
@@ -11481,7 +11528,7 @@ var ServicesScreen = function ServicesScreen(_ref42) {
       }
     }, "\u270F\uFE0F"), " ", /*#__PURE__*/React.createElement("button", {
       className: "btn btn-danger btn-sm btn-icon",
-      onClick: function onClick(e) { e.stopPropagation(); _pedirConfirmacionBorrar(_nombreDe(s), function(){ del(s.id); }); }
+      onClick: function onClick(e) { e.stopPropagation(); _borrarConDeshacer(_nombreDe(s), function(){ del(s.id); }); }
     }, "\uD83D\uDDD1")))), s.description && /*#__PURE__*/React.createElement("div", {
       style: {
         fontSize: 12,
@@ -12152,7 +12199,7 @@ var DocumentsScreen = function DocumentsScreen(_ref46) {
               /*#__PURE__*/React.createElement("div", {style:{display:'flex',gap:6,flexShrink:0}},
                 /*#__PURE__*/React.createElement("div", {className: "acciones"}, d.url && /*#__PURE__*/React.createElement("a", {href:d.url, target:"_blank", rel:"noopener noreferrer", className:"btn btn-secondary btn-sm"}, "\uD83D\uDD17"),
                 /*#__PURE__*/React.createElement("button", {className:"btn-edit", onClick:function(e){e.stopPropagation();setEditItem(d);setForm(Object.assign({},d,{tags:d.tags||'',attachments:d.attachments||[]}));setModal(true);}}, "\u270F\uFE0F"),
-                /*#__PURE__*/React.createElement("button", {className:"btn btn-danger btn-sm btn-icon", onClick:function(e){e.stopPropagation();_pedirConfirmacionBorrar(_nombreDe(d), function(){ del(d.id); });}}, "\uD83D\uDDD1"))
+                /*#__PURE__*/React.createElement("button", {className:"btn btn-danger btn-sm btn-icon", onClick:function(e){e.stopPropagation();_borrarConDeshacer(_nombreDe(d), function(){ del(d.id); });}}, "\uD83D\uDDD1"))
               )
             );
           })
@@ -12468,7 +12515,7 @@ var RoutinesScreen = function RoutinesScreen(_ref47) {
       className: "btn btn-danger btn-sm btn-icon",
       onClick: function onClick(e) {
         e.stopPropagation();
-        _pedirConfirmacionBorrar(_nombreDe(r), function(){ del(r.id); });
+        _borrarConDeshacer(_nombreDe(r), function(){ del(r.id); });
       }
     }, "\uD83D\uDDD1"));
   })), modal && /*#__PURE__*/React.createElement(Modal, {
@@ -12736,7 +12783,7 @@ var ResourcesScreen = function ResourcesScreen(_ref50) {
       }
     }, "\u270F\uFE0F"), " ", /*#__PURE__*/React.createElement("button", {
       className: "btn btn-danger btn-sm btn-icon",
-      onClick: function onClick(e) { e.stopPropagation(); _pedirConfirmacionBorrar(_nombreDe(r), function(){ del(r.id); }); }
+      onClick: function onClick(e) { e.stopPropagation(); _borrarConDeshacer(_nombreDe(r), function(){ del(r.id); }); }
     }, "\uD83D\uDDD1"))));
   };
   return /*#__PURE__*/React.createElement("div", null, /*#__PURE__*/React.createElement("div", {
@@ -13098,7 +13145,7 @@ var ClientJourneyScreen = function ClientJourneyScreen(_ref52) {
         }
       }, item.note)), /*#__PURE__*/React.createElement("div", {className: "acciones"}, /*#__PURE__*/React.createElement("button", {
         className: "btn btn-danger btn-sm btn-icon",
-        onClick: function onClick(e) { e.stopPropagation(); _pedirConfirmacionBorrar(_nombreDe(item), function(){ del(item.id); }); }
+        onClick: function onClick(e) { e.stopPropagation(); _borrarConDeshacer(_nombreDe(item), function(){ del(item.id); }); }
       }, "\uD83D\uDDD1"), /*#__PURE__*/React.createElement("button", {
         className: "btn-edit",
         onClick: function onClick() {
@@ -13914,7 +13961,6 @@ var OutfitPlannerScreen = function OutfitPlannerScreen(_ref55) {
     setModal(false); resetForm();
   };
   var del = function del(id) {
-    if(!confirm('Delete this entry?'))return;
     setData(function(d){return _objectSpread(_objectSpread({},d),{},{familySizes:(d.familySizes||[]).filter(function(x){return x.id!==id;}),_deletedIds:_lbpRecordDel(d,id)});});
   };
   return React.createElement('div', null,
@@ -13951,7 +13997,7 @@ var OutfitPlannerScreen = function OutfitPlannerScreen(_ref55) {
                   ),
                   React.createElement('div', {style:{display:'flex',gap:6}},
                     React.createElement('button', {className:'btn btn-secondary btn-sm', onClick:function(){setEditItem(s);setForm({member:s.member,clothingType:s.clothingType,subcategory:s.subcategory||'',size:s.size||'',notes:s.notes||''});setModal(true);}}, '✏️'),
-                    React.createElement('button', {className:'btn btn-danger btn-sm btn-icon', onClick:function(){_pedirConfirmacionBorrar(_nombreDe(s), function(){ del(s.id); });}}, '\uD83D\uDDD1')
+                    React.createElement('button', {className:'btn btn-danger btn-sm btn-icon', onClick:function(){_borrarConDeshacer(_nombreDe(s), function(){ del(s.id); });}}, '\uD83D\uDDD1')
                   )
                 )
               );
@@ -14201,7 +14247,7 @@ var HouseholdScreen = function HouseholdScreen(_ref56) {
       }
     }, "\u270F\uFE0F"), " ", /*#__PURE__*/React.createElement("button", {
       className: "btn btn-danger btn-sm btn-icon",
-      onClick: function onClick(e) { e.stopPropagation(); _pedirConfirmacionBorrar(_nombreDe(t), function(){ del(t.id); }); }
+      onClick: function onClick(e) { e.stopPropagation(); _borrarConDeshacer(_nombreDe(t), function(){ del(t.id); }); }
     }, "\uD83D\uDDD1")));
   })), modal && /*#__PURE__*/React.createElement(Modal, {
     title: "Add Household Task",
@@ -14837,7 +14883,7 @@ var WorkoutPlannerScreen = function WorkoutPlannerScreen(_ref57) {
     }), /*#__PURE__*/React.createElement("div", {className: "acciones"}, /*#__PURE__*/React.createElement("button", {
       className: "btn btn-danger btn-sm btn-icon",
       onClick: function onClick() {
-        return _pedirConfirmacionBorrar(_nombreDe(w), function(){ delLog(w.id); });
+        return _borrarConDeshacer(_nombreDe(w), function(){ delLog(w.id); });
       }
     }, "\uD83D\uDDD1"), /*#__PURE__*/React.createElement("button", {
       className: "btn-edit",
@@ -15855,7 +15901,7 @@ var MedicationScreen = function MedicationScreen(_ref59) {
       }
     }, "\u270F\uFE0F"), " ", /*#__PURE__*/React.createElement("button", {
       className: "btn btn-danger btn-sm btn-icon",
-      onClick: function onClick(e) { e.stopPropagation(); _pedirConfirmacionBorrar(_nombreDe(m), function(){ del(m.id); }); }
+      onClick: function onClick(e) { e.stopPropagation(); _borrarConDeshacer(_nombreDe(m), function(){ del(m.id); }); }
     }, "\uD83D\uDDD1")))), m.purpose && /*#__PURE__*/React.createElement("div", {
       style: {
         fontSize: 12,
@@ -16270,7 +16316,7 @@ var BabyScreen = function BabyScreen(_ref60) {
                 React.createElement(Chip, {label:getTypeLabel(l.type), color:getTypeColor(l.type)}),
                 React.createElement('div', {style:{fontSize:13,marginTop:4,color:'var(--text-dim)'}}, l.time, l.amount?' • '+l.amount+(l.unit?' '+l.unit:''):'', l.notes?' • '+l.notes:'')
               ),
-              React.createElement('button', {className:'btn btn-danger btn-sm btn-icon', onClick:function(){_pedirConfirmacionBorrar('este registro', function(){ delLog(l.id); });}}, '\uD83D\uDDD1')
+              React.createElement('button', {className:'btn btn-danger btn-sm btn-icon', onClick:function(){_borrarConDeshacer('este registro', function(){ delLog(l.id); });}}, '\uD83D\uDDD1')
             )
           );
         })
@@ -16298,7 +16344,7 @@ var BabyScreen = function BabyScreen(_ref60) {
                         React.createElement('span', {style:{fontSize:12,color:'var(--text-dim)',marginLeft:8}}, l.time),
                         (l.amount||l.notes) && React.createElement('div', {style:{fontSize:12,color:'var(--text-dim)',marginTop:2}}, l.amount?(l.amount+(l.unit?' '+l.unit:'')):'', l.notes?' • '+l.notes:'')
                       ),
-                      React.createElement('button', {className:'btn btn-danger btn-sm btn-icon', onClick:function(){_pedirConfirmacionBorrar('este registro', function(){ delLog(l.id); });}}, '\uD83D\uDDD1')
+                      React.createElement('button', {className:'btn btn-danger btn-sm btn-icon', onClick:function(){_borrarConDeshacer('este registro', function(){ delLog(l.id); });}}, '\uD83D\uDDD1')
                     )
                   );
                 })
@@ -18720,7 +18766,6 @@ var CampaignsScreen = function CampaignsScreen(_ref_camp) {
   };
 
   var deleteCampaign = function(id) {
-    if (!confirm('¿Eliminar esta campaña?')) return;
     setData(function(d){return Object.assign({},d,{campaigns:(d.campaigns||[]).filter(function(x){return x.id!==id;})});});
     if (cDetail && cDetail.id===id) setCDetail(null);
   };
@@ -18872,7 +18917,7 @@ var CampaignsScreen = function CampaignsScreen(_ref_camp) {
                 React.createElement('div',{style:{display:'flex',gap:6,flexWrap:'wrap'}},
                   React.createElement('button',{className:'btn btn-secondary btn-sm',style:{fontSize:10},onClick:function(){setCEdit(camp);setCForm(Object.assign({},camp,{franchises:(camp.franchises||[]).slice()}));setCModal(true);}},'✏️ Editar'),
                   React.createElement('button',{className:'btn btn-secondary btn-sm',style:{fontSize:10},onClick:function(){exportCampaign(camp);}},'📋 Copiar'),
-                  React.createElement('button',{className:'btn btn-danger btn-sm',style:{fontSize:10},onClick:function(){_pedirConfirmacionBorrar(_nombreDe(camp), function(){ deleteCampaign(camp.id); });}},'🗑 Eliminar')
+                  React.createElement('button',{className:'btn btn-danger btn-sm',style:{fontSize:10},onClick:function(){_borrarConDeshacer(_nombreDe(camp), function(){ deleteCampaign(camp.id); });}},'🗑 Eliminar')
                 )
               )
             );
@@ -19021,7 +19066,6 @@ var ImportsScreen = function ImportsScreen(_ref_imp) {
     setIModal(false); setIEdit(null); setIForm(emptyForm);
   };
   var deleteImport = function(id) {
-    if (!confirm('¿Eliminar este despacho?')) return;
     setData(function(d){return Object.assign({},d,{imports:(d.imports||[]).filter(function(x){return x.id!==id;})});});
   };
   var exportCSV = function() {
@@ -19285,7 +19329,7 @@ var ImportsScreen = function ImportsScreen(_ref_imp) {
                   React.createElement('div',{style:{display:'flex',gap:6,alignItems:'center'}},
                     sBadge(imp.status||'PENDIENTE'),
                     /*#__PURE__*/React.createElement("div", {className: "acciones"}, React.createElement('button',{className:'btn-edit',style:{fontSize:11},onClick:function(){setIEdit(imp);setIForm(Object.assign({},imp));setIModal(true);}},'✏️'),
-                    React.createElement('button',{className:'btn btn-danger btn-sm',style:{fontSize:10,padding:'2px 6px'},onClick:function(){_pedirConfirmacionBorrar(_nombreDe(imp), function(){ deleteImport(imp.id); });}},'🗑'))
+                    React.createElement('button',{className:'btn btn-danger btn-sm',style:{fontSize:10,padding:'2px 6px'},onClick:function(){_borrarConDeshacer(_nombreDe(imp), function(){ deleteImport(imp.id); });}},'🗑'))
                   )
                 ),
                 React.createElement('div',{style:{display:'grid',gridTemplateColumns:'1fr 1fr 1fr',gap:'4px 12px',fontSize:10,color:'var(--text-dim)'}},
@@ -19431,6 +19475,11 @@ var App = function App() {
   window._addToastGlobal = function(t) { addToast(t); };
   // Lo usa _pedirConfirmacionBorrar desde cualquier pantalla.
   window._lbpConfirmarBorrar = function(nombre, alBorrar) { setCfBorrar({n: nombre || '', fn: alBorrar}); };
+  window._lbpAvisoDeshacer = function(nombre, restaurar) {
+    if (_dshTimer.current) clearTimeout(_dshTimer.current);
+    setAvisoDeshacer({n: nombre || '', fn: restaurar});
+    _dshTimer.current = setTimeout(function() { setAvisoDeshacer(null); }, 6000);
+  };
   // ---- ZIP Backup helpers ----
   window._zipConcat = function(arrays) {
     var total = arrays.reduce(function(s,a){return s+a.length;},0);
@@ -19547,6 +19596,11 @@ var App = function App() {
     _useStateCFB2 = _slicedToArray(_useStateCFB, 2),
     cfBorrar = _useStateCFB2[0],
     setCfBorrar = _useStateCFB2[1];
+  var _useStateDSH = useState(null),
+    _useStateDSH2 = _slicedToArray(_useStateDSH, 2),
+    avisoDeshacer = _useStateDSH2[0],
+    setAvisoDeshacer = _useStateDSH2[1];
+  var _dshTimer = useRef(null);
   var addToast = useCallback(function (t) {
     setToasts(function (prev) {
       return [].concat(_toConsumableArray(prev), [t]);
@@ -20223,7 +20277,26 @@ var App = function App() {
   })), /*#__PURE__*/React.createElement(NotifToasts, {
     toasts: toasts,
     dismiss: dismissToast
-  }), cfBorrar && /*#__PURE__*/React.createElement(Modal, {
+  }), avisoDeshacer && /*#__PURE__*/React.createElement('div', {
+    style: {position: 'fixed', left: 12, right: 12, bottom: 78, zIndex: 4000,
+            maxWidth: 460, margin: '0 auto', background: 'var(--surface2)',
+            border: '1px solid var(--border)', borderRadius: 12, padding: '10px 12px',
+            display: 'flex', alignItems: 'center', gap: 10, boxShadow: 'var(--shadow)'}
+  }, /*#__PURE__*/React.createElement('span', {
+      style: {flex: 1, minWidth: 0, fontSize: 13, color: 'var(--text)',
+              overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap'}
+    }, '\uD83D\uDDD1 ' + (avisoDeshacer.n ? '\u201c' + avisoDeshacer.n + '\u201d eliminado' : 'Eliminado')),
+    /*#__PURE__*/React.createElement('button', {
+      style: {background: 'none', border: 'none', color: 'var(--gold-light)',
+              fontWeight: 800, fontSize: 13, letterSpacing: .4, cursor: 'pointer',
+              padding: '8px 4px', flexShrink: 0},
+      onClick: function() {
+        var f = avisoDeshacer.fn;
+        if (_dshTimer.current) clearTimeout(_dshTimer.current);
+        setAvisoDeshacer(null);
+        if (f) f();
+      }
+    }, 'DESHACER')), cfBorrar && /*#__PURE__*/React.createElement(Modal, {
     title: '\uD83D\uDDD1 Confirmar',
     onClose: function() { setCfBorrar(null); },
     footer: /*#__PURE__*/React.createElement(React.Fragment, null,
