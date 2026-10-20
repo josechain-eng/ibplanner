@@ -22,7 +22,7 @@
 <script>
 (function() {
   // ── Version ──────────────────────────────────────────────────────────────
-  window.LBP_VERSION = '5.44';
+  window.LBP_VERSION = '5.45';
 
   // ── PWA Install prompt ───────────────────────────────────────────────────
   window._installPrompt = null;
@@ -4060,6 +4060,15 @@ var _fireNotification = function(title, body, tag, vibration) {
 
 // Helper: schedule alarms for entities
 var _ALARM_TYPE_LABELS = {tasks:'Task', goals:'Goal', projects:'Project', subtask:'Subtask', journal:'Journal entry', routines:'Routine', habits:'Habit', medications:'Medication', householdTasks:'Household task', workouts:'Workout', meetings:'Meeting'};
+// La nota del recordatorio es un dato EXTRA. Si repite el nombre de la entidad no
+// aporta nada y la notificacion sale con el titulo dos veces ('Competencia entre
+// tiendas / Competencia entre tiendas'). El asistente de voz la llenaba con el
+// titulo, asi que esto cubre tambien lo que ya quedo guardado de esa forma.
+function _notaAlarma(label, entityName) {
+  var l = (label || '').trim();
+  if (!l) return '';
+  return l.toLowerCase() === (entityName || '').trim().toLowerCase() ? '' : l;
+}
 // Próximas ocurrencias futuras (>= now) de una alarma recurrente, con horizonte de 60 días.
 // Devuelve [] para 'once' en el pasado. Cada apertura de la app re-extiende el horizonte.
 function _futureOccurrences(baseIso, rec, alarm, nowMs) {
@@ -4177,8 +4186,9 @@ var scheduleAlarms = function scheduleAlarms(entities, type, addToast) {
     var entityName = entity.title || entity.name || entity.destination || '';
     var title = entityName || (typeLabel + ' Reminder');
     // Body always shows entity name + type so it's clear in the notification panel
-    var body = alarm.label
-      ? (entityName ? entityName + ' · ' + alarm.label : alarm.label)
+    var _nota = _notaAlarma(alarm.label, entityName);
+    var body = _nota
+      ? (entityName ? entityName + ' · ' + _nota : _nota)
       : (entityName ? entityName + ' · ' + typeLabel + ' reminder' : typeLabel + ' reminder');
     var alarmId = (entity.id || uid()) + '_' + alarmMs;
     console.log('[LBP] scheduleAlarms: found alarm "' + title + '" in ' + Math.round(diff/60000) + 'min, cloud=' + (!!window.LBP_WORKER_URL) + ', syncKey=' + (!!localStorage.getItem('lbp_sync_key')));
@@ -17145,9 +17155,11 @@ var VoiceAssistant = function VoiceAssistant(props) {
     });
     return p ? p.id : '';
   };
-  var mkAlarm = function(dt, label){
+  var mkAlarm = function(dt){
     var al = defaultAlarm();
-    if (dt) { al.enabled = true; al.datetime = dt; al.label = label || ''; }
+    // Sin nota: el label es un dato aparte ("Reminder note"). Ponerle el titulo hacia
+    // que la notificacion saliera con el nombre de la tarea repetido dos veces.
+    if (dt) { al.enabled = true; al.datetime = dt; }
     return al;
   };
 
@@ -17178,13 +17190,13 @@ var VoiceAssistant = function VoiceAssistant(props) {
         add.tasks.push({ id:uid(), title:v.title||'(sin título)', description:v.description||'',
           status:'INBOX', priority:v.priority||'MEDIUM', dueDate:v.dueDate||'', estimatedHours:'',
           projectId:findProject(v.projectName), clientId:findClient(v.clientName),
-          category:'Work', tags:[], attachments:[], alarm:mkAlarm(v.alarmDateTime, v.title),
+          category:'Work', tags:[], attachments:[], alarm:mkAlarm(v.alarmDateTime),
           createdAt:ts, updatedAt:ts });
       } else if (a.tipo === 'meeting') {
         add.meetings.push({ id:uid(), title:v.title||'(sin título)', date:v.date||'',
           startTime:v.startTime||'', endTime:v.endTime||'', location:v.location||'',
           notes:v.notes||'', agenda:'', status:'SCHEDULED', isOnline:false, contact:'',
-          clientId:findClient(v.clientName), alarm:mkAlarm(v.alarmDateTime, v.title),
+          clientId:findClient(v.clientName), alarm:mkAlarm(v.alarmDateTime),
           createdAt:ts, updatedAt:ts });
       } else if (a.tipo === 'project') {
         add.projects.push({ id:uid(), name:v.name||'(sin nombre)', description:v.description||'',
@@ -19619,8 +19631,9 @@ var App = function App() {
               var _eName = entity[titleField] || entity.name || entity.destination || '';
               var title = _eName || "".concat(typeName, " Reminder");
               var _tLabel = (_ALARM_TYPE_LABELS && _ALARM_TYPE_LABELS[key]) || typeName;
-              var body = al.label
-                ? (_eName ? _eName + ' · ' + al.label : al.label)
+              var _nota = _notaAlarma(al.label, _eName);
+              var body = _nota
+                ? (_eName ? _eName + ' · ' + _nota : _nota)
                 : (_eName ? _eName + ' · ' + _tLabel + ' reminder' : 'Your ' + typeName.toLowerCase() + ' reminder');
               var rIntervals = Array.isArray(al.repeatIntervals) ? al.repeatIntervals : null;
               var rCnt = rIntervals ? rIntervals.length : (al.repeatCount || 0);

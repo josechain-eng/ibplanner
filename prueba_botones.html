@@ -1,0 +1,235 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1">
+<title>Prueba botones tarjeta</title>
+<style>
+  :root {
+    --purple: #6B3FA0; --purple-light: #9C68D6;
+    --gold: #C9A84C; --gold-light: #E8C97A;
+    --green: #4CAF50; --orange: #FF9800; --red: #F44336; --blue: #2196F3;
+    --bg: #1A1A2E; --surface: #16213E; --surface2: #0F3460;
+    --text: #EAE8F0; --text-dim: #CAC4D8; --text-muted: #967EB4;
+    --border: rgba(150,126,180,0.25);
+    --card: rgba(255,255,255,0.05);
+    --radius-sm: 8px;
+  }
+  * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+  body { margin:0; background:var(--bg); color:var(--text);
+         font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif; }
+  .page { padding: 10px 12px 90px; max-width: 460px; margin: 0 auto; }
+  h1 { font-size:18px; margin:14px 0 2px; font-weight:800; }
+  .sub { font-size:12px; color:var(--text-dim); margin:0 0 14px; }
+  .switch { display:flex; gap:6px; margin:0 0 14px; }
+  .switch button { flex:1; padding:9px 8px; font-size:12px; font-weight:700; cursor:pointer;
+    border-radius:20px; border:1px solid var(--border); background:var(--card); color:var(--text); }
+  .switch button.on { background:var(--purple); border-color:var(--purple); color:#fff; }
+
+  .task-item { display:flex; align-items:flex-start; gap:10px; padding:10px 12px;
+    background:var(--card); border-radius:var(--radius-sm); margin-bottom:6px;
+    border:1px solid var(--border); }
+  .task-check { width:18px; height:18px; border-radius:50%; border:2px solid var(--border);
+    cursor:pointer; flex-shrink:0; margin-top:1px; display:flex; align-items:center;
+    justify-content:center; font-size:11px; color:#fff; }
+  .task-check.done { background:var(--green); border-color:var(--green); }
+  .t-title { font-weight:600; font-size:13px; word-break:break-word; }
+  .done .t-title, .task-item.is-done .t-title { text-decoration:line-through; opacity:.55; }
+  .meta { display:flex; gap:6px; margin-top:4px; align-items:center; flex-wrap:wrap; }
+  .chip { display:inline-flex; align-items:center; padding:2px 10px; border-radius:20px;
+    font-size:11px; font-weight:600; }
+  .small { font-size:11px; color:var(--text-dim); }
+  .proj { font-size:10px; background:rgba(107,63,160,0.15); color:var(--purple-light);
+    border-radius:10px; padding:2px 7px; }
+
+  /* ── HOY ── */
+  .acciones-hoy { display:flex; flex-direction:column; gap:3px; flex-shrink:0; }
+  .acciones-hoy select { font-size:10px; padding:2px 4px; width:95px; }
+  .btn-edit { background:rgba(107,63,160,.2); border:1px solid rgba(107,63,160,.4);
+    color:var(--purple-light); border-radius:6px; padding:2px 6px; cursor:pointer; font-size:11px; }
+  .btn-del-viejo { background:rgba(244,67,54,.15); color:var(--red);
+    border:1px solid rgba(244,67,54,.3); border-radius:var(--radius-sm);
+    padding:3px 7px; font-size:12px; cursor:pointer; }
+
+  /* ── NUEVO: rejilla 2x2 ── */
+  .acciones { display:grid; grid-template-columns:repeat(2,44px); gap:8px; flex-shrink:0; }
+  .acc { width:44px; height:44px; border-radius:10px; display:flex; align-items:center;
+    justify-content:center; font-size:19px; line-height:1; cursor:pointer;
+    border:1px solid var(--border); background:rgba(255,255,255,.04); color:var(--text-dim);
+    transition:transform .08s, background .15s; padding:0; }
+  .acc:active { transform:scale(.92); }
+  .acc-edit { border-color:rgba(107,63,160,.4); background:rgba(107,63,160,.2); }
+  .acc-alarm { border-color:rgba(201,168,76,.4); background:rgba(201,168,76,.15); }
+  .acc-estado { border-color:rgba(33,150,243,.35); background:rgba(33,150,243,.12); }
+  .acc-del { border-color:rgba(244,67,54,.3); background:rgba(244,67,54,.15); }
+
+  /* ── menú de estado ── */
+  .velo { position:fixed; inset:0; background:rgba(0,0,0,.6); display:none;
+    align-items:flex-end; justify-content:center; z-index:50; }
+  .velo.on { display:flex; }
+  .hoja { background:var(--surface2); border:1px solid var(--border);
+    border-radius:16px 16px 0 0; width:100%; max-width:460px; padding:8px 0 20px; }
+  .hoja h3 { font-size:12px; color:var(--text-muted); margin:10px 16px 6px;
+    font-weight:700; letter-spacing:.5px; }
+  .hoja button { display:flex; align-items:center; gap:10px; width:100%; height:48px;
+    padding:0 16px; font-size:14px; background:none; border:none; color:var(--text);
+    cursor:pointer; text-align:left; }
+  .hoja button:active { background:rgba(255,255,255,.06); }
+
+  /* ── deshacer ── */
+  .toast { position:fixed; left:12px; right:12px; bottom:18px; max-width:436px;
+    margin:0 auto; background:var(--surface2); border:1px solid var(--border);
+    border-radius:12px; padding:12px 14px; display:none; align-items:center;
+    justify-content:space-between; gap:10px; font-size:13px; z-index:60; }
+  .toast.on { display:flex; }
+  .toast button { background:none; border:none; color:var(--gold-light);
+    font-weight:800; font-size:13px; cursor:pointer; padding:6px 4px; }
+  .nota { font-size:11px; color:var(--text-muted); margin:16px 0 0; line-height:1.5; }
+</style>
+</head>
+<body>
+<div class="page">
+  <h1>Prueba de botones</h1>
+  <p class="sub">Tocá con el dedo, no con el mouse. El basurero borra de verdad (con deshacer).</p>
+
+  <div class="switch">
+    <button id="bHoy">Como está hoy</button>
+    <button id="bNuevo" class="on">Rejilla 2×2</button>
+  </div>
+
+  <div id="lista"></div>
+
+  <p class="nota" id="nota"></p>
+</div>
+
+<div class="velo" id="velo"><div class="hoja" id="hoja"></div></div>
+<div class="toast" id="toast"><span id="toastTxt"></span><button id="deshacer">DESHACER</button></div>
+
+<script>
+var ESTADOS = ['INBOX','HIGH_PRIORITY','SOMEDAY','IN_PROGRESS','DONE'];
+var COLOR_PRIO = {URGENT:'#F44336',HIGH:'#FF5722',MEDIUM:'#FF9800',LOW:'#03A9F4'};
+
+var TAREAS = [
+  {id:1, t:'Competencia entre tiendas', p:'MEDIUM', f:'', pr:'', al:true, e:'INBOX'},
+  {id:2, t:'Seguimiento a planos y cotización con Jorge Piña', p:'MEDIUM', f:'2026-10-25', pr:'Chillibeans Sur', al:false, e:'INBOX'},
+  {id:3, t:'Firma de adenda para envío a Calvin Klein Panamá', p:'MEDIUM', f:'2026-10-25', pr:'CK', al:false, e:'INBOX'},
+  {id:4, t:'Arreglo Tienda MNG LP pozo', p:'HIGH', f:'2026-08-24', pr:'Mango LP', al:true, e:'IN_PROGRESS'},
+  {id:5, t:'Ver registro de ingredientes PF Chang', p:'MEDIUM', f:'2026-09-15', pr:'PF CHANGS', al:true, e:'INBOX'},
+  {id:6, t:'Activar modulo de fidelizacion de clientes de RMS', p:'LOW', f:'2026-07-17', pr:'', al:true, e:'SOMEDAY'}
+];
+
+var modo = 'nuevo', borrado = null, temporizador = null;
+var lista = document.getElementById('lista'), velo = document.getElementById('velo'),
+    hoja = document.getElementById('hoja'), toast = document.getElementById('toast'),
+    toastTxt = document.getElementById('toastTxt');
+
+function esc(s){ var d=document.createElement('div'); d.textContent=s; return d.innerHTML; }
+
+function cuerpo(x){
+  var m = '<div class="meta">';
+  m += '<span class="chip" style="background:'+COLOR_PRIO[x.p]+'22;color:'+COLOR_PRIO[x.p]+'">'+x.p+'</span>';
+  if (x.f) m += '<span class="small">📅 '+x.f+'</span>';
+  if (x.al) m += '<span style="font-size:12px">🔔</span>';
+  if (x.pr) m += '<span class="proj">📁 '+esc(x.pr)+'</span>';
+  if (modo==='nuevo') m += '<span class="chip" style="background:rgba(15,52,96,.9);color:var(--text-dim)">'+x.e.replace('_',' ')+'</span>';
+  m += '</div>';
+  return '<div style="flex:1;min-width:0"><div class="t-title">'+esc(x.t)+'</div>'+m+'</div>';
+}
+
+function pintar(){
+  document.getElementById('bHoy').className  = modo==='hoy' ? 'on' : '';
+  document.getElementById('bNuevo').className = modo==='nuevo' ? 'on' : '';
+  document.getElementById('nota').textContent = modo==='nuevo'
+    ? 'Cuatro botones de 44×44 px con 8 px de aire. El basurero quedó en diagonal al lápiz: 73 px de centro a centro, contra 22 px de hoy. El título usa la segunda fila cuando no entra.'
+    : 'Lo que hay hoy: lápiz de 24×19 px y basurero de 27×22 px, separados 3 px. Probá apretar el lápiz tres veces seguidas.';
+
+  lista.innerHTML = TAREAS.map(function(x){
+    var der;
+    if (modo==='hoy') {
+      der = '<div class="acciones-hoy">'
+        + '<select data-id="'+x.id+'" class="selEstado">'
+        + ESTADOS.map(function(s){ return '<option'+(s===x.e?' selected':'')+'>'+s.replace('_',' ')+'</option>'; }).join('')
+        + '</select>'
+        + '<button class="btn-edit" data-a="edit" data-id="'+x.id+'">✏️</button> '
+        + '<button class="btn-del-viejo" data-a="del" data-id="'+x.id+'">🗑</button>'
+        + '</div>';
+    } else {
+      der = '<div class="acciones">'
+        + '<button class="acc acc-edit"   data-a="edit"   data-id="'+x.id+'" aria-label="Editar">✏️</button>'
+        + '<button class="acc acc-alarm"  data-a="alarm"  data-id="'+x.id+'" aria-label="Alarma">🔔</button>'
+        + '<button class="acc acc-estado" data-a="estado" data-id="'+x.id+'" aria-label="Estado">📋</button>'
+        + '<button class="acc acc-del"    data-a="del"    data-id="'+x.id+'" aria-label="Eliminar">🗑</button>'
+        + '</div>';
+    }
+    return '<div class="task-item'+(x.e==='DONE'?' is-done':'')+'" data-card="'+x.id+'">'
+      + '<div class="task-check'+(x.e==='DONE'?' done':'')+'" data-a="check" data-id="'+x.id+'">'+(x.e==='DONE'?'✓':'')+'</div>'
+      + cuerpo(x) + der + '</div>';
+  }).join('');
+}
+
+function buscar(id){ for (var i=0;i<TAREAS.length;i++) if (TAREAS[i].id==id) return TAREAS[i]; }
+
+lista.addEventListener('change', function(e){
+  if (!e.target.classList.contains('selEstado')) return;
+  var x = buscar(e.target.getAttribute('data-id'));
+  x.e = ESTADOS[e.target.selectedIndex]; pintar();
+});
+
+lista.addEventListener('click', function(e){
+  var b = e.target.closest('[data-a]');
+  if (b) {
+    var a = b.getAttribute('data-a'), x = buscar(b.getAttribute('data-id'));
+    if (a==='check')  { x.e = x.e==='DONE' ? 'INBOX' : 'DONE'; pintar(); return; }
+    if (a==='edit')   { abrir('✏️ Editar', x, ['Acá se abriría el editor de la tarea.']); return; }
+    if (a==='alarm')  { abrir('🔔 Alarma', x, ['Acá se abriría el panel de alarma.']); return; }
+    if (a==='estado') { menuEstado(x); return; }
+    if (a==='del')    { eliminar(x); return; }
+  }
+  var c = e.target.closest('[data-card]');
+  if (c) abrir('Tocaste la tarjeta', buscar(c.getAttribute('data-card')), ['En la app esto abre el editor. Por eso el lápiz es opcional.']);
+});
+
+function abrir(titulo, x, lineas){
+  hoja.innerHTML = '<h3>'+esc(titulo)+'</h3>'
+    + '<div style="padding:0 16px 8px;font-size:14px;font-weight:700">'+esc(x.t)+'</div>'
+    + lineas.map(function(l){ return '<div style="padding:4px 16px 10px;font-size:13px;color:var(--text-dim)">'+esc(l)+'</div>'; }).join('')
+    + '<button data-cerrar="1">✕ Cerrar</button>';
+  velo.classList.add('on');
+}
+
+function menuEstado(x){
+  hoja.innerHTML = '<h3>MOVER A</h3>' + ESTADOS.map(function(s){
+    return '<button data-estado="'+s+'" data-id="'+x.id+'">'+(s===x.e?'✅ ':'　　')+s.replace('_',' ')+'</button>';
+  }).join('') + '<button data-cerrar="1">✕ Cerrar</button>';
+  velo.classList.add('on');
+}
+
+velo.addEventListener('click', function(e){
+  if (e.target === velo || e.target.closest('[data-cerrar]')) { velo.classList.remove('on'); return; }
+  var b = e.target.closest('[data-estado]');
+  if (b) { buscar(b.getAttribute('data-id')).e = b.getAttribute('data-estado');
+           velo.classList.remove('on'); pintar(); }
+});
+
+function eliminar(x){
+  var i = TAREAS.indexOf(x);
+  borrado = {x:x, i:i};
+  TAREAS.splice(i,1); pintar();
+  toastTxt.textContent = '🗑 "'+ (x.t.length>24 ? x.t.slice(0,24)+'…' : x.t) +'" eliminada';
+  toast.classList.add('on');
+  clearTimeout(temporizador);
+  temporizador = setTimeout(function(){ toast.classList.remove('on'); borrado = null; }, 6000);
+}
+
+document.getElementById('deshacer').addEventListener('click', function(){
+  if (!borrado) return;
+  TAREAS.splice(borrado.i, 0, borrado.x); borrado = null;
+  toast.classList.remove('on'); clearTimeout(temporizador); pintar();
+});
+
+document.getElementById('bHoy').addEventListener('click', function(){ modo='hoy'; pintar(); });
+document.getElementById('bNuevo').addEventListener('click', function(){ modo='nuevo'; pintar(); });
+pintar();
+</script>
+</body>
+</html>
