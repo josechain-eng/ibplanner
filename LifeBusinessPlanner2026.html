@@ -22,7 +22,7 @@
 <script>
 (function() {
   // ── Version ──────────────────────────────────────────────────────────────
-  window.LBP_VERSION = '5.47';
+  window.LBP_VERSION = '5.48';
 
   // ── PWA Install prompt ───────────────────────────────────────────────────
   window._installPrompt = null;
@@ -1900,6 +1900,16 @@
               display: inline-flex; align-items: center; justify-content: center;
               overflow: hidden; }
   .acciones > button:active, .acciones > a:active { transform: scale(.92); }
+  /* Celda de estado: el select nativo, transparente, ocupa los 44x44 enteros. */
+  .acciones > .acc-select { position: relative; flex: 0 0 44px; width: 44px; height: 44px;
+              border-radius: 10px; border: 1px solid rgba(33,150,243,.35);
+              background: rgba(33,150,243,.12); color: var(--text-dim);
+              font-size: 18px; line-height: 1; cursor: pointer;
+              display: inline-flex; align-items: center; justify-content: center; }
+  .acciones > .acc-select:active { transform: scale(.92); }
+  .acciones > .acc-select > select { position: absolute; top: 0; left: 0; width: 100%;
+              height: 100%; opacity: 0; border: none; margin: 0; padding: 0;
+              cursor: pointer; -webkit-appearance: none; appearance: none; }
   .acciones > select { flex: 1 0 100%; width: 96px !important; height: 34px;
               font-size: 11px !important; padding: 4px 6px !important; }
 
@@ -6923,45 +6933,32 @@ var TasksScreen = function TasksScreen(_ref21) {
         fontSize: 12
       },
       title: "Alarm set"
-    }, "\uD83D\uDD14"), t.projectId && (data.projects||[]).find(function(p){return p.id===t.projectId;}) && /*#__PURE__*/React.createElement("span",{style:{fontSize:10,background:"rgba(107,63,160,0.15)",color:"var(--purple-light)",borderRadius:10,padding:"2px 7px"}}, "\uD83D\uDCC1 ",(data.projects||[]).find(function(p){return p.id===t.projectId;}).name))), /*#__PURE__*/React.createElement("div", {
-      style: {
-        display: 'flex',
-        flexDirection: 'column',
-        gap: 3
-      }
-    }, /*#__PURE__*/React.createElement("select", {
-      value: t.status,
-      onChange: function onChange(e) {
-        e.stopPropagation();
-        changeStatus(t.id, e.target.value);
-      },
-      onClick: function onClick(e) { e.stopPropagation(); },
-      style: {
-        fontSize: 10,
-        padding: '2px 4px',
-        width: 95
-      }
-    }, ['INBOX', 'HIGH_PRIORITY', 'SOMEDAY', 'IN_PROGRESS', 'DONE'].map(function (s) {
-      return /*#__PURE__*/React.createElement("option", {
-        key: s,
-        value: s
-      }, s.replace('_', ' '));
-    })), /*#__PURE__*/React.createElement("div", {className: "acciones"}, /*#__PURE__*/React.createElement("button", {
-      className: "btn-edit",
-      onClick: function onClick(e) {
-        e.stopPropagation();
-        setEditItem(t);
-        setForm(_objectSpread({}, t));
-        setModal(true);
-      }
-    }, "\u270F\uFE0F"), " ", /*#__PURE__*/React.createElement("button", {
-      className: "btn btn-danger btn-sm",
-      style:{padding:'3px 7px',fontSize:12},
-      onClick: function onClick(e) {
-        e.stopPropagation();
-        del(t.id);
-      }
-    }, "\uD83D\uDDD1"))));
+    }, "\uD83D\uDD14"), t.projectId && (data.projects||[]).find(function(p){return p.id===t.projectId;}) && /*#__PURE__*/React.createElement("span",{style:{fontSize:10,background:"rgba(107,63,160,0.15)",color:"var(--purple-light)",borderRadius:10,padding:"2px 7px"}}, "\uD83D\uDCC1 ",(data.projects||[]).find(function(p){return p.id===t.projectId;}).name))), /*#__PURE__*/React.createElement("div", {className: "acciones"},
+      /*#__PURE__*/React.createElement("button", {
+        className: "btn-edit", title: "Editar",
+        onClick: function (e) { e.stopPropagation(); setEditItem(t); setForm(_objectSpread({}, t)); setModal(true); }
+      }, "\u270F\uFE0F"),
+      /* Alarma: abre el MISMO panel que el deslizar hacia la derecha */
+      /*#__PURE__*/React.createElement("button", {
+        className: "btn btn-gold btn-sm", title: "Alarma",
+        onClick: function (e) { e.stopPropagation(); setTAlarmItem(t); setTAlarmForm(Object.assign({}, t.alarm || defaultAlarm())); }
+      }, (t.alarm && t.alarm.enabled) ? "\uD83D\uDD14" : "\uD83D\uDD15"),
+      /* Estado: el desplegable NATIVO va invisible encima del icono. Asi sigue
+         abriendo el selector de Android y no hay que mantener una hoja propia.
+         Antes era un select de 95px con letra de 10: imposible de acertar. */
+      /*#__PURE__*/React.createElement("div", {className: "acc-select", title: "Estado"},
+        "\uD83D\uDCCB",
+        /*#__PURE__*/React.createElement("select", {
+          value: t.status,
+          onChange: function (e) { e.stopPropagation(); changeStatus(t.id, e.target.value); },
+          onClick: function (e) { e.stopPropagation(); }
+        }, ['INBOX', 'HIGH_PRIORITY', 'SOMEDAY', 'IN_PROGRESS', 'DONE'].map(function (st) {
+          return /*#__PURE__*/React.createElement("option", {key: st, value: st}, st.replace('_', ' '));
+        }))),
+      /*#__PURE__*/React.createElement("button", {
+        className: "btn btn-danger btn-sm", title: "Eliminar",
+        onClick: function (e) { e.stopPropagation(); del(t.id); }
+      }, "\uD83D\uDDD1")));
   })), modal && /*#__PURE__*/React.createElement(Modal, {
     title: editItem ? "Edit Task" : "New Task",
     headerExtra: /*#__PURE__*/React.createElement(VoiceEdit, {tipo:"task", form:form, setForm:setForm}),
