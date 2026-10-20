@@ -22,7 +22,7 @@
 <script>
 (function() {
   // ── Version ──────────────────────────────────────────────────────────────
-  window.LBP_VERSION = '5.48';
+  window.LBP_VERSION = '5.51';
 
   // ── PWA Install prompt ───────────────────────────────────────────────────
   window._installPrompt = null;
@@ -6328,23 +6328,43 @@ var ProjectsScreen = function ProjectsScreen(_ref20) {
     }, /*#__PURE__*/React.createElement(Chip, {
       label: p.status.replace('_', ' '),
       color: c
-    }), /*#__PURE__*/React.createElement("div", {className: "acciones"}, /*#__PURE__*/React.createElement("button",{className:"btn btn-secondary btn-sm",style:{fontSize:10},title:"Status Report",
+    }), /*#__PURE__*/React.createElement("div", {className: "acciones"}, /*#__PURE__*/React.createElement("button", {
+      className: "btn-edit", title: "Editar",
+      onClick: function (e) { e.stopPropagation(); setEditItem(p); setForm(_objectSpread({}, p)); setModal(true); }
+    }, "\u270F\uFE0F"), /*#__PURE__*/React.createElement("button", {
+      className: "btn btn-gold btn-sm", title: "Alarma",
+      onClick: function (e) { e.stopPropagation(); setPAlarmItem(p); setPAlarmForm(Object.assign({}, p.alarm || defaultAlarm())); }
+    }, (p.alarm && p.alarm.enabled) ? "\uD83D\uDD14" : "\uD83D\uDD15"), /*#__PURE__*/React.createElement("div", {className: "acc-select", title: "Estado"},
+      "\uD83D\uDCCB",
+      /*#__PURE__*/React.createElement("select", {
+        value: p.status,
+        onClick: function (e) { e.stopPropagation(); },
+        onChange: function (e) {
+          e.stopPropagation();
+          var st = e.target.value;
+          /* El estado arrastra completion y completedAt, igual que el formulario:
+             si no, la barra de progreso del proyecto queda mintiendo. */
+          setData(function (d) {
+            return _objectSpread(_objectSpread({}, d), {}, { projects: (d.projects || []).map(function (x) {
+              return x.id === p.id ? _objectSpread(_objectSpread({}, x), {}, {
+                status: st,
+                completion: statusToCompletion(st),
+                completedAt: (st === 'DONE' && x.status !== 'DONE') ? Date.now() : x.completedAt
+              }) : x;
+            }) });
+          });
+        }
+      }, ['PLANNING', 'IN_PROGRESS', 'AWAITING_APPROVAL', 'DONE', 'ARCHIVED'].map(function (st) {
+        return /*#__PURE__*/React.createElement("option", {key: st, value: st}, st.replace(/_/g, ' '));
+      }))), /*#__PURE__*/React.createElement("button",{className:"btn btn-secondary btn-sm",style:{fontSize:10},title:"Status Report",
       onClick:function(e){e.stopPropagation();if(!window.LBP_WORKER_URL)return;setPrRptProject(p);setPrRptRes(null);setPrRptLoad(true);
         var sts=p.subtasks||[];var done=sts.filter(function(s){return s.done;}).length;
         var content='Proyecto: '+p.name+(p.type?'\nTipo: '+p.type:'')+(p.status?'\nEstado: '+p.status:'')+(p.dueDate?'\nFecha límite: '+p.dueDate:'')+(p.description?'\nDescripción: '+p.description.replace(/<[^>]+>/g,'')+'':'')+(sts.length?'\nSubtareas: '+done+'/'+sts.length+' completadas\nDetalle: '+sts.map(function(s){return (s.done?'[x]':'[ ]')+ ' '+s.title;}).join(', '):'');
         fetch(window.LBP_WORKER_URL+'/chat',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({messages:[{role:'user',content:content}],systemPrompt:'Genera un reporte de estado ejecutivo del proyecto con: 1) Estado actual y progreso %, 2) Logros recientes, 3) Próximos pasos, 4) Riesgos o bloqueos, 5) Recomendación. Máx 200 palabras. Listo para compartir con cliente.'})}).then(function(r){return r.json();}).then(function(res){setPrRptLoad(false);setPrRptRes(res.content||('Error'));}).catch(function(){setPrRptLoad(false);setPrRptRes('Error de red');});
       }
-    },prRptLoad&&prRptProject&&prRptProject.id===p.id?'⏳':'📊'), ' ', /*#__PURE__*/React.createElement("button", {
-      className: "btn-edit",
-      onClick: function onClick(e) {
-        e.stopPropagation();
-        setEditItem(p);
-        setForm(_objectSpread({}, p));
-        setModal(true);
-      }
-    }, "\u270F\uFE0F"), " ", /*#__PURE__*/React.createElement("button", {
-      className: "btn btn-danger btn-sm btn-icon",
-      onClick: function onClick(e) { e.stopPropagation(); del(p.id); }
+    },prRptLoad&&prRptProject&&prRptProject.id===p.id?'⏳':'📊'), /*#__PURE__*/React.createElement("button", {
+      className: "btn btn-danger btn-sm btn-icon", title: "Eliminar",
+      onClick: function (e) { e.stopPropagation(); del(p.id); }
     }, "\uD83D\uDDD1")))), p.description && /*#__PURE__*/React.createElement("div", {
       style: {
         marginBottom: 8
@@ -8619,7 +8639,10 @@ var MeetingsScreen = function MeetingsScreen(_ref26) {
         setForm(_objectSpread({}, m));
         setModal(true);
       }
-    }, "\u270F\uFE0F"), " ", /*#__PURE__*/React.createElement("button",{className:"btn btn-secondary btn-sm",style:{fontSize:10},title:"AI Prep",
+    }, "\u270F\uFE0F"), /*#__PURE__*/React.createElement("button", {
+      className: "btn btn-gold btn-sm", title: "Alarma",
+      onClick: function (e) { e.stopPropagation(); setMAlarmItem(m); setMAlarmForm(Object.assign({}, m.alarm || defaultAlarm())); }
+    }, (m.alarm && m.alarm.enabled) ? "\uD83D\uDD14" : "\uD83D\uDD15"), " ", /*#__PURE__*/React.createElement("button",{className:"btn btn-secondary btn-sm",style:{fontSize:10},title:"AI Prep",
       onClick:function(e){e.stopPropagation();if(!window.LBP_WORKER_URL)return;setMePrepItem(m);setMePrepRes(null);setMePrepLoad(true);
         var cli=(data.clients||[]).find(function(c){return c.id===m.clientId;})||null;
         var baseContent='Reunión: '+m.title+'\nFecha: '+m.date+' '+m.startTime+(m.endTime?' - '+m.endTime:'')+(cli?'\nCliente: '+cli.name+(cli.businessName?' ('+cli.businessName+')':''):'')+(m.contact?'\nContacto: '+m.contact:'')+(m.agenda?'\nAgenda: '+m.agenda:'')+(m.notes?'\nNotas: '+m.notes:'');
@@ -8632,7 +8655,7 @@ var MeetingsScreen = function MeetingsScreen(_ref26) {
           });
         }else{sendPrep(baseContent);}
       }
-    },mePrepLoad&&mePrepItem&&mePrepItem.id===m.id?'⏳':'🤖'), " ", /*#__PURE__*/React.createElement("button",{className:"btn btn-secondary btn-sm",style:{fontSize:10},title:"Grabar reunión",onClick:function(e){e.stopPropagation();recOpen(m);}}, '🎙️'), " ",localStorage.getItem('lbp_gcal_connected')=='1' && /*#__PURE__*/React.createElement("button",{className:"btn btn-secondary btn-sm",style:{fontSize:11,padding:'2px 6px',color:m.gcalEventId?'#4ade80':'#fb923c'},title:m.gcalEventId?'\u2705 Synced to GCal — tap to re-sync':'\u26A0\uFE0F Not in GCal — tap to sync now',onClick:function(e){e.stopPropagation();if(window._gcalPush)window._gcalPush(m);}}, m.gcalEventId ? '📅✅' : '📅⚠️'), " ",/*#__PURE__*/React.createElement("button",{className:"btn btn-secondary btn-sm",style:{fontSize:10,color:m.followedUp?'#4ade80':'var(--text-dim)',background:m.followedUp?'rgba(74,222,128,.15)':''},title:m.followedUp?"Seguimiento marcado — click para desmarcar":"Marcar como seguimiento hecho",onClick:function(e){e.stopPropagation();setData(function(d){return Object.assign({},d,{meetings:(d.meetings||[]).map(function(x){return x.id===m.id?Object.assign({},x,{followedUp:!x.followedUp}):x;})});});}},m.followedUp?'✅ Seguido':'📋 Seguimiento'), " ",/*#__PURE__*/React.createElement("button", {
+    },mePrepLoad&&mePrepItem&&mePrepItem.id===m.id?'⏳':'🤖'), " ", /*#__PURE__*/React.createElement("button",{className:"btn btn-secondary btn-sm",style:{fontSize:10},title:"Grabar reunión",onClick:function(e){e.stopPropagation();recOpen(m);}}, '🎙️'), " ",localStorage.getItem('lbp_gcal_connected')=='1' && /*#__PURE__*/React.createElement("button",{className:"btn btn-secondary btn-sm",style:{fontSize:11,padding:'2px 6px',color:m.gcalEventId?'#4ade80':'#fb923c'},title:m.gcalEventId?'\u2705 Synced to GCal — tap to re-sync':'\u26A0\uFE0F Not in GCal — tap to sync now',onClick:function(e){e.stopPropagation();if(window._gcalPush)window._gcalPush(m);}}, m.gcalEventId ? '📅✅' : '📅⚠️'), " ",/*#__PURE__*/React.createElement("button",{className:"btn btn-secondary btn-sm",style:{fontSize:10,color:m.followedUp?'#4ade80':'var(--text-dim)',background:m.followedUp?'rgba(74,222,128,.15)':''},title:m.followedUp?"Seguimiento marcado — click para desmarcar":"Marcar como seguimiento hecho",onClick:function(e){e.stopPropagation();setData(function(d){return Object.assign({},d,{meetings:(d.meetings||[]).map(function(x){return x.id===m.id?Object.assign({},x,{followedUp:!x.followedUp}):x;})});});}},m.followedUp?'✅':'📋'), " ",/*#__PURE__*/React.createElement("button", {
       className: "btn btn-danger btn-sm",
       onClick: function onClick(e) { e.stopPropagation(); del(m.id); }
     }, "🗑"))), m.isOnline ? /*#__PURE__*/React.createElement("div", {
@@ -8944,7 +8967,7 @@ var MeetingsScreen = function MeetingsScreen(_ref26) {
         onClick:function(){var dd=tomorrowStr();var nT=recExtSel.map(function(i){return {id:uid(),title:recExtTasks[i],status:'INBOX',priority:'MEDIUM',dueDate:dd,createdAt:Date.now(),alarm:defaultTaskAlarm()};});setData(function(d){return Object.assign({},d,{tasks:(d.tasks||[]).concat(nT)});});setRecExtSel([]);setRecExtTasks(null);alert('✅ '+nT.length+' tarea'+(nT.length!==1?'s':'')+' añadida'+(nT.length!==1?'s':'')+' a Tasks');}
       },'+ Agregar '+recExtSel.length+' tarea'+(recExtSel.length!==1?'s':'')+' a Tasks')
     )
-  )),
+  ))),
   mePrepItem&&mePrepRes&&/*#__PURE__*/React.createElement(Modal,{
     title:'🤖 Prep — '+(mePrepItem.title||'Meeting'),
     onClose:function(){setMePrepItem(null);setMePrepRes(null);},
@@ -8966,7 +8989,7 @@ var MeetingsScreen = function MeetingsScreen(_ref26) {
       }}, 'Save Alarm'),
       /*#__PURE__*/React.createElement('button', {className:'btn btn-secondary', onClick:function(){setMAlarmItem(null);}}, 'Cancel')
     )
-  }, /*#__PURE__*/React.createElement(AlarmPanel, {alarm:mAlarmForm, onChange:setMAlarmForm, label: mAlarmItem.title||''}))));
+  }, /*#__PURE__*/React.createElement(AlarmPanel, {alarm:mAlarmForm, onChange:setMAlarmForm, label: mAlarmItem.title||''})));
 };
 
 // ─── CONTENT PLANNER ───────────────────────────────────
