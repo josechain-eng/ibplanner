@@ -22,7 +22,7 @@
 <script>
 (function() {
   // ── Version ──────────────────────────────────────────────────────────────
-  window.LBP_VERSION = '5.45';
+  window.LBP_VERSION = '5.46';
 
   // ── PWA Install prompt ───────────────────────────────────────────────────
   window._installPrompt = null;
@@ -1885,12 +1885,32 @@
   .btn-edit{background:rgba(107,63,160,.2);border:1px solid rgba(107,63,160,.4);
     color:var(--purple-light);border-radius:6px;padding:3px 8px;cursor:pointer;font-size:12px;}
   .btn-edit:hover{background:rgba(107,63,160,.35);}
+  /* Acciones de cada tarjeta: 44x44 de verdad, en rejilla de 2 columnas (96px).
+     Con 2 botones sale una fila; con 3 o 4, dos filas y el basurero queda en
+     diagonal al lapiz (73px) en vez de a 3px, que fue como se borro una tarea
+     sin querer el 19-oct-2026. Los !important pisan los style inline de cada
+     tarjeta, que traian padding y fontSize distintos en cada modulo. */
+  .acciones { display: flex; flex-direction: row; flex-wrap: wrap; gap: 8px;
+              width: 96px; flex-shrink: 0; justify-content: flex-end;
+              align-content: flex-start; }
+  .acciones > button, .acciones > a {
+              flex: 0 0 44px; width: 44px !important; height: 44px !important;
+              padding: 0 !important; margin: 0; font-size: 18px !important;
+              line-height: 1; border-radius: 10px; text-decoration: none;
+              display: inline-flex; align-items: center; justify-content: center;
+              overflow: hidden; }
+  .acciones > button:active, .acciones > a:active { transform: scale(.92); }
+  .acciones > select { flex: 1 0 100%; width: 96px !important; height: 34px;
+              font-size: 11px !important; padding: 4px 6px !important; }
+
   @media (max-width: 600px) {
     .page-content { padding: 10px 12px 80px; }
     .page-header { padding: 14px 12px 0; }
     .page-header h1 { font-size: 18px; }
     .btn-sm { padding: 4px 8px; font-size: 11px; }
     .btn-edit { padding: 2px 6px; font-size: 11px; }
+    /* ...salvo dentro de .acciones, que es donde va el dedo. */
+    .acciones > button, .acciones > a { padding: 0 !important; font-size: 18px !important; }
     .card { padding: 12px; }
   }
 
@@ -5819,7 +5839,7 @@ var GoalsScreen = function GoalsScreen(_ref19) {
     }, /*#__PURE__*/React.createElement(Chip, {
       label: g.period,
       color: c
-    }), /*#__PURE__*/React.createElement("button", {
+    }), /*#__PURE__*/React.createElement("div", {className: "acciones"}, /*#__PURE__*/React.createElement("button", {
       className: "btn-edit",
       onClick: function onClick(e) {
         e.stopPropagation();
@@ -5830,7 +5850,7 @@ var GoalsScreen = function GoalsScreen(_ref19) {
     }, "\u270F\uFE0F"), " ", /*#__PURE__*/React.createElement("button", {
       className: "btn btn-danger btn-sm btn-icon",
       onClick: function onClick(e) { e.stopPropagation(); del(g.id); }
-    }, "\xD7"))), g.vision && /*#__PURE__*/React.createElement("div", {
+    }, "\uD83D\uDDD1")))), g.vision && /*#__PURE__*/React.createElement("div", {
       style: {
         fontSize: 12,
         color: 'var(--gold)',
@@ -6298,7 +6318,7 @@ var ProjectsScreen = function ProjectsScreen(_ref20) {
     }, /*#__PURE__*/React.createElement(Chip, {
       label: p.status.replace('_', ' '),
       color: c
-    }), /*#__PURE__*/React.createElement("button",{className:"btn btn-secondary btn-sm",style:{fontSize:10},title:"Status Report",
+    }), /*#__PURE__*/React.createElement("div", {className: "acciones"}, /*#__PURE__*/React.createElement("button",{className:"btn btn-secondary btn-sm",style:{fontSize:10},title:"Status Report",
       onClick:function(e){e.stopPropagation();if(!window.LBP_WORKER_URL)return;setPrRptProject(p);setPrRptRes(null);setPrRptLoad(true);
         var sts=p.subtasks||[];var done=sts.filter(function(s){return s.done;}).length;
         var content='Proyecto: '+p.name+(p.type?'\nTipo: '+p.type:'')+(p.status?'\nEstado: '+p.status:'')+(p.dueDate?'\nFecha límite: '+p.dueDate:'')+(p.description?'\nDescripción: '+p.description.replace(/<[^>]+>/g,'')+'':'')+(sts.length?'\nSubtareas: '+done+'/'+sts.length+' completadas\nDetalle: '+sts.map(function(s){return (s.done?'[x]':'[ ]')+ ' '+s.title;}).join(', '):'');
@@ -6315,7 +6335,7 @@ var ProjectsScreen = function ProjectsScreen(_ref20) {
     }, "\u270F\uFE0F"), " ", /*#__PURE__*/React.createElement("button", {
       className: "btn btn-danger btn-sm btn-icon",
       onClick: function onClick(e) { e.stopPropagation(); del(p.id); }
-    }, "\xD7"))), p.description && /*#__PURE__*/React.createElement("div", {
+    }, "\uD83D\uDDD1")))), p.description && /*#__PURE__*/React.createElement("div", {
       style: {
         marginBottom: 8
       }
@@ -6926,7 +6946,7 @@ var TasksScreen = function TasksScreen(_ref21) {
         key: s,
         value: s
       }, s.replace('_', ' '));
-    })), /*#__PURE__*/React.createElement("button", {
+    })), /*#__PURE__*/React.createElement("div", {className: "acciones"}, /*#__PURE__*/React.createElement("button", {
       className: "btn-edit",
       onClick: function onClick(e) {
         e.stopPropagation();
@@ -6941,7 +6961,7 @@ var TasksScreen = function TasksScreen(_ref21) {
         e.stopPropagation();
         del(t.id);
       }
-    }, "\uD83D\uDDD1")));
+    }, "\uD83D\uDDD1"))));
   })), modal && /*#__PURE__*/React.createElement(Modal, {
     title: editItem ? "Edit Task" : "New Task",
     headerExtra: /*#__PURE__*/React.createElement(VoiceEdit, {tipo:"task", form:form, setForm:setForm}),
@@ -7355,8 +7375,8 @@ var ClientsScreen = function ClientsScreen(_ref24) {
         (_cActPjs>0||_cPendTks>0)&&/*#__PURE__*/React.createElement("span",{style:{fontSize:9,color:'var(--text-dim)',marginLeft:6}},(_cActPjs>0?_cActPjs+'P ':'')+(_cPendTks>0?_cPendTks+'T':''))
       ),
       /*#__PURE__*/React.createElement(Chip,{label:c.status,color:statusColor(c.status)}),
-      /*#__PURE__*/React.createElement("button",{className:'btn-edit',style:{padding:'2px 6px',fontSize:11},onClick:function(e){e.stopPropagation();setEditItem(c);setForm(_objectSpread({},c));setModal(true);}},'✏️'),
-      /*#__PURE__*/React.createElement("button",{className:'btn btn-secondary btn-sm',style:{fontSize:10,padding:'2px 6px'},onClick:function(e){e.stopPropagation();setView360(c);setAi360Res(null);}},'👁 360º')
+      /*#__PURE__*/React.createElement("div", {className: "acciones"}, /*#__PURE__*/React.createElement("button",{className:'btn-edit',style:{padding:'2px 6px',fontSize:11},onClick:function(e){e.stopPropagation();setEditItem(c);setForm(_objectSpread({},c));setModal(true);}},'✏️'),
+      /*#__PURE__*/React.createElement("button",{className:'btn btn-secondary btn-sm',style:{fontSize:10,padding:'2px 6px'},onClick:function(e){e.stopPropagation();setView360(c);setAi360Res(null);}},'👁 360º'))
     );
     return /*#__PURE__*/React.createElement("div", {
       className: "card mb-8",
@@ -7420,7 +7440,7 @@ var ClientsScreen = function ClientsScreen(_ref24) {
         color: '#4CAF50',
         fontWeight: 700
       }
-    }, "$", Number(c.totalRevenue).toLocaleString()), /*#__PURE__*/React.createElement("button", {
+    }, "$", Number(c.totalRevenue).toLocaleString()), /*#__PURE__*/React.createElement("div", {className: "acciones"}, /*#__PURE__*/React.createElement("button", {
       className: "btn-edit",
       onClick: function onClick(e) {
         e.stopPropagation();
@@ -7431,7 +7451,7 @@ var ClientsScreen = function ClientsScreen(_ref24) {
     }, "✏️"), " ", /*#__PURE__*/React.createElement("button", {
       className: "btn btn-danger btn-sm",
       onClick: function onClick(e) { e.stopPropagation(); del(c.id); }
-    }, "Delete"),
+    }, "\uD83D\uDDD1")),
 
     /*#__PURE__*/React.createElement('button',{className:'btn btn-secondary btn-sm',style:{fontSize:10,marginTop:4,width:'100%'},
       onClick:function(e){e.stopPropagation();setView360(c);setAi360Res(null);}
@@ -8091,7 +8111,7 @@ var FinanceScreen = function FinanceScreen(_ref25) {
     }, "Mark Paid"), t.isPaid && /*#__PURE__*/React.createElement(Chip, {
       label: "Paid \u2713",
       color: "#4CAF50"
-    })), /*#__PURE__*/React.createElement("button", {
+    })), /*#__PURE__*/React.createElement("div", {className: "acciones"}, /*#__PURE__*/React.createElement("button", {
       className: "btn-edit",
       onClick: function onClick(e) {
         e.stopPropagation();
@@ -8102,7 +8122,7 @@ var FinanceScreen = function FinanceScreen(_ref25) {
     }, "\u270F\uFE0F"), " ", /*#__PURE__*/React.createElement("button", {
       className: "btn btn-danger btn-sm btn-icon",
       onClick: function onClick(e) { e.stopPropagation(); del(t.id); }
-    }, "\xD7"));
+    }, "\uD83D\uDDD1")));
   })),
   fnRepOpen&&/*#__PURE__*/React.createElement(Modal,{
     title:'\uD83D\uDCCB Reporte de Finanzas por Categor\u00EDa',
@@ -8594,7 +8614,7 @@ var MeetingsScreen = function MeetingsScreen(_ref26) {
         fontSize: 11,
         color: 'var(--text-dim)'
       }
-    }, "\uD83D\uDCC5 ", m.date, " \u2022 \u23F0 ", m.startTime, m.endTime ? " \u2013 ".concat(m.endTime) : '', (function(){if(m.followedUp)return ' ✅';var mSfu=new Date(m.date+'T'+(m.startTime||'00:00')).getTime();if(mSfu>Date.now())return null;var hasFu=(data.tasks||[]).concat(data.projects||[]).concat(data.journal||[]).some(function(e){return e.meetingId===m.id||(e.createdAt&&e.createdAt>mSfu&&e.createdAt<mSfu+172800000);});return hasFu?null:' ⚠️';})())) ,), /*#__PURE__*/React.createElement("div", {style:{display:'flex',flexWrap:'wrap',gap:3,flexShrink:0,justifyContent:'flex-end',maxWidth:120,alignContent:'flex-start'}}, /*#__PURE__*/React.createElement("button", {
+    }, "\uD83D\uDCC5 ", m.date, " \u2022 \u23F0 ", m.startTime, m.endTime ? " \u2013 ".concat(m.endTime) : '', (function(){if(m.followedUp)return ' ✅';var mSfu=new Date(m.date+'T'+(m.startTime||'00:00')).getTime();if(mSfu>Date.now())return null;var hasFu=(data.tasks||[]).concat(data.projects||[]).concat(data.journal||[]).some(function(e){return e.meetingId===m.id||(e.createdAt&&e.createdAt>mSfu&&e.createdAt<mSfu+172800000);});return hasFu?null:' ⚠️';})())) ,), /*#__PURE__*/React.createElement("div", {className: "acciones", style:{display:'flex',flexWrap:'wrap',gap:3,flexShrink:0,justifyContent:'flex-end',maxWidth:120,alignContent:'flex-start'}}, /*#__PURE__*/React.createElement("button", {
       className: "btn-edit",
       onClick: function onClick(e) {
         e.stopPropagation();
@@ -9143,7 +9163,7 @@ var ContentScreen = function ContentScreen(_ref28) {
       return /*#__PURE__*/React.createElement("option", {
         key: s
       }, s);
-    })), /*#__PURE__*/React.createElement("button", {
+    })), /*#__PURE__*/React.createElement("div", {className: "acciones"}, /*#__PURE__*/React.createElement("button", {
       className: "btn-edit",
       onClick: function onClick(e) {
         e.stopPropagation();
@@ -9154,7 +9174,7 @@ var ContentScreen = function ContentScreen(_ref28) {
     }, "\u270F\uFE0F"), " ", /*#__PURE__*/React.createElement("button", {
       className: "btn btn-danger btn-sm",
       onClick: function onClick(e) { e.stopPropagation(); del(c.id); }
-    }, "Delete"))), c.description && /*#__PURE__*/React.createElement("div", {
+    }, "\uD83D\uDDD1")))), c.description && /*#__PURE__*/React.createElement("div", {
       style: {
         fontSize: 12,
         color: 'var(--text-dim)',
@@ -9626,7 +9646,7 @@ var JournalScreen = function JournalScreen(_ref31) {
           e.entryType === "note" ? "Note" : "Journal"
         ),
         (e.alarm && e.alarm.enabled) && /*#__PURE__*/React.createElement("span", {style:{fontSize:11,flexShrink:0}}, "🔔"),
-      /*#__PURE__*/React.createElement("button",{className:"btn btn-secondary btn-sm",style:{fontSize:10,padding:'1px 5px',marginLeft:2},title:"Grabar",onClick:function(ev){ev.stopPropagation();jRecOpen(e);}}, '🎙️')
+      /*#__PURE__*/React.createElement("div", {className: "acciones"}, /*#__PURE__*/React.createElement("button",{className:"btn btn-secondary btn-sm",style:{fontSize:10,padding:'1px 5px',marginLeft:2},title:"Grabar",onClick:function(ev){ev.stopPropagation();jRecOpen(e);}}, '🎙️'))
       );
     }
     return /*#__PURE__*/React.createElement("div", {
@@ -9688,7 +9708,7 @@ var JournalScreen = function JournalScreen(_ref31) {
         fontSize: 12,
         color: 'var(--text-dim)'
       }
-    }, "\uD83D\uDCCE", e.attachments.length), /*#__PURE__*/React.createElement("span", {style:{fontSize:10,padding:"2px 7px",borderRadius:8,background:e.entryType==="note"?"var(--surface2)":"rgba(107,63,160,0.3)",color:"var(--text-dim)",flexShrink:0}}, e.entryType==="note"?"📝 Note":"📓 Journal"), /*#__PURE__*/React.createElement("button",{className:"btn btn-secondary btn-sm btn-icon",style:{fontSize:10,padding:'1px 5px'},title:"Grabar",onClick:function(ev){ev.stopPropagation();jRecOpen(e);}}, '🎙️'), /*#__PURE__*/React.createElement("button", {
+    }, "\uD83D\uDCCE", e.attachments.length), /*#__PURE__*/React.createElement("span", {style:{fontSize:10,padding:"2px 7px",borderRadius:8,background:e.entryType==="note"?"var(--surface2)":"rgba(107,63,160,0.3)",color:"var(--text-dim)",flexShrink:0}}, e.entryType==="note"?"📝 Note":"📓 Journal"), /*#__PURE__*/React.createElement("div", {className: "acciones"}, /*#__PURE__*/React.createElement("button",{className:"btn btn-secondary btn-sm btn-icon",style:{fontSize:10,padding:'1px 5px'},title:"Grabar",onClick:function(ev){ev.stopPropagation();jRecOpen(e);}}, '🎙️'), /*#__PURE__*/React.createElement("button", {
       className: "btn btn-secondary btn-sm btn-icon", style:{fontSize:12},
       onClick: function onClick(ev) {
         ev.stopPropagation();
@@ -9703,7 +9723,7 @@ var JournalScreen = function JournalScreen(_ref31) {
         ev.stopPropagation();
         del(e.id);
       }
-    }, "\xD7"))), e.content && /*#__PURE__*/React.createElement("div", {
+    }, "\uD83D\uDDD1")))), e.content && /*#__PURE__*/React.createElement("div", {
       style: {
         fontSize: 13,
         marginBottom: 6,
@@ -10296,7 +10316,7 @@ var HabitsScreen = function HabitsScreen(_ref38) {
         color: h.color,
         marginTop: 2
       }
-    }, "\uD83D\uDD25 ", h.streak || 0, " days streak")), /*#__PURE__*/React.createElement("button", {
+    }, "\uD83D\uDD25 ", h.streak || 0, " days streak")), /*#__PURE__*/React.createElement("div", {className: "acciones"}, /*#__PURE__*/React.createElement("button", {
       className: "btn-edit",
       onClick: function onClick(e) {
         e.stopPropagation();
@@ -10310,7 +10330,7 @@ var HabitsScreen = function HabitsScreen(_ref38) {
         e.stopPropagation();
         del(h.id);
       }
-    }, "\xD7"));
+    }, "\uD83D\uDDD1")));
   })), modal && habCoRes&&/*#__PURE__*/React.createElement(Modal,{
     title:'\uD83E\uDD16 Habit Coach',
     onClose:function(){setHabCoRes(null);},
@@ -10626,7 +10646,7 @@ var BucketListScreen = function BucketListScreen(_ref39) {
         gap: 2,
         marginTop: 4
       }
-    }, '⭐'.repeat(item.priority || 1))), /*#__PURE__*/React.createElement("button", {
+    }, '⭐'.repeat(item.priority || 1))), /*#__PURE__*/React.createElement("div", {className: "acciones"}, /*#__PURE__*/React.createElement("button", {
       className: "btn-edit",
       onClick: function onClick(e) {
         e.stopPropagation();
@@ -10637,7 +10657,7 @@ var BucketListScreen = function BucketListScreen(_ref39) {
     }, "\u270F\uFE0F"), " ", /*#__PURE__*/React.createElement("button", {
       className: "btn btn-danger btn-sm btn-icon",
       onClick: function onClick(e) { e.stopPropagation(); del(item.id); }
-    }, "\xD7"));
+    }, "\uD83D\uDDD1")));
   }), done.length > 0 && /*#__PURE__*/React.createElement(React.Fragment, null, /*#__PURE__*/React.createElement("button", {
     className: "btn btn-secondary",
     style: {
@@ -10886,7 +10906,7 @@ var TravelScreen = function TravelScreen(_ref40) {
     }, /*#__PURE__*/React.createElement(Chip, {
       label: p.status,
       color: c
-    }), /*#__PURE__*/React.createElement("button", {
+    }), /*#__PURE__*/React.createElement("div", {className: "acciones"}, /*#__PURE__*/React.createElement("button", {
       className: "btn-edit",
       onClick: function onClick(e) {
         e.stopPropagation();
@@ -10900,7 +10920,7 @@ var TravelScreen = function TravelScreen(_ref40) {
         e.stopPropagation();
         del(p.id);
       }
-    }, "\xD7"))), p.accommodation && /*#__PURE__*/React.createElement("div", {
+    }, "\uD83D\uDDD1")))), p.accommodation && /*#__PURE__*/React.createElement("div", {
       style: {
         fontSize: 12,
         color: 'var(--text-dim)',
@@ -11173,7 +11193,7 @@ var BooksScreen = function BooksScreen(_ref41) {
         color: 'var(--text-dim)',
         marginTop: 4
       }
-    }, b.notes)), /*#__PURE__*/React.createElement("button", {
+    }, b.notes)), /*#__PURE__*/React.createElement("div", {className: "acciones"}, /*#__PURE__*/React.createElement("button", {
       className: "btn-edit",
       onClick: function onClick(e) {
         e.stopPropagation();
@@ -11184,7 +11204,7 @@ var BooksScreen = function BooksScreen(_ref41) {
     }, "\u270F\uFE0F"), " ", /*#__PURE__*/React.createElement("button", {
       className: "btn btn-danger btn-sm btn-icon",
       onClick: function onClick(e) { e.stopPropagation(); del(b.id); }
-    }, "\xD7"));
+    }, "\uD83D\uDDD1")));
   })), modal && /*#__PURE__*/React.createElement(Modal, {
     title: "Add Book",
     onClose: function onClose() {
@@ -11404,7 +11424,7 @@ var ServicesScreen = function ServicesScreen(_ref42) {
     }, "$", Number(s.price).toLocaleString()), /*#__PURE__*/React.createElement(Chip, {
       label: s.isActive ? 'Active' : 'Inactive',
       color: s.isActive ? '#4CAF50' : '#607D8B'
-    }), /*#__PURE__*/React.createElement("button", {
+    }), /*#__PURE__*/React.createElement("div", {className: "acciones"}, /*#__PURE__*/React.createElement("button", {
       className: "btn-edit",
       onClick: function onClick(e) {
         e.stopPropagation();
@@ -11415,7 +11435,7 @@ var ServicesScreen = function ServicesScreen(_ref42) {
     }, "\u270F\uFE0F"), " ", /*#__PURE__*/React.createElement("button", {
       className: "btn btn-danger btn-sm btn-icon",
       onClick: function onClick(e) { e.stopPropagation(); del(s.id); }
-    }, "\xD7"))), s.description && /*#__PURE__*/React.createElement("div", {
+    }, "\uD83D\uDDD1")))), s.description && /*#__PURE__*/React.createElement("div", {
       style: {
         fontSize: 12,
         color: 'var(--text-dim)',
@@ -12083,9 +12103,9 @@ var DocumentsScreen = function DocumentsScreen(_ref46) {
                 )
               ),
               /*#__PURE__*/React.createElement("div", {style:{display:'flex',gap:6,flexShrink:0}},
-                d.url && /*#__PURE__*/React.createElement("a", {href:d.url, target:"_blank", rel:"noopener noreferrer", className:"btn btn-secondary btn-sm"}, "\uD83D\uDD17"),
+                /*#__PURE__*/React.createElement("div", {className: "acciones"}, d.url && /*#__PURE__*/React.createElement("a", {href:d.url, target:"_blank", rel:"noopener noreferrer", className:"btn btn-secondary btn-sm"}, "\uD83D\uDD17"),
                 /*#__PURE__*/React.createElement("button", {className:"btn-edit", onClick:function(e){e.stopPropagation();setEditItem(d);setForm(Object.assign({},d,{tags:d.tags||'',attachments:d.attachments||[]}));setModal(true);}}, "\u270F\uFE0F"),
-                /*#__PURE__*/React.createElement("button", {className:"btn btn-danger btn-sm btn-icon", onClick:function(e){e.stopPropagation();del(d.id);}}, "\xD7")
+                /*#__PURE__*/React.createElement("button", {className:"btn btn-danger btn-sm btn-icon", onClick:function(e){e.stopPropagation();del(d.id);}}, "\uD83D\uDDD1"))
               )
             );
           })
@@ -12643,7 +12663,7 @@ var ResourcesScreen = function ResourcesScreen(_ref50) {
         flexShrink: 0,
         alignItems: 'center'
       }
-    }, /*#__PURE__*/React.createElement("button", {
+    }, /*#__PURE__*/React.createElement("div", {className: "acciones"}, /*#__PURE__*/React.createElement("button", {
       onClick: function onClick() {
         return toggleFav(r.id);
       },
@@ -12670,7 +12690,7 @@ var ResourcesScreen = function ResourcesScreen(_ref50) {
     }, "\u270F\uFE0F"), " ", /*#__PURE__*/React.createElement("button", {
       className: "btn btn-danger btn-sm btn-icon",
       onClick: function onClick(e) { e.stopPropagation(); del(r.id); }
-    }, "\xD7")));
+    }, "\uD83D\uDDD1"))));
   };
   return /*#__PURE__*/React.createElement("div", null, /*#__PURE__*/React.createElement("div", {
     className: "page-header"
@@ -13029,17 +13049,17 @@ var ClientJourneyScreen = function ClientJourneyScreen(_ref52) {
           fontSize: 11,
           color: 'var(--text-dim)'
         }
-      }, item.note)), /*#__PURE__*/React.createElement("button", {
+      }, item.note)), /*#__PURE__*/React.createElement("div", {className: "acciones"}, /*#__PURE__*/React.createElement("button", {
         className: "btn btn-danger btn-sm btn-icon",
         onClick: function onClick(e) { e.stopPropagation(); del(item.id); }
-      }, "\xD7"), /*#__PURE__*/React.createElement("button", {
+      }, "\uD83D\uDDD1"), /*#__PURE__*/React.createElement("button", {
         className: "btn-edit",
         onClick: function onClick() {
           setCjEditItem(item);
           setForm({stage: item.stage, note: item.note||'', action: item.action||'', status: item.status||'TODO'});
           setModal(true);
         }
-      }, "\u270F\uFE0F"));
+      }, "\u270F\uFE0F")));
     }), stageItems.length === 0 && /*#__PURE__*/React.createElement("div", {
       style: {
         fontSize: 12,
@@ -14124,7 +14144,7 @@ var HouseholdScreen = function HouseholdScreen(_ref56) {
         color: 'var(--text-muted)',
         marginTop: 2
       }
-    }, "Last done: ", t.lastDone)), /*#__PURE__*/React.createElement("button", {
+    }, "Last done: ", t.lastDone)), /*#__PURE__*/React.createElement("div", {className: "acciones"}, /*#__PURE__*/React.createElement("button", {
       className: "btn-edit",
       onClick: function onClick(e) {
         e.stopPropagation();
@@ -14135,7 +14155,7 @@ var HouseholdScreen = function HouseholdScreen(_ref56) {
     }, "\u270F\uFE0F"), " ", /*#__PURE__*/React.createElement("button", {
       className: "btn btn-danger btn-sm btn-icon",
       onClick: function onClick(e) { e.stopPropagation(); del(t.id); }
-    }, "\xD7"));
+    }, "\uD83D\uDDD1")));
   })), modal && /*#__PURE__*/React.createElement(Modal, {
     title: "Add Household Task",
     onClose: function onClose() {
@@ -14767,19 +14787,19 @@ var WorkoutPlannerScreen = function WorkoutPlannerScreen(_ref57) {
     }, w.type && /*#__PURE__*/React.createElement(Chip, {
       label: w.type,
       color: typeColor(w.type)
-    }), /*#__PURE__*/React.createElement("button", {
+    }), /*#__PURE__*/React.createElement("div", {className: "acciones"}, /*#__PURE__*/React.createElement("button", {
       className: "btn btn-danger btn-sm btn-icon",
       onClick: function onClick() {
         return delLog(w.id);
       }
-    }, "\xD7"), /*#__PURE__*/React.createElement("button", {
+    }, "\uD83D\uDDD1"), /*#__PURE__*/React.createElement("button", {
       className: "btn-edit",
       onClick: function onClick() {
         setWpEditItem(w);
         setForm(_objectSpread({}, w));
         setModal(true);
       }
-    }, "\u270F\uFE0F"))), w.exercises && w.exercises.length > 0 && /*#__PURE__*/React.createElement("div", {
+    }, "\u270F\uFE0F")))), w.exercises && w.exercises.length > 0 && /*#__PURE__*/React.createElement("div", {
       style: {
         background: 'var(--surface2)',
         borderRadius: 8,
@@ -15778,7 +15798,7 @@ var MedicationScreen = function MedicationScreen(_ref59) {
       style: {
         fontSize: 14
       }
-    }, "\uD83D\uDD14"), /*#__PURE__*/React.createElement("button", {
+    }, "\uD83D\uDD14"), /*#__PURE__*/React.createElement("div", {className: "acciones"}, /*#__PURE__*/React.createElement("button", {
       className: "btn-edit",
       onClick: function onClick(e) {
         e.stopPropagation();
@@ -15789,7 +15809,7 @@ var MedicationScreen = function MedicationScreen(_ref59) {
     }, "\u270F\uFE0F"), " ", /*#__PURE__*/React.createElement("button", {
       className: "btn btn-danger btn-sm btn-icon",
       onClick: function onClick(e) { e.stopPropagation(); del(m.id); }
-    }, "\xD7"))), m.purpose && /*#__PURE__*/React.createElement("div", {
+    }, "\uD83D\uDDD1")))), m.purpose && /*#__PURE__*/React.createElement("div", {
       style: {
         fontSize: 12,
         color: 'var(--text-dim)',
@@ -19129,8 +19149,8 @@ var ImportsScreen = function ImportsScreen(_ref_imp) {
                   ),
                   React.createElement('div',{style:{display:'flex',gap:6,alignItems:'center'}},
                     sBadge(imp.status||'PENDIENTE'),
-                    React.createElement('button',{className:'btn-edit',style:{fontSize:11},onClick:function(){setIEdit(imp);setIForm(Object.assign({},imp));setIModal(true);}},'✏️'),
-                    React.createElement('button',{className:'btn btn-danger btn-sm',style:{fontSize:10,padding:'2px 6px'},onClick:function(){deleteImport(imp.id);}},'🗑')
+                    /*#__PURE__*/React.createElement("div", {className: "acciones"}, React.createElement('button',{className:'btn-edit',style:{fontSize:11},onClick:function(){setIEdit(imp);setIForm(Object.assign({},imp));setIModal(true);}},'✏️'),
+                    React.createElement('button',{className:'btn btn-danger btn-sm',style:{fontSize:10,padding:'2px 6px'},onClick:function(){deleteImport(imp.id);}},'🗑'))
                   )
                 ),
                 React.createElement('div',{style:{display:'grid',gridTemplateColumns:'1fr 1fr 1fr',gap:'4px 12px',fontSize:10,color:'var(--text-dim)'}},
