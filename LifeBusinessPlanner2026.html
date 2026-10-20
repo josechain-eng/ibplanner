@@ -22,7 +22,7 @@
 <script>
 (function() {
   // ── Version ──────────────────────────────────────────────────────────────
-  window.LBP_VERSION = '5.51';
+  window.LBP_VERSION = '5.53';
 
   // ── PWA Install prompt ───────────────────────────────────────────────────
   window._installPrompt = null;
@@ -2828,6 +2828,7 @@ var RichContent = function RichContent(_ref7) {
     onClick: onToggle ? function(e) {
       var _t = e.target;
       if (_t && _t.tagName === 'INPUT' && _t.type === 'checkbox') {
+        e.stopPropagation();   // la tarjeta que lo contiene abre el editor al tocarla
         if (_t.checked) { _t.setAttribute('checked', ''); }
         else { _t.removeAttribute('checked'); }
         if (_rcRef.current) onToggle(_rcRef.current.innerHTML);
@@ -6926,7 +6927,16 @@ var TasksScreen = function TasksScreen(_ref21) {
         marginTop: 4
       }
     }, /*#__PURE__*/React.createElement(RichContent, {
-      html: t.description
+      html: t.description,
+      // Tildar un item del checklist desde la TARJETA tiene que persistir.
+      // Hasta v5.52 solo persistia dentro del detalle: en la lista se destildaba solo.
+      onToggle: function(nh) {
+        setData(function(d) {
+          return Object.assign({}, d, {tasks: (d.tasks||[]).map(function(x){
+            return x.id === t.id ? Object.assign({}, x, {description: nh}) : x;
+          })});
+        });
+      }
     })), /*#__PURE__*/React.createElement("div", {
       style: {
         display: 'flex',
@@ -16691,15 +16701,23 @@ var VOICE_SP = 'Eres el asistente de voz de LB Planner, la app de Pepe (gerente 
 'EXACTAMENTE como figura ahi. Si no lo menciona, deja vacio.\n' +
 '- Si pide un recordatorio o alarma, llena alarmDateTime con YYYY-MM-DDTHH:MM. "media hora antes" = ' +
 'la hora del evento menos 30 minutos.\n' +
+'- La app SI maneja alarmas que se repiten, categorias y checklists. NUNCA digas que no las maneja.\n' +
+'- Si pide que el aviso se repita, llena alarmRecurrence con UNO de estos valores exactos:\n' +
+'  once (una sola vez), daily (todos los dias), weekdays (lunes a viernes), weekly (cada semana),\n' +
+'  monthly (cada mes). Si los dias que dicto no calzan con ninguno (por ejemplo "de lunes a sabado"),\n' +
+'  elegi el mas parecido y decilo en "pregunta".\n' +
+'- Si pide una lista, checklist o enumera pasos, devolvelos en checklist como un arreglo de textos\n' +
+'  cortos, UNO por item. NO los metas como parrafo en description.\n' +
+'- category: uno de Personal, Work, Home, Health, Finance, Learning, Creative. Si no lo dice, Work.\n' +
 '- Si falta algo IMPRESCINDIBLE (por ejemplo una reunion sin fecha), NO lo inventes: deja acciones vacias ' +
 'y pregunta en "pregunta".\n' +
 '- Si dicto varias cosas, devuelve varias acciones.\n\n' +
 'RESPONDE SOLO CON JSON VALIDO, sin texto alrededor ni bloques de codigo, con esta forma exacta:\n' +
 '{"acciones":[{"tipo":"task|meeting|project|journal","resumen":"frase corta de que se va a crear","datos":{}}],"pregunta":null}\n\n' +
 'CAMPOS POR TIPO (omite los que no apliquen):\n' +
-'task: title, description, priority (URGENT|HIGH|MEDIUM|LOW), dueDate, projectName, clientName, alarmDateTime\n' +
-'meeting: title, date, startTime, endTime, location, notes, clientName, alarmDateTime\n' +
-'project: name, description, dueDate, clientName\n' +
+'task: title, description, checklist (arreglo), category, priority (URGENT|HIGH|MEDIUM|LOW), dueDate, projectName, clientName, alarmDateTime, alarmRecurrence\n' +
+'meeting: title, date, startTime, endTime, location, notes, clientName, alarmDateTime, alarmRecurrence\n' +
+'project: name, description, checklist (arreglo), category, dueDate, clientName\n' +
 'journal: title, content, mood (EXCELLENT|GOOD|NEUTRAL|BAD|TERRIBLE)\n';
 
 // ── Registrar lo hecho: resumen hablado o escrito -> marcar pendientes ───────
@@ -17195,11 +17213,28 @@ var VoiceAssistant = function VoiceAssistant(props) {
     });
     return p ? p.id : '';
   };
-  var mkAlarm = function(dt){
+  // El checklist va al HTML que ya entiende el editor (y que la app sabe tildar).
+  var REC_VALIDAS = ['once','daily','weekly','monthly','weekdays'];
+  var _esc = function(t){ return String(t).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); };
+  var mkDescripcion = function(desc, lista){
+    var html = desc ? '<div>'+_esc(desc)+'</div>' : '';
+    if (Array.isArray(lista) && lista.length) {
+      html += '<ul class="rte-checklist">' + lista.map(function(it){
+        return '<li><input type="checkbox" contenteditable="false" style="position: absolute; left: 0px; '
+             + 'top: 3px; width: 15px; height: 15px; accent-color: rgb(156, 104, 214); cursor: pointer;">'
+             + _esc(it) + '</li>';
+      }).join('') + '</ul>';
+    }
+    return html;
+  };
+  var mkAlarm = function(dt, rec){
     var al = defaultAlarm();
     // Sin nota: el label es un dato aparte ("Reminder note"). Ponerle el titulo hacia
     // que la notificacion saliera con el nombre de la tarea repetido dos veces.
-    if (dt) { al.enabled = true; al.datetime = dt; }
+    if (dt) {
+      al.enabled = true; al.datetime = dt;
+      if (rec && REC_VALIDAS.indexOf(rec) !== -1) al.recurrence = rec;
+    }
     return al;
   };
 
@@ -17227,21 +17262,21 @@ var VoiceAssistant = function VoiceAssistant(props) {
     draft.acciones.forEach(function(a){
       var v = a.datos || {};
       if (a.tipo === 'task') {
-        add.tasks.push({ id:uid(), title:v.title||'(sin título)', description:v.description||'',
+        add.tasks.push({ id:uid(), title:v.title||'(sin título)', description:mkDescripcion(v.description, v.checklist),
           status:'INBOX', priority:v.priority||'MEDIUM', dueDate:v.dueDate||'', estimatedHours:'',
           projectId:findProject(v.projectName), clientId:findClient(v.clientName),
-          category:'Work', tags:[], attachments:[], alarm:mkAlarm(v.alarmDateTime),
+          category:v.category||'Work', tags:[], attachments:[], alarm:mkAlarm(v.alarmDateTime, v.alarmRecurrence),
           createdAt:ts, updatedAt:ts });
       } else if (a.tipo === 'meeting') {
         add.meetings.push({ id:uid(), title:v.title||'(sin título)', date:v.date||'',
           startTime:v.startTime||'', endTime:v.endTime||'', location:v.location||'',
           notes:v.notes||'', agenda:'', status:'SCHEDULED', isOnline:false, contact:'',
-          clientId:findClient(v.clientName), alarm:mkAlarm(v.alarmDateTime),
+          clientId:findClient(v.clientName), alarm:mkAlarm(v.alarmDateTime, v.alarmRecurrence),
           createdAt:ts, updatedAt:ts });
       } else if (a.tipo === 'project') {
-        add.projects.push({ id:uid(), name:v.name||'(sin nombre)', description:v.description||'',
+        add.projects.push({ id:uid(), name:v.name||'(sin nombre)', description:mkDescripcion(v.description, v.checklist),
           type:'OTHER', status:'PLANNING', dueDate:v.dueDate||'', clientId:findClient(v.clientName),
-          category:'Work', tags:[], subtasks:[], attachments:[], alarm:defaultAlarm(),
+          category:v.category||'Work', tags:[], subtasks:[], attachments:[], alarm:defaultAlarm(),
           createdAt:ts, updatedAt:ts });
       } else if (a.tipo === 'journal') {
         var dd = today();
@@ -17303,7 +17338,8 @@ var VoiceAssistant = function VoiceAssistant(props) {
             React.createElement('button',{onClick:function(){drop(i);},
               style:{marginLeft:'auto',background:'none',border:'none',color:'var(--text-dim)',cursor:'pointer',fontSize:16}},'×')
           ),
-          // Titulo editable: Whisper se equivoca seguido con nombres propios
+          // Todo editable ANTES de guardar: Whisper se equivoca con nombres propios
+          // y la IA puede elegir mal la fecha, la repeticion o la categoria.
           React.createElement('input',{
             value:(a.tipo==='project'?v.name:v.title)||'',
             onChange:function(e){ setField(i, a.tipo==='project'?'name':'title', e.target.value); },
@@ -17312,7 +17348,69 @@ var VoiceAssistant = function VoiceAssistant(props) {
           }),
           detalles.length>0 && React.createElement('div',{style:{fontSize:11,color:'var(--text-dim)',marginTop:6,display:'flex',flexWrap:'wrap',gap:8}},
             detalles.map(function(x,k){return React.createElement('span',{key:k},x);})),
-          (v.description||v.content||v.notes) && React.createElement('div',{style:{fontSize:11,color:'var(--text-dim)',marginTop:5}}, v.description||v.content||v.notes)
+          (function(){
+            var est={width:'100%',padding:'6px 8px',fontSize:12,borderRadius:6,
+                     border:'1px solid var(--border)',background:'var(--card)',color:'var(--text)'};
+            var campo=function(lbl,nodo,ancho){
+              return React.createElement('div',{key:lbl,style:{marginTop:7,flex:ancho||'1 1 100%',minWidth:0}},
+                React.createElement('div',{style:{fontSize:10,color:'var(--text-muted)',fontWeight:700,
+                  textTransform:'uppercase',letterSpacing:.3,marginBottom:3}},lbl), nodo);
+            };
+            var txt=function(k,ph,filas){
+              return React.createElement(filas?'textarea':'input',{
+                value:v[k]||'', placeholder:ph||'', rows:filas||undefined,
+                onChange:function(e){ setField(i,k,e.target.value); },
+                style:Object.assign({},est,filas?{resize:'vertical',lineHeight:1.5}:{})});
+            };
+            var fecha=function(k,tipo){
+              return React.createElement('input',{type:tipo,value:v[k]||'',
+                onChange:function(e){ setField(i,k,e.target.value); }, style:est});
+            };
+            var opciones=function(k,lista,porDefecto){
+              return React.createElement('select',{value:v[k]||porDefecto,
+                onChange:function(e){ setField(i,k,e.target.value); }, style:est},
+                lista.map(function(o){
+                  var val=Array.isArray(o)?o[0]:o, lbl=Array.isArray(o)?o[1]:o;
+                  return React.createElement('option',{key:val,value:val},lbl);
+                }));
+            };
+            var cats=(data.categories&&data.categories.length?data.categories
+                     :['Personal','Work','Home','Health','Finance','Learning','Creative']);
+            var filas=[];
+            if (a.tipo==='task')    filas.push(campo('Vence', fecha('dueDate','date'), '1 1 48%'));
+            if (a.tipo==='project') filas.push(campo('Vence', fecha('dueDate','date'), '1 1 48%'));
+            if (a.tipo==='meeting') {
+              filas.push(campo('Fecha', fecha('date','date'), '1 1 48%'));
+              filas.push(campo('Desde', fecha('startTime','time'), '1 1 24%'));
+              filas.push(campo('Hasta', fecha('endTime','time'), '1 1 24%'));
+            }
+            if (a.tipo==='task')
+              filas.push(campo('Prioridad', opciones('priority',['URGENT','HIGH','MEDIUM','LOW'],'MEDIUM'), '1 1 48%'));
+            if (a.tipo!=='journal' && a.tipo!=='meeting')
+              filas.push(campo('Categoria', opciones('category',cats,'Work'), '1 1 48%'));
+            if (a.tipo==='task' || a.tipo==='meeting') {
+              filas.push(campo('Alarma', fecha('alarmDateTime','datetime-local'), '1 1 48%'));
+              filas.push(campo('Se repite', opciones('alarmRecurrence',
+                [['once','Una vez'],['daily','Todos los dias'],['weekdays','Lunes a viernes'],
+                 ['weekly','Cada semana'],['monthly','Cada mes']],'once'), '1 1 48%'));
+            }
+            var cl = Array.isArray(v.checklist) ? v.checklist : null;
+            return React.createElement(React.Fragment,null,
+              React.createElement('div',{style:{display:'flex',flexWrap:'wrap',gap:8}}, filas),
+              (cl || a.tipo==='task' || a.tipo==='project') && campo(
+                'Checklist (uno por linea)',
+                React.createElement('textarea',{
+                  value:(cl||[]).join('\n'), rows:Math.max(2,(cl||[]).length),
+                  placeholder:'Un item por linea',
+                  onChange:function(e){
+                    var items=e.target.value.split('\n').map(function(x){return x.trim();}).filter(Boolean);
+                    setField(i,'checklist',items);
+                  },
+                  style:Object.assign({},est,{resize:'vertical',lineHeight:1.6})})),
+              campo(a.tipo==='meeting'?'Notas':a.tipo==='journal'?'Contenido':'Descripcion',
+                txt(a.tipo==='meeting'?'notes':a.tipo==='journal'?'content':'description','', 2))
+            );
+          })()
         );
       }),
       React.createElement('div',{style:{display:'flex',gap:8,marginTop:4}},

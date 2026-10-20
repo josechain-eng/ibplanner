@@ -26,7 +26,12 @@ test('ningun cuerpo se arma ya con el label crudo', () => {
 
 test('el asistente de voz no copia el titulo a la nota', () => {
   assert.ok(!/mkAlarm\(v\.alarmDateTime,\s*v\.title\)/.test(html), 'mkAlarm sigue recibiendo el titulo');
-  assert.ok(/var mkAlarm = function\(dt\)\{/.test(html), 'mkAlarm no tiene la firma nueva');
+  // La firma puede crecer (v5.52 le sumo la recurrencia); lo que NO puede volver
+  // es que mkAlarm escriba al.label, que es de donde salia el titulo repetido.
+  const cuerpo = html.slice(html.indexOf('var mkAlarm = function('));
+  assert.ok(/^var mkAlarm = function\(dt\b/.test(cuerpo), 'mkAlarm cambio de forma inesperada');
+  assert.ok(!/al\.label\s*=/.test(cuerpo.slice(0, cuerpo.indexOf('return al;'))),
+            'mkAlarm volvio a escribir al.label');
 });
 
 // El helper se saca del propio HTML: si alguien lo cambia, estos casos lo atrapan.
