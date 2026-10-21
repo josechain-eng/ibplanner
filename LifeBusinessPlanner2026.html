@@ -22,7 +22,7 @@
 <script>
 (function() {
   // ── Version ──────────────────────────────────────────────────────────────
-  window.LBP_VERSION = '5.59';
+  window.LBP_VERSION = '5.63';
 
   // ── PWA Install prompt ───────────────────────────────────────────────────
   window._installPrompt = null;
@@ -1900,6 +1900,12 @@
               display: inline-flex; align-items: center; justify-content: center;
               overflow: hidden; }
   .acciones > button:active, .acciones > a:active { transform: scale(.92); }
+  /* Una fila que lleva la rejilla de acciones NO centra a sus hijos. Sin esto el
+     chip de estado se estiraba a lo alto de la rejilla (79x96 px cuando su alto
+     natural es 17) y el titulo quedaba centrado contra ese bloque, dejando un
+     hueco grande arriba. Se ve en Proyectos y en Journal (21-oct-2026).
+     :has() no esta en navegadores viejos; si falta, se ve como antes, no peor. */
+  .row:has(.acciones), div:has(> .acciones) { align-items: flex-start; }
   /* Celda de estado: el select nativo, transparente, ocupa los 44x44 enteros. */
   .acciones > .acc-select { position: relative; flex: 0 0 44px; width: 44px; height: 44px;
               border-radius: 10px; border: 1px solid rgba(33,150,243,.35);
@@ -5829,15 +5835,6 @@ var GoalsScreen = function GoalsScreen(_ref19) {
       });
     });
   };
-  var _jRecCleanup=function(){jRecRunRef.current=false;if(jRecTimerRef.current){clearInterval(jRecTimerRef.current);jRecTimerRef.current=null;}if(jRecMRRef.current&&jRecMRRef.current.state!=='inactive'){try{jRecMRRef.current.onstop=null;jRecMRRef.current.stop();}catch(e){}}jRecMRRef.current=null;if(jRecStreamRef.current){try{jRecStreamRef.current.getTracks().forEach(function(t){t.stop();});}catch(e){}jRecStreamRef.current=null;}jRecChunksRef.current=[];if(jRecWakeLockRef.current){try{jRecWakeLockRef.current.release();}catch(e){}jRecWakeLockRef.current=null;}};
-  var jRecOpen=function(entry){_jRecCleanup();setJRecEntry(entry||null);setJRecModal(true);setJRecFinal('');setJRecInterim('');setJRecActive(false);setJRecTranscribing(false);setJRecElapsed(0);setJRecSumRes(null);setJRecExtTasks(null);setJRecExtSel([]);setJRecLinkId('');setJRecLinkType(null);};
-  var jRecClose=function(){_jRecCleanup();setJRecActive(false);setJRecTranscribing(false);setJRecSleepScreen(false);setJRecModal(false);setJRecEntry(null);};
-  var jRecStart=function(){if(!window.MediaRecorder||!navigator.mediaDevices||!navigator.mediaDevices.getUserMedia){alert('Tu navegador no soporta grabaci\u00f3n de audio. Usa Chrome.');return;}if(!window.LBP_WORKER_URL){alert('Configura el Worker URL en Cloud & Sync para poder transcribir.');return;}navigator.mediaDevices.getUserMedia({audio:true}).then(function(stream){jRecStreamRef.current=stream;jRecChunksRef.current=[];var mime='';var cands=['audio/webm;codecs=opus','audio/webm','audio/mp4','audio/ogg'];for(var i=0;i<cands.length;i++){if(window.MediaRecorder.isTypeSupported&&window.MediaRecorder.isTypeSupported(cands[i])){mime=cands[i];break;}}var mr=mime?new MediaRecorder(stream,{mimeType:mime}):new MediaRecorder(stream);jRecMRRef.current=mr;mr.ondataavailable=function(e){if(e.data&&e.data.size>0)jRecChunksRef.current.push(e.data);};mr.onstop=function(){jRecFinishRef.current();};mr.start(5000);jRecRunRef.current=true;setJRecActive(true);setJRecFinal('');setJRecInterim('');setJRecElapsed(0);jRecTimerRef.current=setInterval(function(){setJRecElapsed(function(p){return p+1;});},1000);if(navigator.wakeLock){navigator.wakeLock.request('screen').then(function(wl){jRecWakeLockRef.current=wl;}).catch(function(){});}}).catch(function(err){alert('No se pudo acceder al micr\u00f3fono: '+(err&&err.message||err));});};
-  var jRecStop=function(){jRecRunRef.current=false;if(jRecTimerRef.current){clearInterval(jRecTimerRef.current);jRecTimerRef.current=null;}if(jRecChunksRef.current&&jRecChunksRef.current.length)setJRecTranscribing(true);if(jRecMRRef.current&&jRecMRRef.current.state!=='inactive'){try{jRecMRRef.current.stop();}catch(e){jRecFinishRef.current();}}setJRecActive(false);setJRecInterim('');setJRecSleepScreen(false);if(jRecWakeLockRef.current){try{jRecWakeLockRef.current.release();}catch(e){}jRecWakeLockRef.current=null;}};
-  var jRecGenSummary=function(){if(!window.LBP_WORKER_URL||!jRecFinal.trim())return;setJRecSumLoad(true);setJRecSumRes(null);setJRecExtTasks(null);var en=jRecEntry||{};var isNote=(en.entryType||'journal')==='note';var ctx=(isNote?'Nota':'Diario')+': '+(en.title||en.date||'Sin t\u00edtulo')+(en.date?'\nFecha: '+en.date:'')+'\n\nGrabaci\u00f3n:\n'+jRecFinal;var sp=isNote?'Analiza esta grabaci\u00f3n de pensamientos e ideas. Resumen con:\n\uD83E\uDDE0 Ideas principales\n\uD83D\uDCA1 Insights clave\n\u2705 Acciones (si las hay)\n\uD83D\uDCDD Puntos para recordar\n\nSe conciso. Usa el idioma de la grabaci\u00f3n.':'Analiza esta grabaci\u00f3n de diario personal. Resumen con:\n\uD83D\uDCAD Reflexiones principales\n\uD83D\uDE0A Estado emocional detectado\n\uD83D\uDCA1 Insights y aprendizajes\n\u2705 Compromisos o acciones\n\uD83D\uDD1C Pr\u00f3ximos pasos\n\nSe emp\u00e1tico y conciso. Usa el idioma de la grabaci\u00f3n.';fetch(window.LBP_WORKER_URL+'/chat',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({messages:[{role:'user',content:ctx}],systemPrompt:sp})}).then(function(r){return r.json();}).then(function(res){setJRecSumLoad(false);setJRecSumRes(res.content||('Error: '+(res.error||'')));}).catch(function(){setJRecSumLoad(false);setJRecSumRes('Error de red');});};
-  var jRecSaveEntry=function(){if(!jRecEntry||!jRecSumRes)return;var note='\n\n--- Resumen de Grabaci\u00f3n ---\n'+jRecSumRes;setData(function(d){return Object.assign({},d,{journal:(d.journal||[]).map(function(e){return e.id===jRecEntry.id?Object.assign({},e,{content:(e.content||'')+note}):e;})});});alert('\u2705 Resumen guardado en la entrada');};
-  var jRecDoLink=function(){if(!jRecLinkId||!jRecLinkType||!jRecSumRes)return;var note='\n\n--- Resumen vinculado ---\n'+jRecSumRes;if(jRecLinkType==='task'){setData(function(d){return Object.assign({},d,{tasks:(d.tasks||[]).map(function(t){return t.id===jRecLinkId?Object.assign({},t,{description:(t.description||'')+note}):t;})});});alert('\u2705 Vinculado a la tarea');}else{setData(function(d){return Object.assign({},d,{projects:(d.projects||[]).map(function(p){return p.id===jRecLinkId?Object.assign({},p,{description:(p.description||'')+note}):p;})});});alert('\u2705 Vinculado al proyecto');}setJRecLinkId('');setJRecLinkType(null);};
-  var jRecExtractTasks=function(){if(!jRecSumRes||!window.LBP_WORKER_URL)return;setJRecSumLoad(true);fetch(window.LBP_WORKER_URL+'/chat',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({messages:[{role:'user',content:'Extrae las acciones o tareas de este resumen:\n\n'+jRecSumRes}],systemPrompt:'Extrae los action items. Responde SOLO con JSON array. Ejemplo: ["Llamar","Revisar"]. Usa el idioma del texto.'})}).then(function(r){return r.json();}).then(function(res){setJRecSumLoad(false);try{var t=res.content||'';var si=t.indexOf('[');var ei=t.lastIndexOf(']')+1;if(si>=0&&ei>si){var a=JSON.parse(t.slice(si,ei));setJRecExtTasks(a);setJRecExtSel(a.map(function(_,i){return i;}));}else{setJRecExtTasks([]);}}catch(e){setJRecExtTasks([]);}}).catch(function(){setJRecSumLoad(false);});};
   return /*#__PURE__*/React.createElement("div", null, /*#__PURE__*/React.createElement("div", {
     className: "page-header"
   }, /*#__PURE__*/React.createElement("h1", null, "\uD83C\uDFAF Goals & Vision"), /*#__PURE__*/React.createElement("button", {
@@ -9081,6 +9078,10 @@ var MeetingsScreen = function MeetingsScreen(_ref26) {
 var ContentScreen = function ContentScreen(_ref28) {
   var data = _ref28.data,
     setData = _ref28.setData;
+  var _useStateCEI = useState(null),
+    _useStateCEI2 = _slicedToArray(_useStateCEI, 2),
+    editItem = _useStateCEI2[0],
+    setEditItem = _useStateCEI2[1];
   var _useState63 = useState('IDEA'),
     _useState64 = _slicedToArray(_useState63, 2),
     tab = _useState64[0],
@@ -9591,6 +9592,18 @@ var JournalScreen = function JournalScreen(_ref31) {
   var _jRecEl1=useState(0),_jRecEl2=_slicedToArray(_jRecEl1,2),jRecElapsed=_jRecEl2[0],setJRecElapsed=_jRecEl2[1];
   var _jRecSS1=useState(false),_jRecSS2=_slicedToArray(_jRecSS1,2),jRecSleepScreen=_jRecSS2[0],setJRecSleepScreen=_jRecSS2[1];
   jRecFinishRef.current=function(){var chunks=jRecChunksRef.current||[];var stream=jRecStreamRef.current;if(stream){try{stream.getTracks().forEach(function(t){t.stop();});}catch(e){}jRecStreamRef.current=null;}if(!chunks.length){setJRecTranscribing(false);return;}var type=(jRecMRRef.current&&jRecMRRef.current.mimeType)||chunks[0].type||'audio/webm';var blob=new Blob(chunks,{type:type});jRecChunksRef.current=[];if(blob.size>25*1024*1024){setJRecTranscribing(false);setJRecFinal('[La grabación superó 25MB (límite de Whisper). Graba en tramos más cortos.]');return;}var lang=(localStorage.getItem('lbp_rec_lang')||'es-BO').indexOf('en')===0?'en':'es';setJRecTranscribing(true);fetch(window.LBP_WORKER_URL+'/transcribe?lang='+lang,{method:'POST',headers:{'Content-Type':type},body:blob}).then(function(r){return r.json();}).then(function(res){setJRecTranscribing(false);if(res&&res.text){setJRecFinal(res.text);}else{setJRecFinal('[Error al transcribir: '+((res&&res.error)||'sin respuesta')+']');}}).catch(function(){setJRecTranscribing(false);setJRecFinal('[Error de red al transcribir]');});};
+  // Estas 9 funciones vivian dentro de GoalsScreen, donde no existe el estado
+  // que usan: eran codigo muerto ahi y un ReferenceError aca. Por eso el boton
+  // 🎙️ de Journal no abria nada (21-oct-2026).
+  var _jRecCleanup=function(){jRecRunRef.current=false;if(jRecTimerRef.current){clearInterval(jRecTimerRef.current);jRecTimerRef.current=null;}if(jRecMRRef.current&&jRecMRRef.current.state!=='inactive'){try{jRecMRRef.current.onstop=null;jRecMRRef.current.stop();}catch(e){}}jRecMRRef.current=null;if(jRecStreamRef.current){try{jRecStreamRef.current.getTracks().forEach(function(t){t.stop();});}catch(e){}jRecStreamRef.current=null;}jRecChunksRef.current=[];if(jRecWakeLockRef.current){try{jRecWakeLockRef.current.release();}catch(e){}jRecWakeLockRef.current=null;}};
+  var jRecOpen=function(entry){_jRecCleanup();setJRecEntry(entry||null);setJRecModal(true);setJRecFinal('');setJRecInterim('');setJRecActive(false);setJRecTranscribing(false);setJRecElapsed(0);setJRecSumRes(null);setJRecExtTasks(null);setJRecExtSel([]);setJRecLinkId('');setJRecLinkType(null);};
+  var jRecClose=function(){_jRecCleanup();setJRecActive(false);setJRecTranscribing(false);setJRecSleepScreen(false);setJRecModal(false);setJRecEntry(null);};
+  var jRecStart=function(){if(!window.MediaRecorder||!navigator.mediaDevices||!navigator.mediaDevices.getUserMedia){alert('Tu navegador no soporta grabaci\u00f3n de audio. Usa Chrome.');return;}if(!window.LBP_WORKER_URL){alert('Configura el Worker URL en Cloud & Sync para poder transcribir.');return;}navigator.mediaDevices.getUserMedia({audio:true}).then(function(stream){jRecStreamRef.current=stream;jRecChunksRef.current=[];var mime='';var cands=['audio/webm;codecs=opus','audio/webm','audio/mp4','audio/ogg'];for(var i=0;i<cands.length;i++){if(window.MediaRecorder.isTypeSupported&&window.MediaRecorder.isTypeSupported(cands[i])){mime=cands[i];break;}}var mr=mime?new MediaRecorder(stream,{mimeType:mime}):new MediaRecorder(stream);jRecMRRef.current=mr;mr.ondataavailable=function(e){if(e.data&&e.data.size>0)jRecChunksRef.current.push(e.data);};mr.onstop=function(){jRecFinishRef.current();};mr.start(5000);jRecRunRef.current=true;setJRecActive(true);setJRecFinal('');setJRecInterim('');setJRecElapsed(0);jRecTimerRef.current=setInterval(function(){setJRecElapsed(function(p){return p+1;});},1000);if(navigator.wakeLock){navigator.wakeLock.request('screen').then(function(wl){jRecWakeLockRef.current=wl;}).catch(function(){});}}).catch(function(err){alert('No se pudo acceder al micr\u00f3fono: '+(err&&err.message||err));});};
+  var jRecStop=function(){jRecRunRef.current=false;if(jRecTimerRef.current){clearInterval(jRecTimerRef.current);jRecTimerRef.current=null;}if(jRecChunksRef.current&&jRecChunksRef.current.length)setJRecTranscribing(true);if(jRecMRRef.current&&jRecMRRef.current.state!=='inactive'){try{jRecMRRef.current.stop();}catch(e){jRecFinishRef.current();}}setJRecActive(false);setJRecInterim('');setJRecSleepScreen(false);if(jRecWakeLockRef.current){try{jRecWakeLockRef.current.release();}catch(e){}jRecWakeLockRef.current=null;}};
+  var jRecGenSummary=function(){if(!window.LBP_WORKER_URL||!jRecFinal.trim())return;setJRecSumLoad(true);setJRecSumRes(null);setJRecExtTasks(null);var en=jRecEntry||{};var isNote=(en.entryType||'journal')==='note';var ctx=(isNote?'Nota':'Diario')+': '+(en.title||en.date||'Sin t\u00edtulo')+(en.date?'\nFecha: '+en.date:'')+'\n\nGrabaci\u00f3n:\n'+jRecFinal;var sp=isNote?'Analiza esta grabaci\u00f3n de pensamientos e ideas. Resumen con:\n\uD83E\uDDE0 Ideas principales\n\uD83D\uDCA1 Insights clave\n\u2705 Acciones (si las hay)\n\uD83D\uDCDD Puntos para recordar\n\nSe conciso. Usa el idioma de la grabaci\u00f3n.':'Analiza esta grabaci\u00f3n de diario personal. Resumen con:\n\uD83D\uDCAD Reflexiones principales\n\uD83D\uDE0A Estado emocional detectado\n\uD83D\uDCA1 Insights y aprendizajes\n\u2705 Compromisos o acciones\n\uD83D\uDD1C Pr\u00f3ximos pasos\n\nSe emp\u00e1tico y conciso. Usa el idioma de la grabaci\u00f3n.';fetch(window.LBP_WORKER_URL+'/chat',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({messages:[{role:'user',content:ctx}],systemPrompt:sp})}).then(function(r){return r.json();}).then(function(res){setJRecSumLoad(false);setJRecSumRes(res.content||('Error: '+(res.error||'')));}).catch(function(){setJRecSumLoad(false);setJRecSumRes('Error de red');});};
+  var jRecSaveEntry=function(){if(!jRecEntry||!jRecSumRes)return;var note='\n\n--- Resumen de Grabaci\u00f3n ---\n'+jRecSumRes;setData(function(d){return Object.assign({},d,{journal:(d.journal||[]).map(function(e){return e.id===jRecEntry.id?Object.assign({},e,{content:(e.content||'')+note}):e;})});});alert('\u2705 Resumen guardado en la entrada');};
+  var jRecDoLink=function(){if(!jRecLinkId||!jRecLinkType||!jRecSumRes)return;var note='\n\n--- Resumen vinculado ---\n'+jRecSumRes;if(jRecLinkType==='task'){setData(function(d){return Object.assign({},d,{tasks:(d.tasks||[]).map(function(t){return t.id===jRecLinkId?Object.assign({},t,{description:(t.description||'')+note}):t;})});});alert('\u2705 Vinculado a la tarea');}else{setData(function(d){return Object.assign({},d,{projects:(d.projects||[]).map(function(p){return p.id===jRecLinkId?Object.assign({},p,{description:(p.description||'')+note}):p;})});});alert('\u2705 Vinculado al proyecto');}setJRecLinkId('');setJRecLinkType(null);};
+  var jRecExtractTasks=function(){if(!jRecSumRes||!window.LBP_WORKER_URL)return;setJRecSumLoad(true);fetch(window.LBP_WORKER_URL+'/chat',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({messages:[{role:'user',content:'Extrae las acciones o tareas de este resumen:\n\n'+jRecSumRes}],systemPrompt:'Extrae los action items. Responde SOLO con JSON array. Ejemplo: ["Llamar","Revisar"]. Usa el idioma del texto.'})}).then(function(r){return r.json();}).then(function(res){setJRecSumLoad(false);try{var t=res.content||'';var si=t.indexOf('[');var ei=t.lastIndexOf(']')+1;if(si>=0&&ei>si){var a=JSON.parse(t.slice(si,ei));setJRecExtTasks(a);setJRecExtSel(a.map(function(_,i){return i;}));}else{setJRecExtTasks([]);}}catch(e){setJRecExtTasks([]);}}).catch(function(){setJRecSumLoad(false);});};
   useEffect(function(){var onVis=function(){if(document.visibilityState==='visible'&&jRecRunRef.current&&navigator.wakeLock&&(!jRecWakeLockRef.current||jRecWakeLockRef.current.released)){navigator.wakeLock.request('screen').then(function(wl){jRecWakeLockRef.current=wl;}).catch(function(){});}};document.addEventListener('visibilitychange',onVis);return function(){document.removeEventListener('visibilitychange',onVis);};},[]);
   var entries = _toConsumableArray(data.journal || []).sort(function (a, b) {
     return b.date.localeCompare(a.date);
@@ -11151,6 +11164,10 @@ var TravelScreen = function TravelScreen(_ref40) {
 var BooksScreen = function BooksScreen(_ref41) {
   var data = _ref41.data,
     setData = _ref41.setData;
+  var _useStateBEI = useState(null),
+    _useStateBEI2 = _slicedToArray(_useStateBEI, 2),
+    editItem = _useStateBEI2[0],
+    setEditItem = _useStateBEI2[1];
   var _useState99 = useState(false),
     _useState100 = _slicedToArray(_useState99, 2),
     modal = _useState100[0],
@@ -12532,7 +12549,7 @@ var RoutinesScreen = function RoutinesScreen(_ref47) {
   })), modal && /*#__PURE__*/React.createElement(Modal, {
     title: routineEditItem ? "Edit Routine Step" : "Add Routine Step",
     onClose: function onClose() {
-      setModal(false); setEditItem(null);
+      setModal(false); setRoutineEditItem(null);
     },
     footer: /*#__PURE__*/React.createElement(React.Fragment, null, /*#__PURE__*/React.createElement("button", {
       className: "btn btn-secondary",
@@ -13803,14 +13820,14 @@ var MarketingStrategyScreen = function MarketingStrategyScreen(_ref54) {
     }
   }, /*#__PURE__*/React.createElement("button", {
     className: "btn btn-primary btn-sm",
-    onClick: function onClick() { setEditItem(null); setModal(true); }
+    onClick: function onClick() { setModal(true); }
   }, "+ New Campaign")), (data.campaigns || []).length === 0 ? /*#__PURE__*/React.createElement("div", {
     className: "empty-state"
   }, /*#__PURE__*/React.createElement("div", {
     className: "e-icon"
   }, "\uD83D\uDCE2"), /*#__PURE__*/React.createElement("h3", null, "No campaigns yet"), /*#__PURE__*/React.createElement("button", {
     className: "btn btn-primary",
-    onClick: function onClick() { setEditItem(null); setModal(true); }
+    onClick: function onClick() { setModal(true); }
   }, "+ Create Campaign")) : (data.campaigns || []).map(function (c) {
     return /*#__PURE__*/React.createElement("div", {
       className: "card mb-8",
@@ -13852,7 +13869,7 @@ var MarketingStrategyScreen = function MarketingStrategyScreen(_ref54) {
   }))), modal && /*#__PURE__*/React.createElement(Modal, {
     title: "New Campaign",
     onClose: function onClose() {
-      setModal(false); setEditItem(null);
+      setModal(false);
     },
     footer: /*#__PURE__*/React.createElement(React.Fragment, null, /*#__PURE__*/React.createElement("button", {
       className: "btn btn-secondary",
@@ -14061,6 +14078,10 @@ var OutfitPlannerScreen = function OutfitPlannerScreen(_ref55) {
 var HouseholdScreen = function HouseholdScreen(_ref56) {
   var data = _ref56.data,
     setData = _ref56.setData;
+  var _useStateHEI = useState(null),
+    _useStateHEI2 = _slicedToArray(_useStateHEI, 2),
+    editItem = _useStateHEI2[0],
+    setEditItem = _useStateHEI2[1];
   var _useState175 = useState(false),
     _useState176 = _slicedToArray(_useState175, 2),
     modal = _useState176[0],
@@ -14115,6 +14136,17 @@ var HouseholdScreen = function HouseholdScreen(_ref56) {
   };
   var save = function save() {
     if (!form.name) return;
+    // Editar tiene que ACTUALIZAR. Antes siempre agregaba: con el lapiz roto no
+    // se notaba, pero al arreglarlo habria duplicado la tarea en vez de cambiarla.
+    if (editItem) {
+      setData(function (d) {
+        return _objectSpread(_objectSpread({}, d), {}, {
+          householdTasks: (d.householdTasks || []).map(function (x) {
+            return x.id === editItem.id ? _objectSpread(_objectSpread({}, editItem), form) : x;
+          })
+        });
+      });
+    } else {
     setData(function (d) {
       return _objectSpread(_objectSpread({}, d), {}, {
         householdTasks: [].concat(_toConsumableArray(d.householdTasks || []), [_objectSpread(_objectSpread({}, form), {}, {
@@ -14124,6 +14156,8 @@ var HouseholdScreen = function HouseholdScreen(_ref56) {
         })])
       });
     });
+    }
+    setEditItem(null);
     setForm({
       name: '',
       area: '',
@@ -14261,7 +14295,7 @@ var HouseholdScreen = function HouseholdScreen(_ref56) {
       onClick: function onClick(e) { e.stopPropagation(); _borrarConDeshacer(_nombreDe(t), function(){ del(t.id); }); }
     }, "\uD83D\uDDD1")));
   })), modal && /*#__PURE__*/React.createElement(Modal, {
-    title: "Add Household Task",
+    title: editItem ? "Edit Household Task" : "Add Household Task",
     onClose: function onClose() {
       setModal(false); setEditItem(null);
     },
@@ -14847,7 +14881,7 @@ var WorkoutPlannerScreen = function WorkoutPlannerScreen(_ref57) {
     className: "page-header"
   }, /*#__PURE__*/React.createElement("h1", null, "\uD83C\uDFCB\uFE0F Workout Planner"), /*#__PURE__*/React.createElement("button", {
     className: "btn btn-primary btn-sm",
-    onClick: function onClick() { setEditItem(null); setModal(true); }
+    onClick: function onClick() { setWpEditItem(null); setModal(true); }
   }, "+ Log Workout")), /*#__PURE__*/React.createElement("div", {
     className: "tabs"
   }, ['Log', 'Templates', 'AI Coach'].map(function (t) {
@@ -14866,7 +14900,7 @@ var WorkoutPlannerScreen = function WorkoutPlannerScreen(_ref57) {
     className: "e-icon"
   }, "\uD83C\uDFCB\uFE0F"), /*#__PURE__*/React.createElement("h3", null, "No workouts logged yet"), /*#__PURE__*/React.createElement("button", {
     className: "btn btn-primary",
-    onClick: function onClick() { setEditItem(null); setModal(true); }
+    onClick: function onClick() { setWpEditItem(null); setModal(true); }
   }, "+ Log Workout")) : logs.map(function (w) {
     return /*#__PURE__*/React.createElement("div", {
       className: "card mb-8",
