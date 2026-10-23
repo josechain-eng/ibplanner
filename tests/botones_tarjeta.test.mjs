@@ -23,7 +23,8 @@ test('en movil NO se vuelven a achicar', () => {
 });
 
 test('todas las tarjetas tienen su contenedor de acciones', () => {
-  const n = (html.match(/acciones"/g) || []).length;
+  // Desde el 23-oct-2026 algunos llevan ademas acc-pie o acc-fila.
+  const n = (html.match(/className: "acciones[ "]/g) || []).length;
   assert.ok(n >= 21, 'esperaba al menos 21 contenedores .acciones, hay ' + n);
 });
 

@@ -24,7 +24,8 @@ test('la hoja no obliga a reescribir los handlers', () => {
 
 test('Reuniones tiene 4: editar, grabar, seguimiento y mas', () => {
   const i = html.indexOf('Grabar reuni');
-  const a = html.lastIndexOf('className: "acciones"', i);
+  // El className ahora puede traer acc-pie o acc-fila detras (23-oct-2026).
+  const a = [...html.slice(0, i).matchAll(/className: "acciones[ "]/g)].pop().index;
   const bloque = html.slice(a, a + 9000);
   const corte = bloque.indexOf('"\\u22EF")');
   assert.ok(corte > 0, 'no encuentro el boton ⋯ de Reuniones');
@@ -36,7 +37,8 @@ test('Reuniones tiene 4: editar, grabar, seguimiento y mas', () => {
 
 test('Proyectos tiene 4: editar, estado, reporte y mas', () => {
   const i = html.indexOf('Status Report');
-  const a = html.lastIndexOf('className: "acciones"', i);
+  // El className ahora puede traer acc-pie o acc-fila detras (23-oct-2026).
+  const a = [...html.slice(0, i).matchAll(/className: "acciones[ "]/g)].pop().index;
   const bloque = html.slice(a, a + 6000);
   assert.ok(bloque.includes('"\\u22EF")'), 'no encuentro el boton ⋯ de Proyectos');
 });

@@ -22,7 +22,7 @@
 <script>
 (function() {
   // ── Version ──────────────────────────────────────────────────────────────
-  window.LBP_VERSION = '5.64';
+  window.LBP_VERSION = '5.65';
 
   // ── PWA Install prompt ───────────────────────────────────────────────────
   window._installPrompt = null;
@@ -1918,6 +1918,42 @@
               cursor: pointer; -webkit-appearance: none; appearance: none; }
   .acciones > select { flex: 1 0 100%; width: 96px !important; height: 34px;
               font-size: 11px !important; padding: 4px 6px !important; }
+
+  /* Iconos en el renglon de los chips (23-oct-2026). Se pide a mano en cada
+     modulo, porque no todas las tarjetas tienen la misma forma: donde hay una
+     foto o una portada arriba a la izquierda, la rejilla deja huecos y la
+     tarjeta queda MAS alta (Libros pasaba de 91 a 189 px).
+       .acc-fila  los iconos en una sola fila de 40px, sin envolver.
+       .acc-pie   ademas el titulo pasa a ocupar todo el ancho y los iconos
+                  comparten renglon con los chips; ahi es donde se gana el alto.
+     Medido en pantalla de 375 px: Tareas 118 -> 88, Reuniones 121 -> 94,
+     Clientes 137 -> 114, Journal 224 -> 168, Proyectos 310 -> 254,
+     Recursos 122 -> 69. Los !important pisan los style inline de cada modulo
+     (Reuniones trae flexWrap y maxWidth propios). */
+  .acciones.acc-fila, .acciones.acc-pie {
+              width: auto !important; max-width: none !important;
+              display: flex !important; flex-wrap: nowrap !important;
+              gap: 7px !important; justify-content: flex-end; align-items: center; }
+  .acciones.acc-fila > button, .acciones.acc-fila > a, .acciones.acc-fila > .acc-select,
+  .acciones.acc-pie > button, .acciones.acc-pie > a, .acciones.acc-pie > .acc-select {
+              flex: 0 0 40px !important; width: 40px !important; height: 40px !important; }
+  /* La tarjeta se vuelve rejilla de 3 columnas: marca, texto, iconos. */
+  div:has(> .acc-pie) {
+              display: grid !important; grid-template-columns: auto minmax(0,1fr) auto;
+              align-items: start; column-gap: 10px; row-gap: 4px; }
+  /* El bloque de texto se disuelve para que su titulo y sus chips sean celdas
+     de esa rejilla. El :only-child cubre los modulos que envuelven el texto una
+     vez mas por dentro, como Reuniones. */
+  div:has(+ .acc-pie), div:has(+ .acc-pie) > :only-child { display: contents !important; }
+  div:has(+ .acc-pie) > *, div:has(+ .acc-pie) > :only-child > * { grid-column: 2 / 4; }
+  div:has(+ .acc-pie) > *:last-child,
+  div:has(+ .acc-pie) > :only-child > *:last-child { grid-column: 2 / 3; align-self: center; }
+  .acciones.acc-pie { grid-column: 3 / 4; align-self: center; }
+  /* La fila que lleva los iconos tiene que poder cortarse: en Proyectos, un
+     nombre largo mas el chip de estado mas los cuatro iconos (181 px) se salian
+     34 px de la tarjeta. Con esto el bloque de la derecha baja de renglon en vez
+     de desbordar (23-oct-2026). */
+  div:has(> .acc-fila) { flex-wrap: wrap !important; min-width: 0; justify-content: flex-end; }
 
   @media (max-width: 600px) {
     .page-content { padding: 10px 12px 80px; }
@@ -6390,7 +6426,7 @@ var ProjectsScreen = function ProjectsScreen(_ref20) {
     }, /*#__PURE__*/React.createElement(Chip, {
       label: p.status.replace('_', ' '),
       color: c
-    }), /*#__PURE__*/React.createElement("div", {className: "acciones"}, React.createElement("button", {
+    }), /*#__PURE__*/React.createElement("div", {className: "acciones acc-fila"}, React.createElement("button", {
       className: "btn-edit", title: "Editar",
       onClick: function (e) { e.stopPropagation(); setEditItem(p); setForm(_objectSpread({}, p)); setModal(true); }
     }, "\u270F\uFE0F"), React.createElement("div", {className: "acc-select", title: "Estado"},
@@ -7027,7 +7063,7 @@ var TasksScreen = function TasksScreen(_ref21) {
         fontSize: 12
       },
       title: "Alarm set"
-    }, "\uD83D\uDD14"), t.projectId && (data.projects||[]).find(function(p){return p.id===t.projectId;}) && /*#__PURE__*/React.createElement("span",{style:{fontSize:10,background:"rgba(107,63,160,0.15)",color:"var(--purple-light)",borderRadius:10,padding:"2px 7px"}}, "\uD83D\uDCC1 ",(data.projects||[]).find(function(p){return p.id===t.projectId;}).name))), /*#__PURE__*/React.createElement("div", {className: "acciones"},
+    }, "\uD83D\uDD14"), t.projectId && (data.projects||[]).find(function(p){return p.id===t.projectId;}) && /*#__PURE__*/React.createElement("span",{style:{fontSize:10,background:"rgba(107,63,160,0.15)",color:"var(--purple-light)",borderRadius:10,padding:"2px 7px"}}, "\uD83D\uDCC1 ",(data.projects||[]).find(function(p){return p.id===t.projectId;}).name))), /*#__PURE__*/React.createElement("div", {className: "acciones acc-pie"},
       /*#__PURE__*/React.createElement("button", {
         className: "btn-edit", title: "Editar",
         onClick: function (e) { e.stopPropagation(); setEditItem(t); setForm(_objectSpread({}, t)); setModal(true); }
@@ -7531,7 +7567,7 @@ var ClientsScreen = function ClientsScreen(_ref24) {
         color: '#4CAF50',
         fontWeight: 700
       }
-    }, "$", Number(c.totalRevenue).toLocaleString()), /*#__PURE__*/React.createElement("div", {className: "acciones"}, /*#__PURE__*/React.createElement("button", {
+    }, "$", Number(c.totalRevenue).toLocaleString()), /*#__PURE__*/React.createElement("div", {className: "acciones acc-pie"}, /*#__PURE__*/React.createElement("button", {
       className: "btn-edit",
       onClick: function onClick(e) {
         e.stopPropagation();
@@ -8705,7 +8741,7 @@ var MeetingsScreen = function MeetingsScreen(_ref26) {
         fontSize: 11,
         color: 'var(--text-dim)'
       }
-    }, "\uD83D\uDCC5 ", m.date, " \u2022 \u23F0 ", m.startTime, m.endTime ? " \u2013 ".concat(m.endTime) : '', (function(){if(m.followedUp)return ' ✅';var mSfu=new Date(m.date+'T'+(m.startTime||'00:00')).getTime();if(mSfu>Date.now())return null;var hasFu=(data.tasks||[]).concat(data.projects||[]).concat(data.journal||[]).some(function(e){return e.meetingId===m.id||(e.createdAt&&e.createdAt>mSfu&&e.createdAt<mSfu+172800000);});return hasFu?null:' ⚠️';})())) ,), /*#__PURE__*/React.createElement("div", {className: "acciones", style:{display:'flex',flexWrap:'wrap',gap:3,flexShrink:0,justifyContent:'flex-end',maxWidth:120,alignContent:'flex-start'}}, React.createElement("button", {
+    }, "\uD83D\uDCC5 ", m.date, " \u2022 \u23F0 ", m.startTime, m.endTime ? " \u2013 ".concat(m.endTime) : '', (function(){if(m.followedUp)return ' ✅';var mSfu=new Date(m.date+'T'+(m.startTime||'00:00')).getTime();if(mSfu>Date.now())return null;var hasFu=(data.tasks||[]).concat(data.projects||[]).concat(data.journal||[]).some(function(e){return e.meetingId===m.id||(e.createdAt&&e.createdAt>mSfu&&e.createdAt<mSfu+172800000);});return hasFu?null:' ⚠️';})())) ,), /*#__PURE__*/React.createElement("div", {className: "acciones acc-pie", style:{display:'flex',flexWrap:'wrap',gap:3,flexShrink:0,justifyContent:'flex-end',maxWidth:120,alignContent:'flex-start'}}, React.createElement("button", {
       className: "btn-edit",
       onClick: function onClick(e) {
         e.stopPropagation();
@@ -9764,7 +9800,7 @@ var JournalScreen = function JournalScreen(_ref31) {
           e.entryType === "note" ? "Note" : "Journal"
         ),
         (e.alarm && e.alarm.enabled) && /*#__PURE__*/React.createElement("span", {style:{fontSize:11,flexShrink:0}}, "🔔"),
-      /*#__PURE__*/React.createElement("div", {className: "acciones"}, /*#__PURE__*/React.createElement("button",{className:"btn btn-secondary btn-sm",style:{fontSize:10,padding:'1px 5px',marginLeft:2},title:"Grabar",onClick:function(ev){ev.stopPropagation();jRecOpen(e);}}, '🎙️'))
+      /*#__PURE__*/React.createElement("div", {className: "acciones acc-fila"}, /*#__PURE__*/React.createElement("button",{className:"btn btn-secondary btn-sm",style:{fontSize:10,padding:'1px 5px',marginLeft:2},title:"Grabar",onClick:function(ev){ev.stopPropagation();jRecOpen(e);}}, '🎙️'))
       );
     }
     return /*#__PURE__*/React.createElement("div", {
@@ -9826,7 +9862,7 @@ var JournalScreen = function JournalScreen(_ref31) {
         fontSize: 12,
         color: 'var(--text-dim)'
       }
-    }, "\uD83D\uDCCE", e.attachments.length), /*#__PURE__*/React.createElement("span", {style:{fontSize:10,padding:"2px 7px",borderRadius:8,background:e.entryType==="note"?"var(--surface2)":"rgba(107,63,160,0.3)",color:"var(--text-dim)",flexShrink:0}}, e.entryType==="note"?"📝 Note":"📓 Journal"), /*#__PURE__*/React.createElement("div", {className: "acciones"}, /*#__PURE__*/React.createElement("button",{className:"btn btn-secondary btn-sm btn-icon",style:{fontSize:10,padding:'1px 5px'},title:"Grabar",onClick:function(ev){ev.stopPropagation();jRecOpen(e);}}, '🎙️'), /*#__PURE__*/React.createElement("button", {
+    }, "\uD83D\uDCCE", e.attachments.length), /*#__PURE__*/React.createElement("span", {style:{fontSize:10,padding:"2px 7px",borderRadius:8,background:e.entryType==="note"?"var(--surface2)":"rgba(107,63,160,0.3)",color:"var(--text-dim)",flexShrink:0}}, e.entryType==="note"?"📝 Note":"📓 Journal"), /*#__PURE__*/React.createElement("div", {className: "acciones acc-fila"}, /*#__PURE__*/React.createElement("button",{className:"btn btn-secondary btn-sm btn-icon",style:{fontSize:10,padding:'1px 5px'},title:"Grabar",onClick:function(ev){ev.stopPropagation();jRecOpen(e);}}, '🎙️'), /*#__PURE__*/React.createElement("button", {
       className: "btn btn-secondary btn-sm btn-icon", style:{fontSize:12},
       onClick: function onClick(ev) {
         ev.stopPropagation();
@@ -12225,7 +12261,7 @@ var DocumentsScreen = function DocumentsScreen(_ref46) {
                 )
               ),
               /*#__PURE__*/React.createElement("div", {style:{display:'flex',gap:6,flexShrink:0}},
-                /*#__PURE__*/React.createElement("div", {className: "acciones"}, d.url && /*#__PURE__*/React.createElement("a", {href:d.url, target:"_blank", rel:"noopener noreferrer", className:"btn btn-secondary btn-sm"}, "\uD83D\uDD17"),
+                /*#__PURE__*/React.createElement("div", {className: "acciones acc-fila"}, d.url && /*#__PURE__*/React.createElement("a", {href:d.url, target:"_blank", rel:"noopener noreferrer", className:"btn btn-secondary btn-sm"}, "\uD83D\uDD17"),
                 /*#__PURE__*/React.createElement("button", {className:"btn-edit", onClick:function(e){e.stopPropagation();setEditItem(d);setForm(Object.assign({},d,{tags:d.tags||'',attachments:d.attachments||[]}));setModal(true);}}, "\u270F\uFE0F"),
                 /*#__PURE__*/React.createElement("button", {className:"btn btn-danger btn-sm btn-icon", onClick:function(e){e.stopPropagation();_borrarConDeshacer(_nombreDe(d), function(){ del(d.id); });}}, "\uD83D\uDDD1"))
               )
@@ -12785,7 +12821,7 @@ var ResourcesScreen = function ResourcesScreen(_ref50) {
         flexShrink: 0,
         alignItems: 'center'
       }
-    }, /*#__PURE__*/React.createElement("div", {className: "acciones"}, /*#__PURE__*/React.createElement("button", {
+    }, /*#__PURE__*/React.createElement("div", {className: "acciones acc-fila"}, /*#__PURE__*/React.createElement("button", {
       onClick: function onClick() {
         return toggleFav(r.id);
       },
