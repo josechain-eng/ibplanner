@@ -1,0 +1,254 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1">
+<title>Prueba: iconos abajo</title>
+<style>
+  :root {
+    --purple:#6B3FA0; --purple-light:#9C68D6;
+    --gold:#C9A84C; --gold-light:#E8C97A;
+    --green:#4CAF50; --orange:#FF9800; --red:#F44336; --blue:#2196F3;
+    --bg:#1A1A2E; --surface:#16213E; --surface2:#0F3460;
+    --text:#EAE8F0; --text-dim:#CAC4D8; --text-muted:#967EB4;
+    --border:rgba(150,126,180,0.25);
+    --card:rgba(255,255,255,0.05);
+    --radius-sm:8px;
+  }
+  * { box-sizing:border-box; -webkit-tap-highlight-color:transparent; }
+  body { margin:0; background:var(--bg); color:var(--text);
+         font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif; }
+  .page { padding:10px 12px 90px; max-width:460px; margin:0 auto; }
+  h1 { font-size:18px; margin:14px 0 2px; font-weight:800; }
+  .sub { font-size:12px; color:var(--text-dim); margin:0 0 12px; line-height:1.45; }
+  .switch { display:grid; grid-template-columns:1fr 1fr; gap:6px; margin:0 0 10px; }
+  .switch button { padding:9px 6px; font-size:11.5px; font-weight:700; cursor:pointer;
+    border-radius:20px; border:1px solid var(--border); background:var(--card); color:var(--text); }
+  .switch button.on { background:var(--purple); border-color:var(--purple); color:#fff; }
+  .tam { font-size:11.5px; color:var(--text-dim); margin:0 0 10px;
+    display:flex; align-items:center; gap:6px; flex-wrap:wrap; }
+  .tam button { padding:5px 10px; font-size:11px; font-weight:700; cursor:pointer;
+    border-radius:14px; border:1px solid var(--border); background:var(--card);
+    color:var(--text); }
+  .tam button.on { background:var(--gold); border-color:var(--gold); color:#2A2113; }
+  .medida { font-size:12px; color:var(--gold-light); background:rgba(201,168,76,.1);
+    border:1px solid rgba(201,168,76,.3); border-radius:8px; padding:8px 10px; margin:0 0 14px;
+    line-height:1.5; }
+  .medida b { color:#fff; }
+
+  /* ── piezas comunes de la tarjeta ── */
+  .task-item { background:var(--card); border-radius:var(--radius-sm); margin-bottom:6px;
+    border:1px solid var(--border); padding:10px 12px; position:relative; }
+  .task-item::after { content:attr(data-h); position:absolute; right:5px; top:3px;
+    font-size:9px; color:var(--text-muted); background:rgba(0,0,0,.4);
+    border-radius:6px; padding:1px 5px; }
+  .fila { display:flex; align-items:flex-start; gap:10px; }
+  .task-check { width:18px; height:18px; border-radius:50%; border:2px solid var(--border);
+    cursor:pointer; flex-shrink:0; margin-top:1px; display:flex; align-items:center;
+    justify-content:center; font-size:11px; color:#fff; }
+  .task-check.done { background:var(--green); border-color:var(--green); }
+  .cuerpo { flex:1; min-width:0; }
+  .t-title { font-weight:600; font-size:13px; word-break:break-word; }
+  .is-done .t-title { text-decoration:line-through; opacity:.55; }
+  .meta { display:flex; gap:6px; margin-top:4px; align-items:center; flex-wrap:wrap; }
+  .chip { display:inline-flex; align-items:center; padding:2px 10px; border-radius:20px;
+    font-size:11px; font-weight:600; }
+  .small { font-size:11px; color:var(--text-dim); }
+  .proj { font-size:10px; background:rgba(107,63,160,0.15); color:var(--purple-light);
+    border-radius:10px; padding:2px 7px; }
+
+  .acc { border-radius:10px; display:flex; align-items:center; justify-content:center;
+    line-height:1; cursor:pointer; border:1px solid var(--border);
+    background:rgba(255,255,255,.04); color:var(--text-dim); padding:0; flex-shrink:0;
+    transition:transform .08s, background .15s; }
+  .acc:active { transform:scale(.92); }
+  .acc-edit  { border-color:rgba(107,63,160,.4);  background:rgba(107,63,160,.2); }
+  .acc-alarm { border-color:rgba(201,168,76,.4);  background:rgba(201,168,76,.15); }
+  .acc-lista { border-color:rgba(33,150,243,.35); background:rgba(33,150,243,.12); }
+  .acc-del   { border-color:rgba(244,67,54,.3);   background:rgba(244,67,54,.15); }
+
+  /* ── ACTUAL: rejilla 2x2 de 44px a la derecha ── */
+  .v-actual .acciones { display:grid; grid-template-columns:repeat(2,44px); gap:8px;
+    flex-shrink:0; }
+  .v-actual .acc { width:44px; height:44px; font-size:19px; }
+
+  /* ── A: abajo, 40px, repartidos a lo ancho ── */
+  .v-a .acciones { display:flex; justify-content:space-between; gap:8px; margin-top:10px; }
+  .v-a .acc { width:40px; height:40px; font-size:18px; }
+
+  /* ── B: abajo, 36px, pegados a la derecha ── */
+  .v-b .acciones { display:flex; justify-content:flex-end; gap:10px; margin-top:8px; }
+  .v-b .acc { width:36px; height:36px; font-size:17px; }
+
+  /* ── C: abajo, 34px, barra separada por una linea ── */
+  .v-c .acciones { display:flex; justify-content:space-around; gap:6px; margin-top:8px;
+    padding-top:8px; border-top:1px solid rgba(150,126,180,.18); }
+  .v-c .acc { width:34px; height:34px; font-size:16px; border:none; background:none; }
+  .v-c .acc-edit  { color:var(--purple-light); }
+  .v-c .acc-alarm { color:var(--gold-light); }
+  .v-c .acc-lista { color:#64B5F6; }
+  .v-c .acc-del   { color:#EF9A9A; }
+
+  /* ── D: iconos en la MISMA fila que los chips, a la derecha ── */
+  .v-d .pie { display:flex; align-items:center; justify-content:space-between;
+    gap:8px; margin-top:4px; }
+  .v-d .meta { margin-top:0; flex:1; min-width:0; row-gap:4px; }
+  .v-d .acciones { display:flex; gap:7px; flex-shrink:0; }
+  .v-d .acc { width:var(--accPx,40px); height:var(--accPx,40px); font-size:18px; }
+</style>
+</head>
+<body>
+<div class="page">
+  <h1>¿Los iconos abajo ocupan menos?</h1>
+  <p class="sub">Las mismas 4 tarjetas en cada variante. El número gris de cada tarjeta es su
+  alto real medido en pantalla, ahí se ve cuánto se gana o se pierde de verdad.</p>
+
+  <div class="switch">
+    <button data-v="actual" class="on">Actual · derecha 44px</button>
+    <button data-v="a">A · abajo 40px repartidos</button>
+    <button data-v="b">B · abajo 36px derecha</button>
+    <button data-v="c">C · abajo 34px con línea</button>
+    <button data-v="d" style="grid-column:1/-1">D · en la misma fila de los chips</button>
+  </div>
+
+  <div class="tam" id="tam" hidden>
+    Tamaño del icono en D:
+    <button data-px="34">34 px</button>
+    <button data-px="40" class="on">40 px</button>
+    <button data-px="44">44 px</button>
+  </div>
+
+  <div class="medida" id="medida">midiendo…</div>
+
+  <div id="lista" class="v-actual"></div>
+
+  <p class="sub" style="margin-top:16px">Nada de esto está aplicado en la app. Es solo para mirar
+  y decidir.</p>
+</div>
+
+<script>
+var TAREAS = [
+  { t:'Revisar competencia entre tiendas y armar el cuadro comparativo del mes',
+    chip:'Alta', color:'var(--red)', proy:'Ventura', hora:'09:00', hecha:false },
+  { t:'Llamar al contador', chip:'Media', color:'var(--orange)', proy:'Finanzas',
+    hora:'11:30', hecha:false },
+  { t:'Pagar el alquiler del depósito', chip:'Alta', color:'var(--red)', proy:'Mango LP',
+    hora:'', hecha:true },
+  { t:'Mandar las fotos de las prendas nuevas al bot de BOSS para que las publique',
+    chip:'Baja', color:'var(--green)', proy:'BOSS', hora:'16:00', hecha:false }
+];
+
+var ICONOS = [
+  { i:'✏️', c:'acc-edit',  n:'Editar' },
+  { i:'🔔', c:'acc-alarm', n:'Alarma' },
+  { i:'📋', c:'acc-lista', n:'Estado' },
+  { i:'🗑️', c:'acc-del', n:'Borrar' }
+];
+
+function botones(){
+  return '<div class="acciones">' + ICONOS.map(function(b){
+    return '<button class="acc '+b.c+'" title="'+b.n+'" aria-label="'+b.n+'">'+b.i+'</button>';
+  }).join('') + '</div>';
+}
+function metaDe(x){
+  return '<div class="meta">'
+    + '<span class="chip" style="background:'+x.color+'22;color:'+x.color+'">'+x.chip+'</span>'
+    + (x.hora ? '<span class="small">🕒 '+x.hora+'</span>' : '')
+    + '<span class="proj">'+x.proy+'</span>'
+  + '</div>';
+}
+function check(x){
+  return '<div class="task-check'+(x.hecha?' done':'')+'">'+(x.hecha?'✓':'')+'</div>';
+}
+
+function tarjeta(x, vista){
+  var dentro;
+  if (vista === 'actual') {
+    // texto a la izquierda, rejilla 2x2 a la derecha
+    dentro = '<div class="fila">' + check(x)
+           + '<div class="cuerpo"><div class="t-title">'+x.t+'</div>'+metaDe(x)+'</div>'
+           + botones() + '</div>';
+  } else if (vista === 'd') {
+    // los iconos comparten renglon con los chips: no suman alto propio
+    dentro = '<div class="fila">' + check(x)
+           + '<div class="cuerpo"><div class="t-title">'+x.t+'</div>'
+           + '<div class="pie">'+metaDe(x)+botones()+'</div></div></div>';
+  } else {
+    // texto arriba a todo lo ancho, iconos en su propio renglon abajo
+    dentro = '<div class="fila">' + check(x)
+           + '<div class="cuerpo"><div class="t-title">'+x.t+'</div>'+metaDe(x)+'</div>'
+           + '</div>' + botones();
+  }
+  return '<div class="task-item'+(x.hecha?' is-done':'')+'">'+dentro+'</div>';
+}
+
+var ALTOS = {};
+
+// Medir en el mismo tick da numeros falsos: los emojis todavia no tienen su fuente
+// y el navegador reserva de mas (asi salio 1014 px para una tarjeta de 118).
+// Hay que esperar a document.fonts.ready y a que pinte un cuadro.
+function pintar(vista, luego){
+  var lista = document.getElementById('lista');
+  lista.className = 'v-' + vista;
+  lista.innerHTML = TAREAS.map(function(x){ return tarjeta(x, vista); }).join('');
+  document.fonts.ready.then(function(){
+    requestAnimationFrame(function(){
+      requestAnimationFrame(function(){ medir(vista); if (luego) luego(); });
+    });
+  });
+}
+
+function medir(vista){
+  var items = document.querySelectorAll('#lista .task-item');
+  var total = 0;
+  items.forEach(function(el){
+    var h = Math.round(el.getBoundingClientRect().height);
+    el.setAttribute('data-h', h);
+    total += h;
+  });
+  ALTOS[vista] = total;
+  var base = ALTOS.actual;
+  var txt = 'Las 4 tarjetas juntas miden <b>' + total + ' px</b>.';
+  if (base && vista !== 'actual') {
+    var dif = base - total;
+    txt += ' La actual mide <b>' + base + ' px</b>: '
+         + (dif > 0 ? 'se ahorran <b>' + dif + ' px</b> (' + Math.round(dif*100/base) + '%)'
+            : dif === 0 ? '<b>queda igual</b>'
+            : 'ocupa <b>' + (-dif) + ' px MÁS</b>') + '.';
+  } else if (vista === 'actual') {
+    txt += ' Cambiá de vista para comparar.';
+  }
+  document.getElementById('medida').innerHTML = txt;
+}
+
+document.querySelectorAll('.tam button').forEach(function(b){
+  b.addEventListener('click', function(){
+    document.querySelectorAll('.tam button').forEach(function(o){ o.classList.remove('on'); });
+    b.classList.add('on');
+    document.documentElement.style.setProperty('--accPx', b.getAttribute('data-px')+'px');
+    pintar('d');
+  });
+});
+
+document.querySelectorAll('.switch button').forEach(function(b){
+  b.addEventListener('click', function(){
+    document.querySelectorAll('.switch button').forEach(function(o){ o.classList.remove('on'); });
+    b.classList.add('on');
+    var v = b.getAttribute('data-v');
+    document.getElementById('tam').hidden = (v !== 'd');
+    pintar(v);
+  });
+});
+
+// Se mide cada vista una vez, en orden y esperando a la anterior, para tener la
+// base de comparacion; al final queda a la vista la actual.
+(function(){
+  var orden = ['a','b','c','d','actual'], i = 0;
+  (function paso(){
+    if (i >= orden.length) return;
+    pintar(orden[i++], paso);
+  })();
+})();
+</script>
+</body>
+</html>
