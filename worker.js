@@ -343,6 +343,16 @@ async function handleRequest(request, env) {
       return json({ key: k, entries: log.length, log });
     }
 
+    // GET /backup-log  ->  que respaldos hizo el cron de las 5am y de que tamano.
+    // Responde "se esta respaldando de verdad?" sin tener que suponer.
+    if (p === '/backup-log' && request.method === 'GET') {
+      const log = JSON.parse(await env.LBP_KV.get('backup_log') || '[]');
+      return json({
+        entries: log.length,
+        log: log.map(e => Object.assign({}, e, { hora: new Date(e.t).toISOString() })),
+      });
+    }
+
     // GET /alarm-log?key=  ->  que alarmas mando el cron, cuando y con cuanto atraso.
     // Responde "lo que se ve en el telefono, salio de aca?" sin tener que suponer.
     if (p === '/alarm-log' && request.method === 'GET') {
@@ -2017,6 +2027,38 @@ async function scheduledHandler(event, env) {
     // when the app registers for push (/subscribe) or schedules alarms (/alarms/batch).
     // Use GET /rebuild-registry from Cloud Settings to seed it manually if needed.
     const syncKeys = JSON.parse(await env.LBP_KV.get('synckeys_registry') || '[]');
+
+    // RESPALDO DIARIO: 09:00 UTC = 5am Bolivia (UTC-4 todo el ano).
+    // Antes la copia del dia solo se hacia cuando se abria la app, y de paso le
+    // bajaba al celular un JSON y un ZIP, con sus dos ventanas de "guardar como".
+    // Aca no hace falta que el telefono haga nada: el cron copia el blob que ya
+    // esta en KV. Se conserva 30 dias, igual que el que subia la app.
+    // La ventana es de 3 minutos por si un tick falla; la marca evita repetirlo.
+    // h y mm viven en el bloque del refresco del TC, no se ven desde aca.
+    const _dBk = new Date(now);
+    if (_dBk.getUTCHours() === 9 && _dBk.getUTCMinutes() < 3) {
+      const fechaBo = new Date(now - 4 * 3600 * 1000).toISOString().slice(0, 10);
+      const copias = [];
+      for (const syncKey of syncKeys) {
+        try {
+          const marca = 'backup_mark:' + syncKey + ':' + fechaBo;
+          if (await env.LBP_KV.get(marca)) continue;   // ya se hizo hoy
+          const blob = await env.LBP_KV.get('data:' + syncKey);
+          if (!blob) continue;
+          await env.LBP_KV.put('backup:' + syncKey + ':' + fechaBo, blob, { expirationTtl: 30 * 86400 });
+          await env.LBP_KV.put(marca, '1', { expirationTtl: 3 * 86400 });
+          copias.push({ key: syncKey, bytes: blob.length });
+        } catch (e) { /* un syncKey que falle no puede tumbar a los demas */ }
+      }
+      if (copias.length) {
+        try {
+          const previo = JSON.parse((await env.LBP_KV.get('backup_log')) || '[]');
+          await env.LBP_KV.put('backup_log',
+            JSON.stringify(previo.concat([{ t: now, fecha: fechaBo, copias: copias }]).slice(-30)),
+            { expirationTtl: 60 * 86400 });
+        } catch (e) { /* el registro es diagnostico: jamas debe tumbar el respaldo */ }
+      }
+    }
     if (syncKeys.length === 0) return;
 
     for (const syncKey of syncKeys) {

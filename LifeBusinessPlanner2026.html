@@ -22,7 +22,7 @@
 <script>
 (function() {
   // ── Version ──────────────────────────────────────────────────────────────
-  window.LBP_VERSION = '5.63';
+  window.LBP_VERSION = '5.64';
 
   // ── PWA Install prompt ───────────────────────────────────────────────────
   window._installPrompt = null;
@@ -18275,7 +18275,7 @@ var SyncSettingsButton = function SyncSettingsButton(_ref_ssb) {
         /*#__PURE__*/React.createElement('div', { style:{marginBottom:16,display:'flex',gap:8,alignItems:'center',padding:'10px 12px',background:'rgba(74,222,128,0.08)',border:'1px solid rgba(74,222,128,0.25)',borderRadius:10} },
           /*#__PURE__*/React.createElement('div', { style:{flex:1} },
             /*#__PURE__*/React.createElement('div', { style:{fontSize:12,fontWeight:600,color:'#4ade80',marginBottom:2} }, '\uD83D\uDCBE Backup Manual'),
-            /*#__PURE__*/React.createElement('div', { style:{fontSize:11,color:'var(--text-muted)'} }, 'Descarga un archivo JSON con todos tus datos. Auto-backup cada 2 d\u00EDas.')
+            /*#__PURE__*/React.createElement('div', { style:{fontSize:11,color:'var(--text-muted)'} }, 'Respaldo autom\u00e1tico en la nube todos los d\u00edas a las 5am, sin que tengas que abrir la app. Este bot\u00f3n baja el archivo al celular cuando vos quieras.')
           ),
           /*#__PURE__*/React.createElement('button', {
             onClick: function(){ window._downloadBackup && window._downloadBackup(); },
@@ -19472,30 +19472,29 @@ var App = function App() {
     setData = _useStore2[1];
   window._setDataGlobal = setData;
   window._getDataGlobal = function() { return data; };
-  // Auto-backup every 2 days
+  // Respaldo al abrir: SOLO a la nube, sin bajar nada al telefono.
+  // Antes bajaba un JSON y, dos segundos despues, un ZIP con los adjuntos: eran
+  // las dos ventanas de "guardar como" que salian cada manana (23-oct-2026).
+  // El respaldo de verdad lo hace el cron del worker a las 5am, aunque no se
+  // abra la app; esto es solo una copia extra y mas fresca cuando si se abre.
+  // Para bajar el archivo al celular esta el boton de Cloud & Sync.
   useEffect(function(){
     if(!data || !Object.keys(data).length) return;
     var INTERVAL_MS = 24*60*60*1000;
     var last = parseInt(localStorage.getItem('lbp_last_backup')||'0',10);
     if(Date.now()-last < INTERVAL_MS) return;
     try{
-      var json = JSON.stringify(data,null,2);
-      var blob = new Blob([json],{type:'application/json'});
-      var url = URL.createObjectURL(blob);
-      var a = document.createElement('a');
-      var d = new Date(); var ds = d.getFullYear()+'-'+(d.getMonth()+1).toString().padStart(2,'0')+'-'+d.getDate().toString().padStart(2,'0');
-      a.href=url; a.download='LBPlanner_backup_'+ds+'.json'; a.style.display='none';
-      document.body.appendChild(a); a.click(); document.body.removeChild(a);
-      URL.revokeObjectURL(url);
-      localStorage.setItem('lbp_last_backup', String(Date.now()));
-      // Also trigger full ZIP backup (with attachments) after a short delay
-      setTimeout(function(){ window._downloadFullBackup && window._downloadFullBackup(); }, 2000);
-      // Also upload to Cloudflare KV
       var _wurl=localStorage.getItem('lbp_worker_url');
       var _skey=localStorage.getItem('lbp_sync_key');
-      if(_wurl&&_skey){
-        fetch(_wurl+'/backup?key='+encodeURIComponent(_skey)+'&date='+ds,{method:'POST',headers:{'Content-Type':'application/json'},body:json}).catch(function(){});
-      }
+      if(!_wurl||!_skey) return;
+      var json = JSON.stringify(data,null,2);
+      var d = new Date(); var ds = d.getFullYear()+'-'+(d.getMonth()+1).toString().padStart(2,'0')+'-'+d.getDate().toString().padStart(2,'0');
+      fetch(_wurl+'/backup?key='+encodeURIComponent(_skey)+'&date='+ds,{method:'POST',headers:{'Content-Type':'application/json'},body:json})
+        // Solo se marca como hecho si el worker DIJO que si. fetch no rechaza por
+        // un 500 ni un 413: sin este chequeo, un respaldo fallido bloqueaba el
+        // siguiente intento por 24 horas.
+        .then(function(r){ if (r && r.ok) localStorage.setItem('lbp_last_backup', String(Date.now())); })
+        .catch(function(){});
     }catch(e){}
   },[!!data && Object.keys(data).length>0]);
   window._downloadBackup = function(){
