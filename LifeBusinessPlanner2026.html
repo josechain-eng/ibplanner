@@ -4366,7 +4366,6 @@ var scheduleAlarms = function scheduleAlarms(entities, type, addToast) {
               if (window._cloudCancelAlarm) window._cloudCancelAlarm(alarmId + '_r' + (idx + 1));
             });
           }
-          playAlarmSound(alarm.sound || 'bell');
           if ('Notification' in window && Notification.permission === 'granted') {
             _fireNotification(title, body, 'lbp_' + alarmId, alarm.vibration);
             try {
@@ -19865,7 +19864,6 @@ var App = function App() {
   }, []);
 
   var fireAlarmOnce = useCallback(function (title, body, current, total, intervalMin, sound, vibration, alarmId) {
-    playAlarmSound(sound || 'bell');
     setActiveAlarm({ title: title, body: body, current: current, total: total });
     addToast({
       id: uid(),

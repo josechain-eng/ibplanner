@@ -1311,10 +1311,15 @@ async function sendSmartNotif(env, syncKeys, type, todayStr, tomorrowStr) {
         const recentTasks = tasks.filter(t => t.createdAt && new Date(t.createdAt) >= threeDaysAgo)
           .sort((a,b) => (b.createdAt||'').localeCompare(a.createdAt||'')).slice(0,3);
         const overdueSort = overdue.sort((a,b) => (a.dueDate||'').localeCompare(b.dueDate||''));
+        const threeDaysAgoStr = threeDaysAgo.toISOString().slice(0,10);
+        const meetingsPendFollow = (data.meetings || []).filter(m =>
+          m.date && m.date >= threeDaysAgoStr && m.date < todayStr && !m.followedUp
+        ).sort((a,b) => (b.date||'').localeCompare(a.date||'')).slice(0,3);
         const ctx = {
           fecha: todayStr,
           tareasHoy: todayTasks.map(t => ({ titulo: t.title, prioridad: t.priority })),
           reunionesHoy: meetings.map(m => ({ titulo: m.title, hora: m.startTime || '' })),
+          reunionesSinSeguimiento: meetingsPendFollow.map(m => ({ titulo: m.title, fecha: m.date })),
           // Se le mandan solo las 5 mas antiguas, pero TAMBIEN el total real: sin
           // el total la IA contaba las que recibia y afirmaba "5 tareas vencidas
           // en total" cuando habia 12 (visto en el briefing del 7-oct-2026).
@@ -1331,7 +1336,7 @@ async function sendSmartNotif(env, syncKeys, type, todayStr, tomorrowStr) {
         };
 
         const aiText = await callClaude(env, [
-          { role: 'user', content: 'Datos de hoy (' + todayStr + ') para el gerente del Ventura Mall:\n' + JSON.stringify(ctx, null, 2) + '\n\nEscribe un briefing matutino ESTRUCTURADO en espa\u00f1ol. USA SOLO datos reales del JSON, NO inventes nada. Formato EXACTO (texto plano, sin markdown, sin asteriscos, sin guiones extra):\n\nREUNIONES HOY: [lista por hora y nombre, o \'ninguna\']\nTAREAS VENCIDAS (3 mas antiguas): [nombre + fecha vencida de cada una]\nHOY EN AGENDA: [tareas con fecha de hoy, o \'ninguna\']\nRECIEN AGREGADAS: [tareas de los ultimos 3 dias que requieren atencion, o \'ninguna\']\n\nMantener conciso. Cada seccion en una linea. Nombres exactos de las tareas/reuniones.' }
+          { role: 'user', content: 'Datos de hoy (' + todayStr + ') para el gerente del Ventura Mall:\n' + JSON.stringify(ctx, null, 2) + '\n\nEscribe un briefing matutino ESTRUCTURADO en espa\u00f1ol. USA SOLO datos reales del JSON, NO inventes nada. Formato EXACTO (texto plano, sin markdown, sin asteriscos, sin guiones extra):\n\nREUNIONES HOY: [lista por hora y nombre, o \'ninguna\']\nTAREAS VENCIDAS (3 mas antiguas): [nombre + fecha vencida de cada una]\nTAREAS DE HOY: [tareas con fecha de hoy, o \'ninguna\']\nSEGUIMIENTO PENDIENTE: [reuniones de los ultimos 3 dias sin seguimiento del campo reunionesSinSeguimiento, o \'ninguna\']\nRECIEN AGREGADAS: [tareas de los ultimos 3 dias que requieren atencion, o \'ninguna\']\n\nMantener conciso. Cada seccion en una linea. Nombres exactos de las tareas/reuniones.' }
         ], 'Eres el asistente ejecutivo del Ventura Mall (La Paz, Bolivia). Das briefings matutinos estructurados en texto plano sin markdown. USA SOLO datos reales provistos, NO inventes nada.', 450);
 
         // Conserva los saltos de l\u00ednea (colapsa m\u00faltiples a uno) para que las secciones queden separadas
