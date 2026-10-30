@@ -19923,8 +19923,9 @@ var App = function App() {
             var t = (_recc === 'once') ? new Date(al.datetime).getTime() : _recentOccurrence(al.datetime, _recc, al, _now);
             var k = (entity.id || '') + '_' + ((_recc === 'once') ? al.datetime : t);
             var _alarmId = (entity.id || '') + '_' + t;
-            if (t >= win && t <= _now && !firedRef.current.has(k) && !(window._lbpFiredSet && window._lbpFiredSet.has(k)) && !_cloudFired.has(_alarmId)) {
+            if (t >= win && t <= _now && !firedRef.current.has(k) && !firedRef.current.has(k+'_missed') && !(window._lbpFiredSet && window._lbpFiredSet.has(k)) && !_cloudFired.has(_alarmId)) {
               firedRef.current.add(k);
+              firedRef.current.add(k+'_missed'); // prevent missed-detector from re-firing this same alarm
               try{var _lsa=JSON.parse(localStorage.getItem('lbp_shown_alarms')||'[]');_lsa.push({k:k,t:Date.now()});if(_lsa.length>200)_lsa=_lsa.slice(-100);localStorage.setItem('lbp_shown_alarms',JSON.stringify(_lsa));}catch(_){}
               if (!window._lbpFiredSet) window._lbpFiredSet = new Set();
               window._lbpFiredSet.add(k);
@@ -19997,8 +19998,9 @@ var App = function App() {
         var _baseKey = (entity.id || '') + '_' + ((_recc === 'once') ? al.datetime : t);
         var missedKey = _baseKey + '_missed';
         var _epochKey = (entity.id || '') + '_' + t;
-        if (firedRef.current.has(missedKey) || firedRef.current.has(_baseKey) || (window._lbpFiredSet && (window._lbpFiredSet.has(_baseKey) || window._lbpFiredSet.has(_epochKey))) || _cloudFiredM.has(_epochKey)) return;
+        if (firedRef.current.has(missedKey) || firedRef.current.has(_baseKey) || firedRef.current.has(_epochKey) || (window._lbpFiredSet && (window._lbpFiredSet.has(_baseKey) || window._lbpFiredSet.has(_epochKey))) || _cloudFiredM.has(_epochKey)) return;
         firedRef.current.add(missedKey);
+        firedRef.current.add(_baseKey); // prevent check() from re-firing this same alarm
         try{var _lsb=JSON.parse(localStorage.getItem('lbp_shown_alarms')||'[]');_lsb.push({k:missedKey,t:Date.now()});if(_lsb.length>200)_lsb=_lsb.slice(-100);localStorage.setItem('lbp_shown_alarms',JSON.stringify(_lsb));}catch(_){}
         var entityName = entity.title || entity.name || entity.destination || '';
         var typeLabel = _ALARM_TYPE_LABELS[k] || k;
