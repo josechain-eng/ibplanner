@@ -111,16 +111,28 @@ self.addEventListener('push', function(e) {
   if (_timers[alarmId]) { clearTimeout(_timers[alarmId]); delete _timers[alarmId]; }
   // Use same tag prefix as SW timer so OS deduplicates if both fire
   var tag = 'lbp_' + alarmId;
-  var p = showAlarm(data.title || 'Reminder', data.body || '', tag, data.vibration || 'long');
-  // Tell open app windows this alarm fired so page-side check() skips it
-  var broadcast = self.clients.matchAll({ type: 'window', includeUncontrolled: true }).then(function(cs) {
-    cs.forEach(function(c) { c.postMessage({ type: 'ALARM_FIRED', alarmId: alarmId }); });
-  });
-  // Persist fired alarmId in Cache API so app reads it on next open (prevents duplicate local firing)
-  var cacheStore = caches.open('lbp-fired-v1').then(function(cache) {
-    return cache.put(new Request('https://lbp.local/fired/' + encodeURIComponent(alarmId)), new Response(String(Date.now())));
-  }).catch(function(){});
-  e.waitUntil(Promise.all([p, broadcast, cacheStore]));
+  var firedUrl = new Request('https://lbp.local/fired/' + encodeURIComponent(alarmId));
+  // Check if page-side check() already showed this alarm. If so, skip the OS notification
+  // to prevent the duplicate buzz (check() fires first, then cloud push arrives ~30s later).
+  e.waitUntil(
+    caches.open('lbp-fired-v1').then(function(cache) {
+      return cache.match(firedUrl).then(function(hit) {
+        var broadcast = self.clients.matchAll({ type: 'window', includeUncontrolled: true }).then(function(cs) {
+          cs.forEach(function(c) { c.postMessage({ type: 'ALARM_FIRED', alarmId: alarmId }); });
+        });
+        if (hit) {
+          // Page already showed it — just notify clients, skip OS notification
+          return broadcast;
+        }
+        return broadcast
+          .then(function() { return cache.put(firedUrl, new Response(String(Date.now()))); })
+          .then(function() { return showAlarm(data.title || 'Reminder', data.body || '', tag, data.vibration || 'long'); });
+      });
+    }).catch(function() {
+      // Cache unavailable — fall back to always showing
+      return showAlarm(data.title || 'Reminder', data.body || '', tag, data.vibration || 'long');
+    })
+  );
 });
 
 // ── Periodic Background Sync: backup alarm check when FCM is blocked by Samsung ──

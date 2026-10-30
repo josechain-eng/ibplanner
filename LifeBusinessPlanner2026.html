@@ -19928,6 +19928,8 @@ var App = function App() {
               try{var _lsa=JSON.parse(localStorage.getItem('lbp_shown_alarms')||'[]');_lsa.push({k:k,t:Date.now()});if(_lsa.length>200)_lsa=_lsa.slice(-100);localStorage.setItem('lbp_shown_alarms',JSON.stringify(_lsa));}catch(_){}
               if (!window._lbpFiredSet) window._lbpFiredSet = new Set();
               window._lbpFiredSet.add(k);
+              // Write to Cache API so SW push handler sees this and skips the duplicate OS notification
+              try{if('caches' in window)caches.open('lbp-fired-v1').then(function(c){c.put(new Request('https://lbp.local/fired/'+encodeURIComponent(_alarmId)),new Response(String(Date.now())));}).catch(function(){});}catch(_e2){}
               var _eName = entity[titleField] || entity.name || entity.destination || '';
               var title = _eName || "".concat(typeName, " Reminder");
               var _tLabel = (_ALARM_TYPE_LABELS && _ALARM_TYPE_LABELS[key]) || typeName;
