@@ -1308,12 +1308,14 @@ async function sendSmartNotif(env, syncKeys, type, todayStr, tomorrowStr) {
         title = '\uD83C\uDF05 Briefing del d\u00eda';
 
         const threeDaysAgo = new Date(); threeDaysAgo.setDate(threeDaysAgo.getDate() - 3);
+        const sevenDaysAgo = new Date(); sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 7);
         const recentTasks = tasks.filter(t => t.createdAt && new Date(t.createdAt) >= threeDaysAgo)
           .sort((a,b) => (b.createdAt||'').localeCompare(a.createdAt||'')).slice(0,3);
         const overdueSort = overdue.sort((a,b) => (a.dueDate||'').localeCompare(b.dueDate||''));
         const threeDaysAgoStr = threeDaysAgo.toISOString().slice(0,10);
+        const sevenDaysAgoStr = sevenDaysAgo.toISOString().slice(0,10);
         const meetingsPendFollow = (data.meetings || []).filter(m =>
-          m.date && m.date >= threeDaysAgoStr && m.date < todayStr && !m.followedUp
+          m.date && m.date >= sevenDaysAgoStr && m.date < todayStr && !m.followedUp
         ).sort((a,b) => (b.date||'').localeCompare(a.date||'')).slice(0,3);
         const ctx = {
           fecha: todayStr,
@@ -1336,7 +1338,7 @@ async function sendSmartNotif(env, syncKeys, type, todayStr, tomorrowStr) {
         };
 
         const aiText = await callClaude(env, [
-          { role: 'user', content: 'Datos de hoy (' + todayStr + ') para el gerente del Ventura Mall:\n' + JSON.stringify(ctx, null, 2) + '\n\nEscribe un briefing matutino ESTRUCTURADO en espa\u00f1ol. USA SOLO datos reales del JSON, NO inventes nada. Formato EXACTO (texto plano, sin markdown, sin asteriscos, sin guiones extra):\n\nREUNIONES HOY: [lista por hora y nombre, o \'ninguna\']\nTAREAS VENCIDAS (3 mas antiguas): [nombre + fecha vencida de cada una]\nTAREAS DE HOY: [tareas con fecha de hoy, o \'ninguna\']\nSEGUIMIENTO PENDIENTE: [reuniones de los ultimos 3 dias sin seguimiento del campo reunionesSinSeguimiento, o \'ninguna\']\nRECIEN AGREGADAS: [tareas de los ultimos 3 dias que requieren atencion, o \'ninguna\']\n\nMantener conciso. Cada seccion en una linea. Nombres exactos de las tareas/reuniones.' }
+          { role: 'user', content: 'Datos de hoy (' + todayStr + ') para el gerente del Ventura Mall:\n' + JSON.stringify(ctx, null, 2) + '\n\nEscribe un briefing matutino ESTRUCTURADO en espa\u00f1ol. USA SOLO datos reales del JSON, NO inventes nada. Formato EXACTO (texto plano, sin markdown, sin asteriscos, sin guiones extra):\n\nREUNIONES HOY: [lista por hora y nombre, o \'ninguna\']\nTAREAS VENCIDAS (3 mas antiguas): [nombre + fecha vencida de cada una]\nTAREAS DE HOY: [tareas con fecha de hoy, o \'ninguna\']\nSEGUIMIENTO PENDIENTE: [reuniones de los ultimos 7 dias sin seguimiento del campo reunionesSinSeguimiento, o \'ninguna\']\nRECIEN AGREGADAS: [tareas de los ultimos 3 dias que requieren atencion, o \'ninguna\']\n\nMantener conciso. Cada seccion en una linea. Nombres exactos de las tareas/reuniones.' }
         ], 'Eres el asistente ejecutivo del Ventura Mall (La Paz, Bolivia). Das briefings matutinos estructurados en texto plano sin markdown. USA SOLO datos reales provistos, NO inventes nada.', 450);
 
         // Conserva los saltos de l\u00ednea (colapsa m\u00faltiples a uno) para que las secciones queden separadas
@@ -1370,7 +1372,7 @@ async function sendSmartNotif(env, syncKeys, type, todayStr, tomorrowStr) {
         // Toma el encabezado y TODAS las lineas que le siguen hasta el proximo
         // encabezado de seccion, para no dejar huerfanas si la IA ya habia partido
         // la lista en varios renglones.
-        const _reVenc = /^TAREAS VENCIDAS.*(?:\n(?!REUNIONES|TAREAS VENCIDAS|HOY EN AGENDA|RECI[E\u00c9]N AGREGADAS)[^\n]*)*/mi;
+        const _reVenc = /^TAREAS VENCIDAS.*(?:\n(?!REUNIONES|TAREAS VENCIDAS|TAREAS DE HOY|SEGUIMIENTO PENDIENTE|HOY EN AGENDA|RECI[E\u00c9]N AGREGADAS)[^\n]*)*/mi;
 
         if (aiText && aiText.trim().length > 10) {
           const _base = stripMd(aiText);
@@ -1409,6 +1411,7 @@ async function sendSmartNotif(env, syncKeys, type, todayStr, tomorrowStr) {
           const _chips = [];
           for (const _v of [
             { re: /^REUNIONES HOY\s*:\s*ninguna\.?\s*$/im, chip: '\ud83d\udcc5 Sin reuniones' },
+            { re: /^TAREAS DE HOY\s*:\s*ninguna\.?\s*$/im, chip: '\ud83d\udccb Sin tareas hoy' },
             { re: /^HOY EN AGENDA\s*:\s*ninguna\.?\s*$/im, chip: '\ud83d\udccb Sin agenda' },
             { re: /^RECI[E\u00c9]N AGREGADAS\s*:\s*ninguna\.?\s*$/im, chip: '\ud83c\udd95 Sin nuevas' },
           ]) {
@@ -1448,7 +1451,9 @@ async function sendSmartNotif(env, syncKeys, type, todayStr, tomorrowStr) {
           const pushBody = _cuerpo
             .replace(/^REUNIONES/mi, '\ud83d\udcc5 REUNIONES')
             .replace(/^TAREAS VENCIDAS/mi, '\u26a0\ufe0f TAREAS VENCIDAS')
+            .replace(/^TAREAS DE HOY/mi, '\ud83d\udccb TAREAS DE HOY')
             .replace(/^HOY EN AGENDA/mi, '\ud83d\udccb HOY EN AGENDA')
+            .replace(/^SEGUIMIENTO PENDIENTE/mi, '\ud83d\udd04 SEGUIMIENTO PENDIENTE')
             .replace(/^RECI[E\u00c9]N AGREGADAS/mi, '\ud83c\udd95 RECI\u00c9N AGREGADAS')
             + _bloqueHab
             + (_chips.length ? '\n' + _chips.join(' \u00b7 ') : '');
