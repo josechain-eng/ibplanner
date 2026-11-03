@@ -14581,6 +14581,8 @@ var AiExpertChat = function AiExpertChat(props) {
   var title = props.title || 'AI';
   var placeholder = props.placeholder || 'Escribe tu pregunta...';
   var allowImage = props.allowImage || false;
+  var imageHint = props.imageHint || '📷 Puedes adjuntar fotos para que las analice';
+  var imageDefaultText = props.imageDefaultText || 'Analiza esta imagen.';
   var contextFn = props.contextFn;
   // El historial vive en localStorage: sin esto la charla se perdia al salir de
   // la app. NO va en el blob de sync: ese ya pesa ~4MB y no queremos engordarlo.
@@ -14667,7 +14669,7 @@ var AiExpertChat = function AiExpertChat(props) {
     if(!window.LBP_WORKER_URL){alert('Configura el Worker URL en Settings para usar IA.');return;}
     var userContent;
     if(imgData && allowImage){
-      userContent=[{type:'image',source:{type:'base64',media_type:imgData.type,data:imgData.data}},{type:'text',text:text||'Analiza esta imagen: identifica alimentos, ingredientes y estima las calorías.'}];
+      userContent=[{type:'image',source:{type:'base64',media_type:imgData.type,data:imgData.data}},{type:'text',text:text||imageDefaultText}];
     } else {
       userContent = text;
     }
@@ -14709,7 +14711,7 @@ var AiExpertChat = function AiExpertChat(props) {
       msgs.length===0 && React.createElement('div',{style:{textAlign:'center',color:'var(--text-dim)',padding:'32px 16px',fontSize:14}},
         React.createElement('div',{style:{fontSize:32,marginBottom:8}},'🤖'),
         React.createElement('div',null,'Pregunta sobre '+title+'...'),
-        allowImage && React.createElement('div',{style:{fontSize:12,marginTop:8,color:'var(--text-dim)'}},'📷 Puedes subir fotos de comida para análisis de calorías')
+        allowImage && React.createElement('div',{style:{fontSize:12,marginTop:8,color:'var(--text-dim)'}},imageHint)
       ),
       msgs.map(function(m,i){
         var isUser=m.role==='user';
@@ -15055,7 +15057,7 @@ var WorkoutPlannerScreen = function WorkoutPlannerScreen(_ref57) {
         whiteSpace: 'pre-wrap'
       }
     }, t.exercises));
-  })), tab === 'AI Coach' && React.createElement(AiExpertChat, {key:'wk-ai',chatId:'wk-ai',systemPrompt:WORKOUT_AI_SP,title:'fitness y entrenamiento',placeholder:'Pregúntame sobre ejercicios, rutinas, grupos musculares, progreso...'})), modal && /*#__PURE__*/React.createElement(Modal, {
+  })), tab === 'AI Coach' && React.createElement(AiExpertChat, {key:'wk-ai',chatId:'wk-ai',systemPrompt:WORKOUT_AI_SP,title:'fitness y entrenamiento',placeholder:'Pregúntame sobre ejercicios, rutinas, grupos musculares, progreso...',allowImage:true,imageHint:'📷 Puedes subir fotos de ejercicios o tu progreso físico',imageDefaultText:'Analiza esta imagen relacionada con fitness o entrenamiento.'})), modal && /*#__PURE__*/React.createElement(Modal, {
     title: wpEditItem ? "Edit Workout" : "Log Workout",
     onClose: function onClose() {
       setWpEditItem(null);
@@ -15627,7 +15629,7 @@ var RecipesScreen = function RecipesScreen(_ref58) {
         return delGroc(g.id);
       }
     }, "\xD7"));
-  }))), tab === 'Nutrición AI' && React.createElement(AiExpertChat, {key:'rec-ai',chatId:'rec-ai',systemPrompt:RECIPES_AI_SP,title:'nutrición y cocina',placeholder:'Pregunta sobre recetas, calorías, plan de comidas... (puedes subir fotos)',allowImage:true})), modal && /*#__PURE__*/React.createElement(Modal, {
+  }))), tab === 'Nutrición AI' && React.createElement(AiExpertChat, {key:'rec-ai',chatId:'rec-ai',systemPrompt:RECIPES_AI_SP,title:'nutrición y cocina',placeholder:'Pregunta sobre recetas, calorías, plan de comidas... (puedes subir fotos)',allowImage:true,imageHint:'📷 Puedes subir fotos de comida para análisis de calorías e ingredientes',imageDefaultText:'Analiza esta imagen: identifica alimentos, ingredientes y estima las calorías.'})), modal && /*#__PURE__*/React.createElement(Modal, {
     title: "New Recipe",
     onClose: function onClose() {
       setModal(false); setEditItem(null);
@@ -16435,7 +16437,7 @@ var BabyScreen = function BabyScreen(_ref60) {
       ),
 
       // IA PEDIATRA TAB
-      tab === 'IA Pediatra' && React.createElement(AiExpertChat, {key:'baby-ai',chatId:'baby-ai',systemPrompt:BABY_AI_SP,title:'pediatría y cuidado del bebé',placeholder:'Pregunta sobre sueño, lactancia, desarrollo, vacunas, medicamentos...',contextFn:babyCtxFn})
+      tab === 'IA Pediatra' && React.createElement(AiExpertChat, {key:'baby-ai',chatId:'baby-ai',systemPrompt:BABY_AI_SP,title:'pediatría y cuidado del bebé',placeholder:'Pregunta sobre sueño, lactancia, desarrollo, vacunas, medicamentos...',contextFn:babyCtxFn,allowImage:true,imageHint:'📷 Puedes adjuntar fotos (sarpullido, deposiciones, etc.) para consultas visuales',imageDefaultText:'Analiza esta imagen para ayudar con la consulta pediátrica.'})
 
     ),
 
