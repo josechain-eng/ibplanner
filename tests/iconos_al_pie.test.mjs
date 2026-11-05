@@ -66,6 +66,10 @@ test('los modulos con portada o foto quedan como estaban', () => {
   }
 });
 
-test('la version subio', () => {
-  assert.match(html, /window\.LBP_VERSION = '5\.65'/);
+// No se fija a 5.65: cada version nueva rompia esta prueba sin que nada del
+// cambio de los iconos se hubiera tocado (paso al subir a 5.66).
+test('la version es 5.65 o mas nueva', () => {
+  const m = html.match(/window\.LBP_VERSION = '(\d+)\.(\d+)'/);
+  assert.ok(m, 'no encuentro LBP_VERSION');
+  assert.ok(Number(m[1]) * 1000 + Number(m[2]) >= 5065, 'version ' + m[1] + '.' + m[2] + ' es anterior a 5.65');
 });

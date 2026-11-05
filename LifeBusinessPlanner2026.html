@@ -22,7 +22,7 @@
 <script>
 (function() {
   // ── Version ──────────────────────────────────────────────────────────────
-  window.LBP_VERSION = '5.65';
+  window.LBP_VERSION = '5.66';
 
   // ── PWA Install prompt ───────────────────────────────────────────────────
   window._installPrompt = null;
@@ -647,7 +647,9 @@
         if (inWin(imp.received ? new Date(imp.received).getTime() : null)) add(b.done, 'Mercaderia recibida: ' + label, 'DESPACHO', dstr(imp.received));
       } else if (imp.status !== 'CANCELADO') {
         var eta = imp.etaAduana || imp.etaArica || imp.etaStorage;
-        add(b.progress, 'Despacho ' + imp.status + ': ' + label, 'DESPACHO', (imp.amount ? '$' + imp.amount : '') + (eta ? ' | ETA ' + dstr(eta) : ''));
+        var dLim = _impDiasLimite(imp);
+        var avisoLim = dLim !== null && dLim <= 7 ? ' | ADUANA ' + _impLimiteTexto(dLim).toUpperCase() : '';
+        add(b.progress, 'Despacho ' + imp.status + ': ' + label, 'DESPACHO', (imp.amount ? '$' + imp.amount : '') + (eta ? ' | ETA ' + dstr(eta) : '') + avisoLim);
       }
     });
 
@@ -952,7 +954,16 @@
     'resources','documents','campaigns','clientJourney','outfits','householdTasks',
     'workouts','workoutTemplates','recipes','groceryItems','medications',
     'medicationLogs','skinLogs','skinProducts','clients','transactions',
-    'routineLogs','categories','brainstorm'];
+    'routineLogs','categories','brainstorm',
+    // 'imports' no estaba, y por eso los despachos NO se combinaban por item:
+    // ganaba entera la lista del lado con la marca de tiempo mas nueva, asi que
+    // un despacho cargado en la Mac se podia perder cuando sincronizaba el
+    // telefono con datos viejos, y al revez. Mismo caso que 'accounts'.
+    // OJO: aca solo entran listas cuyos items tengan `id`. 'finCategories' y
+    // 'docCategories' son listas de texto suelto ("INVOICE") y el merge, que
+    // filtra por id, las borraria enteras: quedan afuera a proposito
+    // (5-nov-2026).
+    'imports'];
 
   // Prune deletion tombstones older than 30 days to keep the blob lean
   // Exposed on window so the React component script (separate <script> tag) can call it
@@ -5192,6 +5203,22 @@ var HomeScreen = function HomeScreen(_ref14) {
             action:function(){navigate('clients');}});
         }
       });
+      // 5. Despachos con fecha limite en aduana. Van ADELANTE de las demas
+      // porque la lista se corta en 5 (ver el slice de mas abajo) y una multa
+      // de aduana pesa mas que una alarma vieja sin tildar (5-nov-2026).
+      var _adu=[];
+      (data.imports||[]).forEach(function(imp){
+        var d=_impDiasLimite(imp);
+        if(d===null||d>7)return;
+        var ci=(data.clients||[]).find(function(x){return x.id===imp.clientId;});
+        var marca=ci?(ci.businessName||ci.name):'Sin asignar';
+        var trib=_impNum(imp.tributos);
+        _adu.push({id:'aduana_'+imp.id,icon:d<0?'🛑':'🏛',color:d<=0?'#ef4444':'#FF9800',
+          msg:marca+' '+(imp.season||'despacho')+' — aduana '+_impLimiteTexto(d)+(trib?' · Bs '+Math.round(trib).toLocaleString():''),
+          action:function(){navigate('imports');},_d:d});
+      });
+      _adu.sort(function(a,b){return a._d-b._d;});
+      if(_adu.length) alerts=_adu.concat(alerts);
       if(!alerts.length)return null;
       return /*#__PURE__*/React.createElement('div',{style:{background:'rgba(239,68,68,0.06)',border:'1px solid rgba(239,68,68,0.2)',borderRadius:12,padding:'10px 12px'}},
         /*#__PURE__*/React.createElement('div',{style:{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:8}},
@@ -19117,6 +19144,48 @@ var IMPORT_STATUS_COLORS = {
   'EN_ALMACÉN':'#00BCD4','RECIBIDO':'#4CAF50','CANCELADO':'#ef4444'
 };
 
+// Los numeros del modulo se escriben a mano y vienen de dos formas: "4640" y
+// "14.341". Number("14.341") da 14,341 (catorce), asi que el resumen Por Marca
+// venia sumando mal desde siempre. Aca el punto o la coma seguidos de tres
+// digitos son separador de miles; un punto con menos digitos sigue siendo coma
+// decimal (5-nov-2026).
+function _impNum(v) {
+  if (v === null || v === undefined) return 0;
+  var s = String(v).trim().replace(/\s/g, '');
+  if (!s) return 0;
+  s = s.replace(/[.,](?=\d{3}(?:[.,]|$))/g, '').replace(',', '.');
+  var n = parseFloat(s);
+  return isFinite(n) ? n : 0;
+}
+
+// Dias enteros hasta la fecha limite en aduana: 0 es hoy, negativo ya vencio.
+// Se compara dia calendario contra dia calendario a proposito; restar
+// timestamps y dividir por 86400000 corre un dia entero segun la hora.
+// Devuelve null si el despacho no tiene limite o ya se cerro.
+function _impDiasLimite(imp) {
+  if (!imp || !imp.limiteAduana) return null;
+  if (imp.status === 'RECIBIDO' || imp.status === 'CANCELADO') return null;
+  var p = String(imp.limiteAduana).slice(0, 10).split('-');
+  if (p.length !== 3) return null;
+  var lim = new Date(+p[0], +p[1] - 1, +p[2]).getTime();
+  if (!isFinite(lim)) return null;
+  var a = new Date();
+  var hoy = new Date(a.getFullYear(), a.getMonth(), a.getDate()).getTime();
+  return Math.round((lim - hoy) / 86400000);
+}
+function _impLimiteTexto(d) {
+  if (d === null) return '';
+  if (d < 0) return 'VENCIDO hace ' + (-d) + ' día' + (d < -1 ? 's' : '');
+  if (d === 0) return 'vence HOY';
+  return 'vence en ' + d + ' día' + (d > 1 ? 's' : '');
+}
+function _impLimiteColor(d) {
+  if (d === null) return 'var(--text-dim)';
+  if (d <= 0) return '#ef4444';
+  if (d <= 7) return '#FF9800';
+  return 'var(--text-dim)';
+}
+
 var ImportsScreen = function ImportsScreen(_ref_imp) {
   var data = _ref_imp.data, setData = _ref_imp.setData;
   var _iTab = useState('despachos'), _iTab2 = _slicedToArray(_iTab, 2), iTab = _iTab2[0], setITab = _iTab2[1];
@@ -19127,7 +19196,7 @@ var ImportsScreen = function ImportsScreen(_ref_imp) {
   var _iAiLoad = useState(false), _iAiLoad2 = _slicedToArray(_iAiLoad, 2), iAiLoad = _iAiLoad2[0], setIAiLoad = _iAiLoad2[1];
   var _iAiRes = useState(null), _iAiRes2 = _slicedToArray(_iAiRes, 2), iAiRes = _iAiRes2[0], setIAiRes = _iAiRes2[1];
   var _iAiErr = useState(''), _iAiErr2 = _slicedToArray(_iAiErr, 2), iAiErr = _iAiErr2[0], setIAiErr = _iAiErr2[1];
-  var emptyForm = {clientId:'',season:'',items:'',amount:'',status:'PENDIENTE',dateDispatch:'',etaArica:'',etaAduana:'',etaStorage:'',received:'',notes:''};
+  var emptyForm = {clientId:'',season:'',items:'',amount:'',status:'PENDIENTE',dateDispatch:'',etaArica:'',etaAduana:'',etaStorage:'',limiteAduana:'',tributos:'',bultos:'',received:'',notes:''};
   var _iForm = useState(emptyForm), _iForm2 = _slicedToArray(_iForm, 2), iForm = _iForm2[0], setIForm = _iForm2[1];
   var imports = data.imports || [];
   var allClients = data.clients || [];
@@ -19151,10 +19220,10 @@ var ImportsScreen = function ImportsScreen(_ref_imp) {
     setData(function(d){return Object.assign({},d,{imports:(d.imports||[]).filter(function(x){return x.id!==id;})});});
   };
   var exportCSV = function() {
-    var headers = ['Franquicia','Temporada','Prendas','Monto ($US)','Estado','Despacho','ETA Arica','ETA Aduana','ETA Almacén','Recibido','Observaciones'];
+    var headers = ['Franquicia','Temporada','Prendas','Monto ($US)','Estado','Despacho','ETA Arica','ETA Aduana','ETA Almacén','Límite Aduana','Tributos Bs','Bultos','Recibido','Observaciones'];
     var rows = filtered.map(function(imp){
       var c = allClients.find(function(x){return x.id===imp.clientId;});
-      return [c?(c.businessName||c.name):'',imp.season||'',imp.items||'',imp.amount||'',imp.status||'',imp.dateDispatch||'',imp.etaArica||'',imp.etaAduana||'',imp.etaStorage||'',imp.received||'',(imp.notes||'').replace(/,/g,';')];
+      return [c?(c.businessName||c.name):'',imp.season||'',imp.items||'',imp.amount||'',imp.status||'',imp.dateDispatch||'',imp.etaArica||'',imp.etaAduana||'',imp.etaStorage||'',imp.limiteAduana||'',imp.tributos||'',imp.bultos||'',imp.received||'',(imp.notes||'').replace(/,/g,';')];
     });
     var csv = [headers].concat(rows).map(function(r){return r.join(',');}).join('\n');
     try { navigator.clipboard.writeText(csv); alert('CSV copiado al portapapeles'); } catch(e) {}
@@ -19166,9 +19235,12 @@ var ImportsScreen = function ImportsScreen(_ref_imp) {
   imports.forEach(function(imp){
     var c = allClients.find(function(x){return x.id===imp.clientId;});
     var brand = c?(c.businessName||c.name):'Sin asignar';
-    if(!byBrand[brand]) byBrand[brand]={total:0,items:0,received:0,pending:0};
-    byBrand[brand].total += Number(imp.amount||0);
-    byBrand[brand].items += Number(imp.items||0);
+    if(!byBrand[brand]) byBrand[brand]={total:0,items:0,received:0,pending:0,tributos:0,porVencer:0};
+    byBrand[brand].total += _impNum(imp.amount);
+    byBrand[brand].items += _impNum(imp.items);
+    byBrand[brand].tributos += _impNum(imp.tributos);
+    var _d=_impDiasLimite(imp);
+    if(_d!==null&&_d<=7) byBrand[brand].porVencer++;
     if(imp.status==='RECIBIDO') byBrand[brand].received++;
     else if(imp.status!=='CANCELADO') byBrand[brand].pending++;
   });
@@ -19299,7 +19371,7 @@ var ImportsScreen = function ImportsScreen(_ref_imp) {
     // Build despachos context from app data
     var dataCtx = 'DESPACHOS REGISTRADOS EN SISTEMA ('+imports.length+'):\n'+(imports.length===0?'(ninguno registrado)':imports.map(function(imp){
       var c = allClients.find(function(x){return x.id===imp.clientId;});
-      return '- '+(c?(c.businessName||c.name):'Sin marca')+' | Temporada:'+imp.season+' | '+imp.items+' prendas | $'+(imp.amount||0)+' USD | Estado:'+imp.status+' | Despacho:'+imp.dateDispatch+(imp.etaArica?' | ETA Arica:'+imp.etaArica:'')+(imp.etaAduana?' | ETA Aduana:'+imp.etaAduana:'')+(imp.etaStorage?' | ETA Almacen:'+imp.etaStorage:'')+(imp.received?' | Recibido:'+imp.received:'')+(imp.notes?' | Obs:'+imp.notes:'');
+      return '- '+(c?(c.businessName||c.name):'Sin marca')+' | Temporada:'+imp.season+' | '+imp.items+' prendas | $'+(imp.amount||0)+' USD | Estado:'+imp.status+' | Despacho:'+imp.dateDispatch+(imp.etaArica?' | ETA Arica:'+imp.etaArica:'')+(imp.etaAduana?' | ETA Aduana:'+imp.etaAduana:'')+(imp.etaStorage?' | ETA Almacen:'+imp.etaStorage:'')+(imp.limiteAduana?' | LIMITE EN ADUANA:'+imp.limiteAduana:'')+(imp.tributos?' | Tributos Bs:'+imp.tributos:'')+(imp.bultos?' | Bultos:'+imp.bultos:'')+(imp.received?' | Recibido:'+imp.received:'')+(imp.notes?' | Obs:'+imp.notes:'');
     }).join('\n'));
 
     var systemPrompt = 'Eres asistente de logistica de importacion para Ventura Mall (La Paz, Bolivia). Analiza los despachos del sistema y los correos de logistica disponibles. Genera un REPORTE EJECUTIVO con: ## RESUMEN POR MARCA (estado, montos, ETAs), ## ALERTAS (retrasos, pendientes urgentes detectados en correos), ## CRONOGRAMA (proximas fechas clave), ## ACCIONES INMEDIATAS. USA SOLO datos reales. Sin inventar. Si no hay correos, indica lo que se sabe del sistema.';
@@ -19402,7 +19474,9 @@ var ImportsScreen = function ImportsScreen(_ref_imp) {
           :filtered.map(function(imp){
               var c=allClients.find(function(x){return x.id===imp.clientId;});
               var brand=c?(c.businessName||c.name):'Sin asignar';
-              return React.createElement('div',{key:imp.id,style:{background:'var(--card)',border:'1px solid var(--border)',borderRadius:10,padding:'10px 12px',marginBottom:8}},
+              var _dLim=_impDiasLimite(imp);
+              return React.createElement('div',{key:imp.id,style:{background:'var(--card)',border:'1px solid var(--border)',borderRadius:10,padding:'10px 12px',marginBottom:8,
+                borderLeft:_dLim!==null&&_dLim<=7?'3px solid '+_impLimiteColor(_dLim):'1px solid var(--border)'}},
                 React.createElement('div',{style:{display:'flex',justifyContent:'space-between',alignItems:'flex-start',marginBottom:4}},
                   React.createElement('div',null,
                     React.createElement('span',{style:{fontWeight:800,fontSize:13}},'['+brand+']'),
@@ -19414,13 +19488,17 @@ var ImportsScreen = function ImportsScreen(_ref_imp) {
                     React.createElement('button',{className:'btn btn-danger btn-sm',style:{fontSize:10,padding:'2px 6px'},onClick:function(){_borrarConDeshacer(_nombreDe(imp), function(){ deleteImport(imp.id); });}},'🗑'))
                   )
                 ),
+                _dLim!==null&&React.createElement('div',{style:{fontSize:10,fontWeight:800,color:_impLimiteColor(_dLim),marginBottom:4}},
+                  (_dLim<0?'🛑':'⏳')+' Límite en aduana '+imp.limiteAduana+' — '+_impLimiteTexto(_dLim)),
                 React.createElement('div',{style:{display:'grid',gridTemplateColumns:'1fr 1fr 1fr',gap:'4px 12px',fontSize:10,color:'var(--text-dim)'}},
-                  React.createElement('span',null,'📦 '+Number(imp.items||0).toLocaleString()+' prendas'),
-                  React.createElement('span',null,'💰 $'+Number(imp.amount||0).toLocaleString()),
+                  React.createElement('span',null,'📦 '+_impNum(imp.items).toLocaleString()+' prendas'),
+                  React.createElement('span',null,'💰 $'+_impNum(imp.amount).toLocaleString()),
                   React.createElement('span',null,'✈️ Arica: '+(imp.etaArica||'—')),
                   imp.dateDispatch&&React.createElement('span',null,'📅 Despacho: '+imp.dateDispatch),
                   imp.etaAduana&&React.createElement('span',null,'🏛 Aduana: '+imp.etaAduana),
                   imp.etaStorage&&React.createElement('span',null,'🏭 Almacén: '+imp.etaStorage),
+                  imp.bultos&&React.createElement('span',null,'🧳 '+_impNum(imp.bultos).toLocaleString()+' bultos'),
+                  imp.tributos&&React.createElement('span',null,'🧾 Tributos Bs '+_impNum(imp.tributos).toLocaleString()),
                   imp.received&&React.createElement('span',null,'✅ Recibido: '+imp.received)
                 ),
                 imp.notes&&React.createElement('div',{style:{marginTop:4,fontSize:10,color:'var(--text-dim)',fontStyle:'italic'}},imp.notes)
@@ -19447,7 +19525,13 @@ var ImportsScreen = function ImportsScreen(_ref_imp) {
                     React.createElement('div',{style:{fontSize:10,color:'var(--text-dim)'}},'Recibidos')),
                   React.createElement('div',{style:{background:'rgba(255,152,0,0.08)',borderRadius:8,padding:'8px',textAlign:'center'}},
                     React.createElement('div',{style:{fontSize:18,fontWeight:800,color:'#FF9800'}},stats.pending),
-                    React.createElement('div',{style:{fontSize:10,color:'var(--text-dim)'}},'En proceso'))
+                    React.createElement('div',{style:{fontSize:10,color:'var(--text-dim)'}},'En proceso')),
+                  stats.tributos>0&&React.createElement('div',{style:{background:'rgba(107,63,160,0.08)',borderRadius:8,padding:'8px',textAlign:'center'}},
+                    React.createElement('div',{style:{fontSize:18,fontWeight:800,color:'var(--purple-light)'}},'Bs '+stats.tributos.toLocaleString()),
+                    React.createElement('div',{style:{fontSize:10,color:'var(--text-dim)'}},'Tributos')),
+                  stats.porVencer>0&&React.createElement('div',{style:{background:'rgba(239,68,68,0.08)',borderRadius:8,padding:'8px',textAlign:'center'}},
+                    React.createElement('div',{style:{fontSize:18,fontWeight:800,color:'#ef4444'}},stats.porVencer),
+                    React.createElement('div',{style:{fontSize:10,color:'var(--text-dim)'}},'Límite ≤ 7 días'))
                 )
               );
             })
@@ -19490,9 +19574,13 @@ var ImportsScreen = function ImportsScreen(_ref_imp) {
           React.createElement('div',null,React.createElement('label',{style:{fontSize:11,color:'var(--text-dim)'}},'🏛 ETA Aduana'),React.createElement('input',{type:'date',value:iForm.etaAduana,onChange:function(e){setIForm(function(f){return Object.assign({},f,{etaAduana:e.target.value});})}})),
           React.createElement('div',null,React.createElement('label',{style:{fontSize:11,color:'var(--text-dim)'}},'🏭 ETA Almacén'),React.createElement('input',{type:'date',value:iForm.etaStorage,onChange:function(e){setIForm(function(f){return Object.assign({},f,{etaStorage:e.target.value});})}}))
         ),
-        React.createElement('div',null,
-          React.createElement('label',{style:{fontSize:11,color:'var(--text-dim)'}},'Fecha Recepción Real'),
-          React.createElement('input',{type:'date',value:iForm.received,onChange:function(e){setIForm(function(f){return Object.assign({},f,{received:e.target.value});})}})
+        React.createElement('div',{style:{display:'grid',gridTemplateColumns:'1fr 1fr',gap:8}},
+          React.createElement('div',null,React.createElement('label',{style:{fontSize:11,color:'#FF9800',fontWeight:700}},'⏳ Límite en aduana'),React.createElement('input',{type:'date',value:iForm.limiteAduana,onChange:function(e){setIForm(function(f){return Object.assign({},f,{limiteAduana:e.target.value});})}})),
+          React.createElement('div',null,React.createElement('label',{style:{fontSize:11,color:'var(--text-dim)'}},'Fecha Recepción Real'),React.createElement('input',{type:'date',value:iForm.received,onChange:function(e){setIForm(function(f){return Object.assign({},f,{received:e.target.value});})}}))
+        ),
+        React.createElement('div',{style:{display:'grid',gridTemplateColumns:'1fr 1fr',gap:8}},
+          React.createElement('div',null,React.createElement('label',{style:{fontSize:11,color:'var(--text-dim)'}},'🧳 Bultos'),React.createElement('input',{placeholder:'Cantidad de bultos',type:'number',value:iForm.bultos,onChange:function(e){setIForm(function(f){return Object.assign({},f,{bultos:e.target.value});})}})),
+          React.createElement('div',null,React.createElement('label',{style:{fontSize:11,color:'var(--text-dim)'}},'🧾 Tributos Bs'),React.createElement('input',{placeholder:'Tributos en Bs',type:'number',value:iForm.tributos,onChange:function(e){setIForm(function(f){return Object.assign({},f,{tributos:e.target.value});})}}))
         ),
         React.createElement('textarea',{placeholder:'Observaciones...',value:iForm.notes,onChange:function(e){setIForm(function(f){return Object.assign({},f,{notes:e.target.value});})},style:{minHeight:60}})
       )
