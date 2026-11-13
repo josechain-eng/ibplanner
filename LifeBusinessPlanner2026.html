@@ -22,7 +22,7 @@
 <script>
 (function() {
   // ── Version ──────────────────────────────────────────────────────────────
-  window.LBP_VERSION = '5.67';
+  window.LBP_VERSION = '5.68';
 
   // ── PWA Install prompt ───────────────────────────────────────────────────
   window._installPrompt = null;
@@ -402,7 +402,7 @@
             });
             // Sobre la lista ENTERA, no solo sobre las nuevas: las que ya
             // estaban importadas tambien entraron sin alarma.
-            existing = _ponerAlarmasGcal(existing, Date.now());
+            existing = _normalizarGcal(existing, Date.now());
             return Object.assign({}, d, { meetings: existing });
           });
           window.dispatchEvent(new Event('lbp_gcal_pulled'));
@@ -2949,8 +2949,12 @@ function _fechaLocal(d) {
 // T-5: es el mecanismo "escalante" que la app ya tiene (scheduleAlarms agenda
 // cada salto como alarma propia en la nube), sin inventar un aviso nuevo.
 function _alarmaReunionGcal(m, ahoraMs) {
-  if (!m || !m.fromGcal) return null;
-  if (m.alarm && m.alarm.datetime) return null;  // ya tiene una: es de Pepe
+  // `fromGcal` son las de Google; `confirmacion` cubre ademas las que traiga el
+  // correo en la parte B, que asi la hereda sin tocar nada (lo pide el diseno).
+  if (!m || (!m.fromGcal && !m.confirmacion)) return null;
+  // Si hay objeto `alarm`, Pepe abrio el panel: con fecha es una alarma suya, y
+  // apagada sin fecha es una decision suya igual. En los dos casos, no se toca.
+  if (m.alarm && (m.alarm.datetime || m.alarm.enabled === false)) return null;
   var fecha = String(m.date || '');
   if (!/^\d{4}-\d{2}-\d{2}$/.test(fecha)) return null;
   var hhmm, saltos = null;
@@ -2994,6 +2998,12 @@ function _reunionesParaAvisarYa(meetings, ahoraMs) {
   var pasoLas17 = ahora.getHours() >= 17;
   return (meetings || []).filter(function(m) {
     if (!m) return false;
+    // Un evento de dia entero (un cumpleanos) no es una reunion a las 00:00:
+    // avisarlo "al toque" es la alarma al pedo del anti objetivo.
+    if (_esDiaEntero(m)) return false;
+    // scheduleAlarms ya salta las completadas y canceladas; esto hacia lo
+    // contrario: avisaba de una reunion que Pepe acababa de cancelar.
+    if (m.status === 'CANCELLED' || m.status === 'DONE' || m.status === 'ARCHIVED') return false;
     var f = String(m.date || '');
     if (f !== hoy && !(f === manana && pasoLas17)) return false;
     var t = String(m.startTime || '');
@@ -3028,16 +3038,24 @@ function _avisarReunionesNuevas(meetings, ahoraMs) {
   try { localStorage.setItem('lbp_reuniones_avisadas', JSON.stringify(avisadas)); } catch (e) {}
   return n;
 }
-// Devuelve la MISMA lista si no hubo nada que poner: si devolviera una copia,
-// cada sincronizacion (cada 15 min) reescribiria los datos y dispararia sync.
-function _ponerAlarmasGcal(meetings, ahoraMs) {
+// Pone la alarma Y marca ACEPTADA, en una sola pasada sobre la lista entera.
+// Las dos cosas van juntas porque el bucle de _gcalPull sale antes de tocar un
+// evento que ya existe, y ahi se escribia `confirmacion`: las 12 reuniones que
+// ya estaban importadas no se iban a marcar nunca.
+// Devuelve la MISMA lista si no hubo nada que cambiar.
+function _normalizarGcal(meetings, ahoraMs) {
   var lista = meetings || [];
   var cambio = false;
   var out = lista.map(function(m) {
-    var a = _alarmaReunionGcal(m, ahoraMs);
-    if (!a) return m;
+    var nuevo = m;
+    if (m && m.fromGcal && !m.confirmacion) {
+      nuevo = Object.assign({}, nuevo, { confirmacion: 'ACEPTADA' });
+    }
+    var a = _alarmaReunionGcal(nuevo, ahoraMs);
+    if (a) nuevo = Object.assign({}, nuevo, { alarm: a });
+    if (nuevo === m) return m;
     cambio = true;
-    return Object.assign({}, m, { alarm: a });
+    return nuevo;
   });
   return cambio ? out : lista;
 }

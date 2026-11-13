@@ -30,8 +30,8 @@ function traer(nombres, prologo = '', extra = []) {
   return new Function(prologo + '\n' + src + '\nreturn {' + nombres.concat(extra).join(',') + '};')();
 }
 
-const { _esDiaEntero, _alarmaReunionGcal, _ponerAlarmasGcal } =
-  traer(['defaultAlarm', '_fechaLocal', '_esDiaEntero', '_alarmaReunionGcal', '_ponerAlarmasGcal']);
+const { _esDiaEntero, _alarmaReunionGcal, _normalizarGcal } =
+  traer(['defaultAlarm', '_fechaLocal', '_esDiaEntero', '_alarmaReunionGcal', '_normalizarGcal']);
 
 const hoy = (h, m) => { const d = new Date(); d.setHours(h, m, 0, 0); return d; };
 const iso = (d) => d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0');
@@ -86,12 +86,12 @@ test('no toca lo que no viene de Google ni lo que ya tiene alarma', () => {
 
 test('_ponerAlarmasGcal devuelve la MISMA lista si no hay nada que poner', () => {
   const l = [{id:'a', date:iso(hoy(0,0)), startTime:'15:00'}];
-  assert.equal(_ponerAlarmasGcal(l, ahora), l);
+  assert.equal(_normalizarGcal(l, ahora), l);
 });
 
 test('_ponerAlarmasGcal solo cambia las que corresponden', () => {
   const l = [{id:'a', fromGcal:true, date:iso(hoy(0,0)), startTime:'15:00'}, {id:'b', date:iso(hoy(0,0)), startTime:'16:00'}];
-  const r = _ponerAlarmasGcal(l, ahora);
+  const r = _normalizarGcal(l, ahora);
   assert.notEqual(r, l);
   assert.equal(r[0].alarm.datetime, iso(hoy(0,0)) + 'T14:00');
   assert.equal(r[1].alarm, undefined);
@@ -101,16 +101,16 @@ test('el importador marca ACEPTADA y aplica las alarmas sobre la lista entera', 
   const i = html.indexOf("window._gcalPull = function");
   const cuerpo = html.slice(i, html.indexOf("window.dispatchEvent(new Event('lbp_gcal_pulled'))", i));
   assert.ok(/confirmacion: 'ACEPTADA'/.test(cuerpo), 'el evento importado no se marca ACEPTADA');
-  assert.ok(/_ponerAlarmasGcal\(existing/.test(cuerpo),
+  assert.ok(/_normalizarGcal\(existing/.test(cuerpo),
     'tiene que correr sobre la lista entera, no solo sobre las nuevas: las 12 ya importadas también necesitan alarma');
-  assert.ok(cuerpo.indexOf('_ponerAlarmasGcal') > cuerpo.indexOf('existing.push'),
+  assert.ok(cuerpo.indexOf('_normalizarGcal') > cuerpo.indexOf('existing.push'),
     'la pasada va DESPUÉS de agregar las nuevas');
 });
 
 test('la pasada es idempotente: correrla dos veces da la misma lista', () => {
   const l = [{id:'a', fromGcal:true, date:iso(hoy(0,0)), startTime:'15:00'}];
-  const uno = _ponerAlarmasGcal(l, ahora);
-  assert.equal(_ponerAlarmasGcal(uno, ahora), uno,
+  const uno = _normalizarGcal(l, ahora);
+  assert.equal(_normalizarGcal(uno, ahora), uno,
     'si no devuelve la misma referencia, cada sync de 15 min reescribe los datos');
 });
 
@@ -141,7 +141,7 @@ const PROLOGO = `
   function _fireNotification(t, b) { __avisos.push(t + '|' + b); }
 `;
 const avisar = traer(
-  ['_fechaLocal', '_reunionesParaAvisarYa', '_avisarReunionesNuevas'],
+  ['_fechaLocal', '_esDiaEntero', '_reunionesParaAvisarYa', '_avisarReunionesNuevas'],
   PROLOGO,
   ['__avisos']
 );
@@ -195,4 +195,52 @@ test('sí avisa de lo que entró solo, venga de Google o del correo', () => {
   assert.equal(avisar._avisarReunionesNuevas([Object.assign({id:'g'}, base, {fromGcal:true})], hoy(9,0).getTime()), 1);
   assert.equal(avisar._avisarReunionesNuevas([Object.assign({id:'c'}, base, {confirmacion:'PROPUESTA'})], hoy(9,0).getTime()), 1,
     'las que traiga la parte B desde el correo también');
+});
+
+// ── Hallazgos de la revisión de rama (13-nov-2026) ─────────────────────────
+
+// 1. El bucle de _gcalPull sale antes de tocar un evento que ya existe, y
+// `confirmacion` solo se escribía ahí. Las 12 reuniones que motivaron todo el
+// cambio nunca iban a mostrar el chip.
+test('las reuniones de Google que ya estaban también quedan marcadas ACEPTADA', () => {
+  const r = _normalizarGcal([{id:'vieja', fromGcal:true, date:iso(hoy(0,0)), startTime:'15:00'}], ahora);
+  assert.equal(r[0].confirmacion, 'ACEPTADA');
+});
+
+test('no le pone confirmacion a lo que no vino de Google', () => {
+  const l = [{id:'mia', date:iso(hoy(0,0)), startTime:'15:00'}];
+  assert.equal(_normalizarGcal(l, ahora), l, 'ni la toca');
+});
+
+// 2. Un cumpleaños es un evento de día entero: avisarlo "al toque" como
+// «Reunión 00:00 — Cumpleaños de Lucy» es la alarma al pedo del anti objetivo.
+test('no avisa al toque de un cumpleaños (evento de día entero)', () => {
+  const man = iso(new Date(hoy(0,0).getTime() + 86400000));
+  assert.deepEqual(avisar._reunionesParaAvisarYa(
+    [{id:'c', fromGcal:true, date:man, startTime:'00:00', endTime:'00:00', title:'Cumpleaños de Lucy'}],
+    hoy(18,0).getTime()), []);
+});
+
+// 4. scheduleAlarms salta las canceladas; el aviso al toque no lo hacía.
+test('no avisa de una reunion cancelada o archivada', () => {
+  for (const st of ['CANCELLED', 'DONE', 'ARCHIVED']) {
+    assert.deepEqual(avisar._reunionesParaAvisarYa(
+      [{id:'x', fromGcal:true, date:iso(hoy(0,0)), startTime:'15:00', status:st}], hoy(9,0).getTime()), [],
+      'con status ' + st);
+  }
+});
+
+// 6. El candado miraba `datetime`. Si Pepe abre el panel y la deja apagada sin
+// fecha, queda {enabled:false, datetime:''} y se le volvía a encender.
+test('una alarma apagada a mano sin fecha tampoco se re-enciende', () => {
+  const m = {fromGcal:true, date:iso(hoy(0,0)), startTime:'15:00', alarm:{enabled:false, datetime:''}};
+  assert.equal(_alarmaReunionGcal(m, ahora), null);
+});
+
+// 7. El diseño dice que B hereda esto sin tocar nada, pero la alarma exigía
+// fromGcal y el aviso al toque no: lo del correo avisaba y no sonaba.
+test('lo que traiga el correo (confirmacion, sin fromGcal) también recibe alarma', () => {
+  const a = _alarmaReunionGcal({confirmacion:'PROPUESTA', date:iso(hoy(0,0)), startTime:'15:00'}, ahora);
+  assert.ok(a, 'la parte B tiene que heredarla sin tocar nada');
+  assert.equal(a.label, 'Reunión propuesta');
 });

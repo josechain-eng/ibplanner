@@ -20,10 +20,17 @@ instante si entró demasiado tarde para el recordatorio del día anterior, y que
 en el resumen del día y en la alarma se vea si es una reunión **aceptada** o
 **propuesta**.
 
-Pepe cerró el alcance de los avisos el 13-nov: **al toque y 1 hora antes**. Un
-segundo aviso previo a los 30 minutos queda afuera: cada reunión guarda una
-sola alarma, y meter dos obligaría a tocar el agendador de los diez módulos o
-a sumar un push nuevo en el worker.
+Pepe cerró el alcance de los avisos el 13-nov: **al toque y 1 hora antes**. Más
+tarde, el mismo día, preguntó si la alarma podía ser escalante «ya que se pone
+solo una», y ahí se encontró que `repeatIntervals` acepta cualquier lista de
+saltos y agenda cada uno como alarma propia. **Alcance final: aviso al toque y
+después T−60, T−30, T−15 y T−5**, con los saltos `[30, 45, 55]` sobre la base de
+una hora antes. Esto reemplaza el push nuevo en el worker que se había evaluado
+para el aviso de los 30 minutos: no hace falta tocar ni el worker ni el modelo.
+
+Queda sabido, y aceptado: las reuniones que Pepe carga a mano usan
+`meetingAlarmDefault`, con un solo recordatorio a los +30. O sea que las de
+Google avisan más veces que las suyas.
 
 **No objetivo:** leer el correo. Eso es la parte B, que va después y usará el
 mismo campo y la misma etiqueta que deja esta.
