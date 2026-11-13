@@ -163,7 +163,7 @@ test('no avisa de una reunion que ya empezo', () => {
 });
 
 test('no repite el aviso de la misma reunion', () => {
-  const l = [{id:'u', date:iso(hoy(0,0)), startTime:'15:00', title:'Con Mango'}];
+  const l = [{id:'u', fromGcal:true, date:iso(hoy(0,0)), startTime:'15:00', title:'Con Mango'}];
   assert.equal(avisar._avisarReunionesNuevas(l, hoy(9,0).getTime()), 1);
   assert.equal(avisar._avisarReunionesNuevas(l, hoy(9,5).getTime()), 0, 'la segunda vez no avisa');
   assert.equal(avisar.__avisos.length, 1);
@@ -178,4 +178,21 @@ test('el aviso al toque se llama fuera del reductor de setData', () => {
   assert.ok(/_avisarReunionesNuevas\(/.test(cuerpo), 'no se llama al sincronizar');
   assert.ok(cuerpo.indexOf('_avisarReunionesNuevas') > cuerpo.indexOf("lbp_gcal_pulled"),
     'tiene que ir después del reductor, no adentro: React puede correrlo dos veces');
+});
+
+// Hallazgo al probarlo en el sitio publicado: _gcalPull le pasa la lista ENTERA
+// de reuniones, asi que una que Pepe acaba de cargar a mano para hoy le
+// disparaba un aviso "al toque" 15 minutos despues. El acaba de escribirla: ya
+// lo sabe. Solo se avisa de lo que entro solo.
+test('no avisa al toque de una reunion que cargó él mismo', () => {
+  const l = [{id:'mia', date:iso(hoy(0,0)), startTime:'15:00', title:'La cargué yo'}];
+  assert.equal(avisar._avisarReunionesNuevas(l, hoy(9,0).getTime()), 0,
+    'sin fromGcal ni confirmacion, es de Pepe: no se avisa');
+});
+
+test('sí avisa de lo que entró solo, venga de Google o del correo', () => {
+  const base = {date:iso(hoy(0,0)), startTime:'15:00', title:'X'};
+  assert.equal(avisar._avisarReunionesNuevas([Object.assign({id:'g'}, base, {fromGcal:true})], hoy(9,0).getTime()), 1);
+  assert.equal(avisar._avisarReunionesNuevas([Object.assign({id:'c'}, base, {confirmacion:'PROPUESTA'})], hoy(9,0).getTime()), 1,
+    'las que traiga la parte B desde el correo también');
 });

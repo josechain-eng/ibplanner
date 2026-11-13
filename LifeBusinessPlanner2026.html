@@ -3011,6 +3011,10 @@ function _avisarReunionesNuevas(meetings, ahoraMs) {
   var n = 0;
   _reunionesParaAvisarYa(meetings, ahoraMs).forEach(function(m) {
     if (!m.id || avisadas.indexOf(m.id) >= 0) return;
+    // Solo lo que entro solo. _gcalPull pasa la lista ENTERA, y una reunion que
+    // Pepe acaba de escribir no necesita que le avisen: ya la sabe. `fromGcal`
+    // son las de Google; `confirmacion` cubre ademas las que traiga el correo.
+    if (!m.fromGcal && !m.confirmacion) return;
     var titulo = 'Reunión ' + m.startTime + ' — ' + (m.title || 'sin título');
     var cuerpo = m.confirmacion === 'PROPUESTA' ? 'Reunión propuesta, confirmá si va' : 'Reunión aceptada';
     _fireNotification(titulo, cuerpo, 'lbp_reunion_' + m.id, 'long');
