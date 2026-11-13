@@ -406,6 +406,15 @@
             return Object.assign({}, d, { meetings: existing });
           });
           window.dispatchEvent(new Event('lbp_gcal_pulled'));
+          // El aviso al toque va FUERA del reductor de setData: ese es asincrono
+          // en React 18 y puede correr dos veces, asi que "despues de que
+          // devuelve" no es un momento real. Se lee el dato ya aplicado en el
+          // proximo turno; si llegara a leerlo viejo, la marca en localStorage
+          // hace que el proximo sync (15 min) avise sin repetir nada.
+          setTimeout(function() {
+            var dd = window._getDataGlobal && window._getDataGlobal();
+            if (dd) _avisarReunionesNuevas(dd.meetings || [], Date.now());
+          }, 0);
         }).catch(function(){});
     });
   };
@@ -2967,6 +2976,53 @@ function _alarmaReunionGcal(m, ahoraMs) {
   a.label = m.confirmacion === 'PROPUESTA' ? 'Reunión propuesta' : 'Reunión aceptada';
   if (saltos) { a.repeatIntervals = saltos; a.repeatCount = saltos.length; }
   return a;
+}
+// ── Aviso al toque (13-nov-2026) ──────────────────────────────────────────
+// El recordatorio del dia anterior es un push del worker a las 17:00 de Bolivia
+// que mira las reuniones de manana (sendSmartNotif 'deadlines'). Todo lo que
+// entra DESPUES de esa hora no recibe nada hasta la alarma de 1 hora antes.
+//
+// Por eso la ventana es angosta a proposito: hoy, o manana cuando ya pasaron
+// las 17:00. Avisar de cualquier reunion nueva seria ruido — si me entero el
+// martes de una del jueves, el push del miercoles ya hace el trabajo — y el
+// ruido es el anti objetivo del diseno: una alarma al pedo le hace perder la
+// confianza en todas las demas.
+function _reunionesParaAvisarYa(meetings, ahoraMs) {
+  var ahora = new Date(ahoraMs);
+  var hoy = _fechaLocal(ahora);
+  var manana = _fechaLocal(new Date(ahoraMs + 86400000));
+  var pasoLas17 = ahora.getHours() >= 17;
+  return (meetings || []).filter(function(m) {
+    if (!m) return false;
+    var f = String(m.date || '');
+    if (f !== hoy && !(f === manana && pasoLas17)) return false;
+    var t = String(m.startTime || '');
+    if (!/^([01]\d|2[0-3]):[0-5]\d$/.test(t)) return false;
+    var ini = new Date(f + 'T' + t + ':00');
+    return !isNaN(ini.getTime()) && ini.getTime() > ahoraMs;  // ya empezada, no
+  });
+}
+// Avisa una sola vez por reunion. Sin la marca sonaria en cada sincronizacion,
+// o sea cada 15 minutos.
+function _avisarReunionesNuevas(meetings, ahoraMs) {
+  var avisadas;
+  try { avisadas = JSON.parse(localStorage.getItem('lbp_reuniones_avisadas') || '[]'); } catch (e) { avisadas = []; }
+  if (!Array.isArray(avisadas)) avisadas = [];
+  var n = 0;
+  _reunionesParaAvisarYa(meetings, ahoraMs).forEach(function(m) {
+    if (!m.id || avisadas.indexOf(m.id) >= 0) return;
+    var titulo = 'Reunión ' + m.startTime + ' — ' + (m.title || 'sin título');
+    var cuerpo = m.confirmacion === 'PROPUESTA' ? 'Reunión propuesta, confirmá si va' : 'Reunión aceptada';
+    _fireNotification(titulo, cuerpo, 'lbp_reunion_' + m.id, 'long');
+    avisadas.push(m.id);
+    n++;
+  });
+  // Podar: solo los ids que siguen entre las reuniones, para que no crezca sola.
+  var vivos = {};
+  (meetings || []).forEach(function(m) { if (m && m.id) vivos[m.id] = 1; });
+  avisadas = avisadas.filter(function(id) { return vivos[id]; });
+  try { localStorage.setItem('lbp_reuniones_avisadas', JSON.stringify(avisadas)); } catch (e) {}
+  return n;
 }
 // Devuelve la MISMA lista si no hubo nada que poner: si devolviera una copia,
 // cada sincronizacion (cada 15 min) reescribiria los datos y dispararia sync.

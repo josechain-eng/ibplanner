@@ -25,9 +25,9 @@ function fuente(nombre) {
 }
 
 // Varias juntas, para que puedan llamarse entre ellas.
-function traer(nombres, prologo = '') {
+function traer(nombres, prologo = '', extra = []) {
   const src = nombres.map(fuente).join('\n');
-  return new Function(prologo + '\n' + src + '\nreturn {' + nombres.join(',') + '};')();
+  return new Function(prologo + '\n' + src + '\nreturn {' + nombres.concat(extra).join(',') + '};')();
 }
 
 const { _esDiaEntero, _alarmaReunionGcal, _ponerAlarmasGcal } =
@@ -124,4 +124,58 @@ test('el resumen del dia aclara si la reunion es aceptada o propuesta', () => {
 test('los dos textos de la alarma existen', () => {
   assert.ok(html.includes("'Reunión aceptada'"));
   assert.ok(html.includes("'Reunión propuesta'"));
+});
+
+// ── Aviso al toque ─────────────────────────────────────────────────────────
+// El worker ya manda un push por reunion a las 17:00 de Bolivia mirando las de
+// manana (worker.js, sendSmartNotif 'deadlines'). Lo que entra despues de esa
+// hora no recibe nada hasta la alarma de 1 hora antes: eso es lo que se tapa.
+// _fireNotification y localStorage se inyectan de mentira para espiarlos.
+const PROLOGO = `
+  var __avisos = [];
+  var __guardado = {};
+  var localStorage = {
+    getItem: function(k) { return k in __guardado ? __guardado[k] : null; },
+    setItem: function(k, v) { __guardado[k] = String(v); }
+  };
+  function _fireNotification(t, b) { __avisos.push(t + '|' + b); }
+`;
+const avisar = traer(
+  ['_fechaLocal', '_reunionesParaAvisarYa', '_avisarReunionesNuevas'],
+  PROLOGO,
+  ['__avisos']
+);
+
+test('solo avisa al toque lo que ya no alcanza el recordatorio de las 17:00', () => {
+  const hoyIso = iso(hoy(0,0));
+  const manIso = iso(new Date(hoy(0,0).getTime() + 86400000));
+  const lejos = iso(new Date(hoy(0,0).getTime() + 3*86400000));
+  const r = (l, ms) => avisar._reunionesParaAvisarYa(l, ms).map(x => x.id);
+  assert.deepEqual(r([{id:'hoy', date:hoyIso, startTime:'15:00'}], hoy(9,0).getTime()), ['hoy']);
+  assert.deepEqual(r([{id:'man', date:manIso, startTime:'10:00'}], hoy(9,0).getTime()), [],
+    'manana antes de las 17:00 lo cubre el push del worker');
+  assert.deepEqual(r([{id:'man', date:manIso, startTime:'10:00'}], hoy(18,0).getTime()), ['man']);
+  assert.deepEqual(r([{id:'lejos', date:lejos, startTime:'10:00'}], hoy(18,0).getTime()), []);
+});
+
+test('no avisa de una reunion que ya empezo', () => {
+  assert.deepEqual(avisar._reunionesParaAvisarYa([{id:'x', date:iso(hoy(0,0)), startTime:'08:00'}], hoy(9,0).getTime()), []);
+});
+
+test('no repite el aviso de la misma reunion', () => {
+  const l = [{id:'u', date:iso(hoy(0,0)), startTime:'15:00', title:'Con Mango'}];
+  assert.equal(avisar._avisarReunionesNuevas(l, hoy(9,0).getTime()), 1);
+  assert.equal(avisar._avisarReunionesNuevas(l, hoy(9,5).getTime()), 0, 'la segunda vez no avisa');
+  assert.equal(avisar.__avisos.length, 1);
+  assert.match(avisar.__avisos[0], /Con Mango/);
+});
+
+test('el aviso al toque se llama fuera del reductor de setData', () => {
+  const i = html.indexOf("window._gcalPull = function");
+  // El cuerpo de _gcalPull entero: la siguiente asignacion a window._gcal* lo cierra.
+  const fin = html.indexOf('window._gcal', html.indexOf("lbp_gcal_pulled", i));
+  const cuerpo = html.slice(i, fin > i ? fin : i + 5000);
+  assert.ok(/_avisarReunionesNuevas\(/.test(cuerpo), 'no se llama al sincronizar');
+  assert.ok(cuerpo.indexOf('_avisarReunionesNuevas') > cuerpo.indexOf("lbp_gcal_pulled"),
+    'tiene que ir después del reductor, no adentro: React puede correrlo dos veces');
 });
