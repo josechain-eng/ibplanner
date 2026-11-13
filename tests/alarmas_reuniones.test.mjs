@@ -96,3 +96,20 @@ test('_ponerAlarmasGcal solo cambia las que corresponden', () => {
   assert.equal(r[0].alarm.datetime, iso(hoy(0,0)) + 'T14:00');
   assert.equal(r[1].alarm, undefined);
 });
+
+test('el importador marca ACEPTADA y aplica las alarmas sobre la lista entera', () => {
+  const i = html.indexOf("window._gcalPull = function");
+  const cuerpo = html.slice(i, html.indexOf("window.dispatchEvent(new Event('lbp_gcal_pulled'))", i));
+  assert.ok(/confirmacion: 'ACEPTADA'/.test(cuerpo), 'el evento importado no se marca ACEPTADA');
+  assert.ok(/_ponerAlarmasGcal\(existing/.test(cuerpo),
+    'tiene que correr sobre la lista entera, no solo sobre las nuevas: las 12 ya importadas también necesitan alarma');
+  assert.ok(cuerpo.indexOf('_ponerAlarmasGcal') > cuerpo.indexOf('existing.push'),
+    'la pasada va DESPUÉS de agregar las nuevas');
+});
+
+test('la pasada es idempotente: correrla dos veces da la misma lista', () => {
+  const l = [{id:'a', fromGcal:true, date:iso(hoy(0,0)), startTime:'15:00'}];
+  const uno = _ponerAlarmasGcal(l, ahora);
+  assert.equal(_ponerAlarmasGcal(uno, ahora), uno,
+    'si no devuelve la misma referencia, cada sync de 15 min reescribe los datos');
+});

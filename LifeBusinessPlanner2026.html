@@ -395,9 +395,14 @@
                 status: 'SCHEDULED',
                 isOnline: !!(ev.hangoutLink || (ev.conferenceData && ev.conferenceData.entryPoints)),
                 createdAt: ev.created || new Date().toISOString(),
-                fromGcal: true
+                fromGcal: true,
+                // Si esta en su calendario, la acepto. B llenara 'PROPUESTA'.
+                confirmacion: 'ACEPTADA'
               });
             });
+            // Sobre la lista ENTERA, no solo sobre las nuevas: las que ya
+            // estaban importadas tambien entraron sin alarma.
+            existing = _ponerAlarmasGcal(existing, Date.now());
             return Object.assign({}, d, { meetings: existing });
           });
           window.dispatchEvent(new Event('lbp_gcal_pulled'));
