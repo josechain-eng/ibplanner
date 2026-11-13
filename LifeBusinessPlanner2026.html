@@ -2913,6 +2913,69 @@ var defaultAlarm = function defaultAlarm() {
     vibration: 'long'
   };
 };
+// ── Alarmas de las reuniones que entran solas (13-nov-2026) ────────────────
+// Las reuniones importadas de Google Calendar llegaban mudas: 12 de 12, contra
+// 25 de 32 en las que Pepe carga a mano. Por eso se enteraba encima de la hora.
+//
+// Un evento de dia entero empieza a las 00:00, asi que "una hora antes" sonaria
+// a las 23:00 de la noche anterior. Esos llevan una sola alarma a las 08:00 del
+// mismo dia.
+//
+// La fecha se arma a mano y NO con toISOString: ese convierte a UTC y en
+// Bolivia (UTC-4) correria la hora cuatro horas.
+function _esDiaEntero(m) {
+  return !!m && (m.startTime || '') === '00:00' && (m.endTime || '') === '00:00';
+}
+function _fechaLocal(d) {
+  return d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' +
+         String(d.getDate()).padStart(2, '0');
+}
+// La alarma que le toca a una reunion importada, o null si no le toca ninguna.
+// Los saltos [30,45,55] sobre una base en T-60 dan avisos en T-60, T-30, T-15 y
+// T-5: es el mecanismo "escalante" que la app ya tiene (scheduleAlarms agenda
+// cada salto como alarma propia en la nube), sin inventar un aviso nuevo.
+function _alarmaReunionGcal(m, ahoraMs) {
+  if (!m || !m.fromGcal) return null;
+  if (m.alarm && m.alarm.datetime) return null;  // ya tiene una: es de Pepe
+  var fecha = String(m.date || '');
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(fecha)) return null;
+  var hhmm, saltos = null;
+  if (_esDiaEntero(m)) {
+    hhmm = '08:00';
+  } else {
+    var t = String(m.startTime || '');
+    if (!/^([01]\d|2[0-3]):[0-5]\d$/.test(t)) return null;
+    var base = new Date(fecha + 'T' + t + ':00');
+    if (isNaN(base.getTime())) return null;
+    base = new Date(base.getTime() - 60 * 60000);
+    // La base puede caer el dia anterior (una reunion 00:30): va su fecha real.
+    fecha = _fechaLocal(base);
+    hhmm = String(base.getHours()).padStart(2, '0') + ':' + String(base.getMinutes()).padStart(2, '0');
+    saltos = [30, 45, 55];
+  }
+  var cuando = new Date(fecha + 'T' + hhmm + ':00');
+  if (isNaN(cuando.getTime()) || cuando.getTime() <= ahoraMs) return null;  // nada en el pasado
+  var a = defaultAlarm();
+  a.enabled = true;
+  a.recurrence = 'once';
+  a.datetime = fecha + 'T' + hhmm;
+  a.label = m.confirmacion === 'PROPUESTA' ? 'Reuni\u00f3n propuesta' : 'Reuni\u00f3n aceptada';
+  if (saltos) { a.repeatIntervals = saltos; a.repeatCount = saltos.length; }
+  return a;
+}
+// Devuelve la MISMA lista si no hubo nada que poner: si devolviera una copia,
+// cada sincronizacion (cada 15 min) reescribiria los datos y dispararia sync.
+function _ponerAlarmasGcal(meetings, ahoraMs) {
+  var lista = meetings || [];
+  var cambio = false;
+  var out = lista.map(function(m) {
+    var a = _alarmaReunionGcal(m, ahoraMs);
+    if (!a) return m;
+    cambio = true;
+    return Object.assign({}, m, { alarm: a });
+  });
+  return cambio ? out : lista;
+}
 var tomorrowStr = function tomorrowStr() {
   var d = new Date(); d.setDate(d.getDate() + 1);
   return d.getFullYear() + '-' + String(d.getMonth()+1).padStart(2,'0') + '-' + String(d.getDate()).padStart(2,'0');
