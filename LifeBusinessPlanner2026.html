@@ -2964,7 +2964,7 @@ function _alarmaReunionGcal(m, ahoraMs) {
   a.enabled = true;
   a.recurrence = 'once';
   a.datetime = fecha + 'T' + hhmm;
-  a.label = m.confirmacion === 'PROPUESTA' ? 'Reuni\u00f3n propuesta' : 'Reuni\u00f3n aceptada';
+  a.label = m.confirmacion === 'PROPUESTA' ? 'Reunión propuesta' : 'Reunión aceptada';
   if (saltos) { a.repeatIntervals = saltos; a.repeatCount = saltos.length; }
   return a;
 }
@@ -5157,6 +5157,10 @@ var HomeScreen = function HomeScreen(_ref14) {
           style:{display:'flex',alignItems:'center',gap:8,padding:'7px 10px',background:'rgba(156,104,214,.1)',border:'1px solid rgba(156,104,214,.2)',borderRadius:8,marginBottom:5,cursor:'pointer'}},
           m.startTime&&/*#__PURE__*/React.createElement("span",{style:{fontSize:11,fontWeight:700,color:'#9C68D6',background:'rgba(156,104,214,.2)',borderRadius:5,padding:'2px 6px',flexShrink:0}},m.startTime),
           /*#__PURE__*/React.createElement("span",{style:{fontSize:12,fontWeight:500,flex:1}},m.title),
+          m.confirmacion&&/*#__PURE__*/React.createElement("span",{style:{fontSize:10,fontWeight:700,borderRadius:5,padding:'2px 6px',flexShrink:0,
+            color:m.confirmacion==='PROPUESTA'?'#FF9800':'#4CAF50',
+            background:m.confirmacion==='PROPUESTA'?'rgba(255,152,0,.15)':'rgba(76,175,80,.15)'}},
+            m.confirmacion==='PROPUESTA'?'Propuesta':'Aceptada'),
           m.clientName&&/*#__PURE__*/React.createElement("span",{style:{fontSize:10,opacity:.5,flexShrink:0}},m.clientName)
         );})
       ),
