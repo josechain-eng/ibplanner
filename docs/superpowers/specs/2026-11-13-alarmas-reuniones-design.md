@@ -15,9 +15,15 @@ la invitación, quedó en el calendario, y nada le avisó.
 
 ## Alcance
 
-**Objetivo:** que toda reunión que entre sola traiga alarma, y que en el
-resumen del día y en la alarma se vea si es una reunión **aceptada** o
+**Objetivo:** que toda reunión que entre sola traiga alarma, que avise al
+instante si entró demasiado tarde para el recordatorio del día anterior, y que
+en el resumen del día y en la alarma se vea si es una reunión **aceptada** o
 **propuesta**.
+
+Pepe cerró el alcance de los avisos el 13-nov: **al toque y 1 hora antes**. Un
+segundo aviso previo a los 30 minutos queda afuera: cada reunión guarda una
+sola alarma, y meter dos obligaría a tocar el agendador de los diez módulos o
+a sumar un push nuevo en el worker.
 
 **No objetivo:** leer el correo. Eso es la parte B, que va después y usará el
 mismo campo y la misma etiqueta que deja esta.
@@ -60,7 +66,17 @@ esto empeora el problema en vez de arreglarlo.
      calendario, la aceptó.
    - Las que carga a mano quedan sin el campo y se ven igual que hoy.
    - B llenará `PROPUESTA` sin tocar nada más.
-3. **Se ve en los dos lugares que pidió Pepe:**
+3. **Aviso al instante cuando el aviso normal ya no llega a tiempo** (pedido de
+   Pepe, 13-nov). Hoy el recordatorio del día anterior es un push del worker a
+   las **17:00 de Bolivia** que mira las reuniones de mañana. Todo lo que entra
+   después de esa hora no recibe nada hasta la alarma de 1 hora antes.
+   - Se avisa en el momento de enterarse **solo** si la reunión es **hoy**, o es
+     **mañana y ya pasaron las 17:00**. Cualquier otra no: el push de las 17:00
+     ya hace el trabajo y un aviso extra es ruido (anti objetivo).
+   - Una marca en el teléfono evita repetirlo en cada sincronización.
+   - La función no mira de dónde salió la reunión, así que B la hereda sin
+     tocar nada.
+4. **Se ve en los dos lugares que pidió Pepe:**
    - en «📅 REUNIONES DE HOY» del resumen del día, como etiqueta al lado del
      título;
    - en el texto de la alarma: «Reunión aceptada — <título>».

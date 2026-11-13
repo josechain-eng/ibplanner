@@ -136,8 +136,12 @@ test('la IA de logistica y el informe ven el limite', () => {
   assert.match(html, /ADUANA ' \+ _impLimiteTexto\(dLim\)\.toUpperCase\(\)/, 'el informe no marca lo que vence');
 });
 
-test('la version subio a 5.66', () => {
-  assert.match(html, /window\.LBP_VERSION = '5\.66';/);
+// No se fija a una version exacta: cada version nueva rompia esta prueba sin que
+// nada de los campos de aduana se hubiera tocado (paso al subir a 5.66 y a 5.67).
+test('la version es 5.66 o mas nueva', () => {
+  const m = html.match(/window\.LBP_VERSION = '(\d+)\.(\d+)'/);
+  assert.ok(m, 'no encuentro LBP_VERSION');
+  assert.ok(Number(m[1]) * 1000 + Number(m[2]) >= 5066, 'version ' + m[1] + '.' + m[2] + ' es anterior a 5.66');
 });
 
 // Los despachos no se sincronizaban por item: 'imports' no estaba en
