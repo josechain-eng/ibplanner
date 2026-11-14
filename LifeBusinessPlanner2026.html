@@ -3348,13 +3348,27 @@ function _avisarCambiosReunion(cambios, ahoraMs, meetings) {
     var ini = new Date(f + 'T' + t + ':00');
     return !isNaN(ini.getTime()) && ini.getTime() > ahoraMs;
   };
+  // Una MOVIDA que no cambio ni el dia ni la hora de INICIO no es una movida:
+  // el organizador solo alargo la reunion (`endTime`, que el merge mete dentro
+  // de `movida`). Avisarla daba «Reunión movida — de hoy 16:00 a hoy 16:00»:
+  // texto sin sentido en el unico canal del que depende la credibilidad de
+  // todo esto. El registro se actualiza igual y la alarma no se toca sola, que
+  // es lo correcto: el instante no cambio.
+  var esMovidaReal = function(c) {
+    return String(c.fechaVieja || '') !== String(c.meeting.date || '') ||
+           String(c.horaVieja || '') !== String(c.meeting.startTime || '');
+  };
+  // Solo una movida que SI avisa tapa el aviso del retitulo.
   var movidas = {};
-  (cambios || []).forEach(function(c) { if (c && c.tipo === 'MOVIDA' && c.meeting) movidas[c.meeting.id] = 1; });
+  (cambios || []).forEach(function(c) {
+    if (c && c.tipo === 'MOVIDA' && c.meeting && esMovidaReal(c)) movidas[c.meeting.id] = 1;
+  });
   var n = 0;
   (cambios || []).forEach(function(c) {
     if (!c || !c.meeting || !c.meeting.id) return;
     if (c.tipo !== 'CANCELADA' && c.tipo !== 'MOVIDA' && c.tipo !== 'RETITULADA') return;
     if (c.tipo === 'RETITULADA' && movidas[c.meeting.id]) return;
+    if (c.tipo === 'MOVIDA' && !esMovidaReal(c)) return;
     var m = c.meeting;
     if (_esDiaEntero(m)) return;
     var f = String(m.date || '');
@@ -3376,7 +3390,10 @@ function _avisarCambiosReunion(cambios, ahoraMs, meetings) {
       titulo = 'Reunión retitulada';
       cuerpo = rotulo(f, t) + ' — ahora: ' + (m.title || 'sin título');
     }
-    _fireNotification(titulo, cuerpo, 'lbp_cambio_' + m.id, 'long');
+    // El tipo va en la etiqueta: con 'lbp_cambio_' + m.id a secas, una MOVIDA
+    // leida a las 09:00 y una CANCELADA leida a las 10:00 se tapaban entre si
+    // en la bandeja del telefono y solo sobrevivia la ultima.
+    _fireNotification(titulo, cuerpo, 'lbp_cambio_' + c.tipo + '_' + m.id, 'long');
     avisados.push(clave);
     n++;
   });
@@ -3405,7 +3422,12 @@ window._outlookPull = function(setDataFn) {
       // La pasada sobre el dato vivo da los cambios para los efectos (el reductor
       // de setData puede correr dos veces en React 18; los efectos no van dentro).
       var previa = _mezclarOutlook(dd.meetings, payload, dd.clients || [], dd._deletedIds, ahora);
-      if (!previa.cambios.length && !previa.deletedIds) return [];   // nada que tocar: ni setData
+      // Nada que tocar: ni setData. La pregunta es por la IDENTIDAD del array,
+      // no por `cambios`: hay un camino que actualiza la reunion sin emitir
+      // ninguna entrada (`conf !== m.confirmacion` sin subir a ACEPTADA, que es
+      // lo que manda Outlook cuando una respuesta se retira o se resetea), y
+      // mirando `cambios.length` ese recalculo se tiraba cada hora para siempre.
+      if (previa.meetings === dd.meetings && !previa.deletedIds) return [];
       setDataFn(function(d) {
         var r = _mezclarOutlook(d.meetings, payload, d.clients || [], d._deletedIds, ahora);
         if (r.meetings === d.meetings && !r.deletedIds) return d;

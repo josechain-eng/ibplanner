@@ -650,3 +650,136 @@ test('las 12 alarmas del 13-nov (sin clave auto) siguen intactas', () => {
   const r = mezclar([m], pay([ev({ inicio: '18:00' })]));
   assert.deepEqual(r.meetings[0].alarm, sinMarca);
 });
+
+// ── I5 (revision de rama): un cambio real se tiraba a la basura cada hora ───
+// _outlookPull salia temprano si `cambios` venia vacio, pero el merge avisa que
+// cambio algo devolviendo un array NUEVO, y hay un camino que actualiza la
+// reunion sin emitir ninguna entrada en `cambios`: `conf !== m.confirmacion`
+// cuando no es una subida a ACEPTADA. Eso es justo lo que produce Outlook
+// cuando una respuesta se retira o se resetea: el chip se quedaba en «Aceptada»
+// y el recalculo se perdia, hora tras hora, para siempre.
+function entornoPull(datos, payload) {
+  const marcas = { setData: [], soltadas: null, avisadas: null, url: null };
+  const nom = ['defaultAlarm', '_fechaLocal', '_esDiaEntero', '_alarmaReunionGcal',
+    '_clienteDeOrganizador', '_reunionDeOutlook', '_mezclarOutlook'];
+  const pullSrc = cuerpo(html.indexOf('window._outlookPull = function') + 'window._outlookPull = '.length);
+  const cabeza =
+    'var localStorage = { getItem: function(){ return "lbp_prueba"; } };\n' +
+    'var window = { LBP_WORKER_URL: "http://w", _getDataGlobal: function(){ return datos; },\n' +
+    '  _mergeTombstones: function(a, b){ return Object.assign({}, a, b); } };\n' +
+    alias + ';\n' + detect + ';\n' +
+    'var fetch = function(u){ marcas.url = u; return Promise.resolve({ ok: true, json: function(){ return Promise.resolve(payload); } }); };\n' +
+    'var _soltarAlarmasViejas = function(c){ marcas.soltadas = c; };\n' +
+    'var _avisarCambiosReunion = function(c){ marcas.avisadas = c; };\n' +
+    'var _avisarReunionesNuevas = function(){};\n';
+  const pull = new Function('datos', 'payload', 'marcas',
+    cabeza + nom.map(fuente).join('\n') +
+    '\nreturn (' + pullSrc + ')(function(fn){ marcas.setData.push(fn(datos)); });')(datos, payload, marcas);
+  return { pull, marcas };
+}
+
+test('una respuesta retirada (ACEPTADA a PROPUESTA) se guarda, no se tira cada hora', async () => {
+  const ya = Object.assign(_reunionDeOutlook(ev({ estado: 'ACEPTADA' }), clients, ahora), { confirmacion: 'ACEPTADA' });
+  // El merge ya hace lo suyo: array nuevo, pero sin ninguna entrada en cambios.
+  const r = mezclar([ya], pay([ev({ estado: 'PROPUESTA' })]));
+  assert.notEqual(r.meetings, [ya], 'el merge tiene que devolver otro array');
+  assert.equal(r.meetings[0].confirmacion, 'PROPUESTA');
+  assert.deepEqual(r.cambios, [], 'este camino no emite cambios: de ahi el bug');
+  // Y _outlookPull tiene que guardarlo igual.
+  const datos = { meetings: [ya], clients: clients, _deletedIds: {} };
+  const e = entornoPull(datos, pay([ev({ estado: 'PROPUESTA' })]));
+  await e.pull;
+  assert.equal(e.marcas.setData.length, 1, 'no llamo a setData: el chip se queda en Aceptada');
+  assert.equal(e.marcas.setData[0].meetings[0].confirmacion, 'PROPUESTA');
+});
+
+test('sin ningun cambio _outlookPull no toca setData (no empuja el blob de 4 MB cada hora)', async () => {
+  const ya = _reunionDeOutlook(ev(), clients, ahora);
+  const datos = { meetings: [ya], clients: clients, _deletedIds: {} };
+  const e = entornoPull(datos, pay([ev()]));
+  await e.pull;
+  assert.equal(e.marcas.setData.length, 0);
+  assert.match(e.marcas.url, /\/meeting-proposals\?key=lbp_prueba/);
+});
+
+test('una lectura incompleta no llama a setData', async () => {
+  const datos = { meetings: [], clients: clients, _deletedIds: {} };
+  const e = entornoPull(datos, pay([ev()], false));
+  await e.pull;
+  assert.equal(e.marcas.setData.length, 0);
+});
+
+test('una reunion nueva sigue guardandose y avisandose', async () => {
+  const datos = { meetings: [], clients: clients, _deletedIds: {} };
+  const e = entornoPull(datos, pay([ev()]));
+  const cambios = await e.pull;
+  assert.equal(e.marcas.setData.length, 1);
+  assert.equal(e.marcas.setData[0].meetings.length, 1);
+  assert.deepEqual(cambios.map(c => c.tipo), ['NUEVA']);
+  assert.deepEqual(e.marcas.avisadas.map(c => c.tipo), ['NUEVA']);
+});
+
+// ── I6 (revision de rama): una reunion que solo se alarga no «se movio» ─────
+// El merge mete `endTime` dentro de `movida`, asi que un organizador que
+// extiende la reunion de 16:30 a 17:30 producia el push «Reunión movida — de
+// hoy 16:00 a hoy 16:00». Texto sin sentido en el unico canal del que depende
+// toda la credibilidad de esto. La alarma no se toca (el instante no cambio):
+// lo unico que sobra es el aviso.
+test('alargar una reunion actualiza endTime pero NO avisa que se movio', () => {
+  const e = entornoAvisos();
+  const n = e._avisarCambiosReunion([{
+    tipo: 'MOVIDA', meeting: reunion({ endTime: '17:30' }),
+    fechaVieja: iso(dia(0)), horaVieja: '16:00'
+  }], ahora);
+  assert.equal(n, 0, 'avisaria «de hoy 16:00 a hoy 16:00»');
+  assert.equal(e.disparadas.length, 0);
+});
+
+test('el registro de una reunion alargada SI se actualiza (solo el aviso se calla)', () => {
+  const m = Object.assign(reunion({ date: iso(dia(3)), endTime: '16:30' }), { outlookEventId: UID });
+  const r = mezclar([m], pay([ev({ fin: '17:30' })]));
+  assert.equal(r.meetings[0].endTime, '17:30');
+  const mov = r.cambios.filter(c => c.tipo === 'MOVIDA')[0];
+  assert.ok(mov, 'el merge sigue emitiendo MOVIDA: el aviso es quien decide');
+  assert.equal(mov.fechaVieja, iso(dia(3)));
+  assert.equal(mov.horaVieja, '16:00');
+});
+
+test('una movida de verdad (otra hora, o otro dia) sigue avisando', () => {
+  const e = entornoAvisos();
+  assert.equal(e._avisarCambiosReunion([{ tipo: 'MOVIDA', meeting: reunion({ startTime: '17:00' }),
+    fechaVieja: iso(dia(0)), horaVieja: '16:00' }], ahora), 1);
+  const e2 = entornoAvisos();
+  assert.equal(e2._avisarCambiosReunion([{ tipo: 'MOVIDA', meeting: reunion({ date: iso(dia(1)) }),
+    fechaVieja: iso(dia(0)), horaVieja: '16:00' }], ahora), 1);
+});
+
+test('una alargada que ADEMAS se retitulo avisa el retitulo', () => {
+  // El aviso de RETITULADA se callaba cuando habia una MOVIDA del mismo id,
+  // porque «el aviso de movida ya trae el titulo». Si la movida no avisa, el
+  // retitulo tiene que salir: es el cambio que Pepe tiene que ver.
+  const e = entornoAvisos();
+  const m = reunion({ endTime: '17:30', title: 'Reunión Mensual (SE PASA A LAS 5)' });
+  const n = e._avisarCambiosReunion([
+    { tipo: 'MOVIDA', meeting: m, fechaVieja: iso(dia(0)), horaVieja: '16:00' },
+    { tipo: 'RETITULADA', meeting: m }
+  ], ahora);
+  assert.equal(n, 1);
+  assert.match(e.disparadas[0].titulo, /retitulada/i);
+});
+
+// ── #22 (revision de rama): una etiqueta por tipo de cambio ────────────────
+// Con `'lbp_cambio_' + m.id`, una MOVIDA leida a las 09:00 y una CANCELADA
+// leida a las 10:00 se reemplazaban en la bandeja del telefono y solo
+// sobrevivia la ultima.
+test('la etiqueta del aviso lleva el tipo: una movida y una cancelada no se tapan', () => {
+  const e = entornoAvisos();
+  e._avisarCambiosReunion([{ tipo: 'MOVIDA', meeting: reunion({ startTime: '17:00' }),
+    fechaVieja: iso(dia(0)), horaVieja: '16:00' }], ahora);
+  e._avisarCambiosReunion([{ tipo: 'CANCELADA', meeting: reunion({ startTime: '17:00', status: 'CANCELLED' }) }], ahora);
+  assert.equal(e.disparadas.length, 2);
+  assert.notEqual(e.disparadas[0].tag, e.disparadas[1].tag);
+  assert.match(e.disparadas[0].tag, /MOVIDA/);
+  assert.match(e.disparadas[1].tag, /CANCELADA/);
+  assert.ok(e.disparadas.every(d => d.tag.indexOf('outlook_x1') >= 0), 'la etiqueta tiene que seguir llevando el id');
+});
