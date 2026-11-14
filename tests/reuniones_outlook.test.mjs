@@ -824,3 +824,45 @@ test('_clienteDeOrganizador ya no parte el dominio en pedazos', () => {
     .filter(l => !/^\s*\/\//.test(l)).join('\n');
   assert.ok(!/dominio\.split\('\.'\)/.test(src), "quedo el termino dominio.split('.')[0]");
 });
+
+// ── I4 (revision de rama): esto SOLO LEE, no escribe en Google Calendar ────
+// _gcalFlushPushQueue auto-sincroniza toda reunion sin `gcalEventId`, y lo
+// llama el callback del token. Las reuniones importadas de Outlook no tienen
+// `gcalEventId`, asi que la proxima vez que un token de Google quedara vivo se
+// iban a CREAR en su calendario personal de Google: una escritura a un sistema
+// externo que nadie pidio, en un diseno cuyo alcance dice «esto solo lee». Las
+// de dia entero ademas irian con start === end.
+function flushGcal(meetings) {
+  const empujadas = [];
+  const src = cuerpo(html.indexOf('window._gcalFlushPushQueue = function') + 'window._gcalFlushPushQueue = '.length);
+  new Function('meetings', 'empujadas',
+    'var console = { log: function(){} };\n' +
+    'var setTimeout = function(fn){ fn(); };\n' +   // el retardo de 1,5 s se corre al toque
+    'var window = { _gcalPushQueue: [], _getDataGlobal: function(){ return { meetings: meetings }; },\n' +
+    '  _gcalPush: function(m){ empujadas.push(m.id); } };\n' +
+    'var flush = ' + src + ';\n' +
+    'window._gcalFlushPushQueue = flush;\n' +
+    'flush();')(meetings, empujadas);
+  return empujadas;
+}
+
+test('una reunion importada de Outlook no se auto-sincroniza a Google Calendar', () => {
+  const deOutlook = _reunionDeOutlook(ev(), clients, ahora);
+  const aMano = { id: 'man1', title: 'Reunión a mano', date: iso(dia(2)), startTime: '10:00', endTime: '11:00', status: 'SCHEDULED' };
+  const empujadas = flushGcal([deOutlook, aMano]);
+  assert.deepEqual(empujadas, ['man1'], 'se iba a crear la de Outlook en su Google Calendar');
+});
+
+test('la auto-sincronizacion sigue salteando las ya sincronizadas y las canceladas', () => {
+  assert.deepEqual(flushGcal([{ id: 'a', gcalEventId: 'g1' }]), []);
+  assert.deepEqual(flushGcal([{ id: 'b', status: 'CANCELLED' }]), []);
+  assert.deepEqual(flushGcal([{ id: 'c' }]), ['c']);
+});
+
+test('el boton "Mandar a Google Calendar" de la tarjeta sigue existiendo', () => {
+  // Que la auto-sincronizacion no las toque no quiere decir que Pepe no pueda
+  // mandar una a mano: ese camino es una decision suya y tiene que seguir.
+  const card = html.slice(html.indexOf('var MeetCard = function MeetCard('), html.indexOf('var _spmeetings = useSortPref'));
+  assert.match(card, /'Mandar a Google Calendar'/);
+  assert.match(card, /if\(window\._gcalPush\)window\._gcalPush\(m\);/);
+});

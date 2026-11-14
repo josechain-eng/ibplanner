@@ -269,7 +269,14 @@
       var d = window._getDataGlobal && window._getDataGlobal();
       if (!d || !d.meetings) return;
       var unsynced = d.meetings.filter(function(m) {
-        return !m.gcalEventId && m.status !== 'CANCELLED';
+        // Las de Outlook NO: el alcance del diseno dice «esto solo lee», y
+        // ninguna reunion importada tiene `gcalEventId`, asi que la proxima vez
+        // que hubiera un token de Google vivo se iban a CREAR todas en su
+        // calendario personal — una escritura a un sistema externo que nadie
+        // pidio (y las de dia entero irian con start === end). El boton
+        // «Mandar a Google Calendar» de la tarjeta sigue andando: ese es el
+        // camino en el que Pepe lo decide.
+        return !m.gcalEventId && m.status !== 'CANCELLED' && !m.outlookEventId;
       });
       if (unsynced.length > 0) {
         console.log('[LBP GCal] Auto-syncing', unsynced.length, 'unsynced meetings...');
