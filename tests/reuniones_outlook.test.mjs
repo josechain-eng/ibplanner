@@ -357,3 +357,145 @@ test('_mergeCloudData y el pull forzado usan la union por marca mas nueva', () =
   assert.match(html, /var allDeleted = window\._mergeTombstones\(local\._deletedIds, json\.data\._deletedIds\)/);
   assert.match(html, /var changed = window\._tombstonesCambiaron\(base\._deletedIds, allDeleted\)/);
 });
+
+// ── Task 6: avisar los cambios y soltar las alarmas viejas ──
+function entornoAvisos() {
+  const store = {};
+  const disparadas = [];
+  const canceladas = [];
+  const prologoAv = 'var localStorage = { getItem: function(k){ return k in store ? store[k] : null; },' +
+    ' setItem: function(k, v){ store[k] = String(v); } };\n' +
+    'var _fireNotification = function(t, c, tag){ disparadas.push({ titulo: t, cuerpo: c, tag: tag }); };\n' +
+    'var window = { _cloudCancelAlarm: function(id){ canceladas.push(id); } };\n';
+  const nom = ['_fechaLocal', '_esDiaEntero', '_futureOccurrences', '_cancelEntityCloudAlarms',
+    '_avisarCambiosReunion', '_soltarAlarmasViejas'];
+  const f = new Function('store', 'disparadas', 'canceladas',
+    prologoAv + nom.map(fuente).join('\n') + '\nreturn {' + nom.join(',') + '};')(store, disparadas, canceladas);
+  return Object.assign({ store, disparadas, canceladas }, f);
+}
+const reunion = (o = {}) => Object.assign({ id: 'outlook_x1', title: 'Reunión Mensual', date: iso(dia(0)), startTime: '16:00',
+  endTime: '16:30', status: 'SCHEDULED' }, o);
+
+test('avisa una cancelada de hoy', () => {
+  const e = entornoAvisos();
+  const n = e._avisarCambiosReunion([{ tipo: 'CANCELADA', meeting: reunion({ status: 'CANCELLED' }) }], ahora);
+  assert.equal(n, 1);
+  assert.equal(e.disparadas.length, 1);
+  assert.match(e.disparadas[0].titulo, /cancelada/i);
+  assert.match(e.disparadas[0].cuerpo, /16:00/);
+});
+
+test('avisa una movida a mañana y una movida DESDE hoy (por la alarma vieja)', () => {
+  const e = entornoAvisos();
+  const nueva = reunion({ date: iso(dia(1)) });
+  assert.equal(e._avisarCambiosReunion([{ tipo: 'MOVIDA', meeting: nueva }], ahora), 1);
+  const e2 = entornoAvisos();
+  const lejos = reunion({ id: 'outlook_x2', date: iso(dia(9)) });
+  const vieja = { datetime: iso(dia(0)) + 'T15:00' };
+  assert.equal(e2._avisarCambiosReunion([{ tipo: 'MOVIDA', meeting: lejos, alarmaVieja: vieja }], ahora), 1);
+});
+
+test('no avisa una cancelada de la semana que viene', () => {
+  const e = entornoAvisos();
+  const n = e._avisarCambiosReunion([{ tipo: 'CANCELADA', meeting: reunion({ date: iso(dia(6)), status: 'CANCELLED' }) }], ahora);
+  assert.equal(n, 0);
+  assert.equal(e.disparadas.length, 0);
+});
+
+test('no avisa de lo que no importa: NUEVA, ACEPTADA, RETITULADA, ya empezada, dia entero', () => {
+  const e = entornoAvisos();
+  const m = reunion();
+  const cambios = [{ tipo: 'NUEVA', meeting: m }, { tipo: 'ACEPTADA', meeting: m }, { tipo: 'RETITULADA', meeting: m },
+    { tipo: 'CANCELADA', meeting: reunion({ id: 'a', startTime: '08:00', status: 'CANCELLED' }) },
+    { tipo: 'CANCELADA', meeting: reunion({ id: 'b', startTime: '00:00', endTime: '00:00', status: 'CANCELLED' }) }];
+  assert.equal(e._avisarCambiosReunion(cambios, ahora), 0);
+});
+
+test('una reunion movida Y retitulada avisa una sola vez', () => {
+  const e = entornoAvisos();
+  const m = reunion({ date: iso(dia(1)) });
+  const n = e._avisarCambiosReunion([{ tipo: 'MOVIDA', meeting: m }, { tipo: 'RETITULADA', meeting: m }], ahora);
+  assert.equal(n, 1);
+});
+
+test('no repite el aviso del mismo cambio', () => {
+  const e = entornoAvisos();
+  const c = [{ tipo: 'CANCELADA', meeting: reunion({ status: 'CANCELLED' }) }];
+  assert.equal(e._avisarCambiosReunion(c, ahora), 1);
+  assert.equal(e._avisarCambiosReunion(c, ahora), 0);
+  assert.equal(e.disparadas.length, 1);
+});
+
+test('movida otra vez a otra hora avisa de nuevo (es otro cambio)', () => {
+  const e = entornoAvisos();
+  e._avisarCambiosReunion([{ tipo: 'MOVIDA', meeting: reunion({ startTime: '16:00' }) }], ahora);
+  const n = e._avisarCambiosReunion([{ tipo: 'MOVIDA', meeting: reunion({ startTime: '17:00' }) }], ahora);
+  assert.equal(n, 1);
+});
+
+test('limpia de la marca los cambios de reuniones que ya no existen', () => {
+  const e = entornoAvisos();
+  e._avisarCambiosReunion([{ tipo: 'CANCELADA', meeting: reunion({ id: 'viva', status: 'CANCELLED' }) },
+    { tipo: 'CANCELADA', meeting: reunion({ id: 'muerta', status: 'CANCELLED' }) }], ahora);
+  assert.equal(JSON.parse(e.store.lbp_cambios_avisados).length, 2);
+  e._avisarCambiosReunion([], ahora, [{ id: 'viva' }]);
+  const marca = JSON.parse(e.store.lbp_cambios_avisados);
+  assert.equal(marca.length, 1);
+  assert.match(marca[0], /viva/);
+});
+
+test('una marca corrupta en localStorage no rompe el aviso', () => {
+  const e = entornoAvisos();
+  e.store.lbp_cambios_avisados = '{no es json';
+  assert.equal(e._avisarCambiosReunion([{ tipo: 'CANCELADA', meeting: reunion({ status: 'CANCELLED' }) }], ahora), 1);
+});
+
+test('MOVIDA con alarmaVieja cancela en la nube el id base y sus repeticiones', () => {
+  const e = entornoAvisos();
+  const vieja = { enabled: true, datetime: iso(dia(3)) + 'T15:00', recurrence: 'once', repeatIntervals: [30, 45, 55], auto: true };
+  const nueva = reunion({ date: iso(dia(5)), alarm: { datetime: iso(dia(5)) + 'T15:00', recurrence: 'once' } });
+  e._soltarAlarmasViejas([{ tipo: 'MOVIDA', meeting: nueva, alarmaVieja: vieja }]);
+  const ms = new Date(vieja.datetime).getTime();
+  assert.deepEqual(e.canceladas.sort(), [
+    'outlook_x1_' + ms, 'outlook_x1_' + ms + '_r1', 'outlook_x1_' + ms + '_r2', 'outlook_x1_' + ms + '_r3'].sort());
+});
+
+test('no cancela la alarma vieja si la nueva cae en el mismo instante (seria el mismo id)', () => {
+  const e = entornoAvisos();
+  const dt = iso(dia(3)) + 'T15:00';
+  const m = reunion({ alarm: { datetime: dt, recurrence: 'once' } });
+  e._soltarAlarmasViejas([{ tipo: 'MOVIDA', meeting: m, alarmaVieja: { datetime: dt, recurrence: 'once' } }]);
+  assert.equal(e.canceladas.length, 0);
+});
+
+test('sin alarmaVieja, o en otros tipos, no se cancela nada', () => {
+  const e = entornoAvisos();
+  e._soltarAlarmasViejas([{ tipo: 'MOVIDA', meeting: reunion() }, { tipo: 'NUEVA', meeting: reunion() },
+    { tipo: 'CANCELADA', meeting: reunion() }, { tipo: 'RETITULADA', meeting: reunion() }, { tipo: 'ACEPTADA', meeting: reunion() }]);
+  assert.equal(e.canceladas.length, 0);
+});
+
+test('una cancelada conserva datetime y repeatIntervals: scheduleAlarms puede limpiar la nube', () => {
+  const alarma = { enabled: true, datetime: iso(dia(3)) + 'T15:00', recurrence: 'once', repeatIntervals: [30, 45, 55], auto: true };
+  const m = Object.assign(reunion({ date: iso(dia(3)) }), { outlookEventId: UID, alarm: alarma });
+  const r = mezclar([m], pay([]));
+  const c = r.meetings[0];
+  assert.equal(c.status, 'CANCELLED');
+  assert.equal(c.alarm.enabled, false);
+  assert.equal(c.alarm.datetime, alarma.datetime);
+  assert.deepEqual(c.alarm.repeatIntervals, [30, 45, 55]);
+  // y scheduleAlarms la lleva por la rama de "terminada" a _cancelEntityCloudAlarms
+  const sa = html.slice(html.indexOf('var scheduleAlarms = function'), html.indexOf('var scheduleAlarms = function') + 1200);
+  assert.match(sa, /entity\.status === 'CANCELLED'[\s\S]*_cancelEntityCloudAlarms\(entity, alarm\)/);
+});
+
+test('_outlookPull y su gancho en la app: al montar, cada hora, con la clave de sync', () => {
+  assert.match(html, /window\._outlookPull = function/);
+  const pull = cuerpo(html.indexOf('window._outlookPull = function'));
+  assert.match(pull, /meeting-proposals\?key=' \+ encodeURIComponent\(/);
+  assert.match(pull, /completa !== true/);
+  assert.match(pull, /_mergeTombstones\(d\._deletedIds, /);
+  assert.match(pull, /_soltarAlarmasViejas/);
+  assert.match(html, /setInterval\(doPullOutlook, 60 \* 60 \* 1000\)/);
+  assert.match(html, /LBP_VERSION = '5\.69'/);
+});

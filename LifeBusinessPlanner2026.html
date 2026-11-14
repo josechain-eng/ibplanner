@@ -22,7 +22,7 @@
 <script>
 (function() {
   // ── Version ──────────────────────────────────────────────────────────────
-  window.LBP_VERSION = '5.68';
+  window.LBP_VERSION = '5.69';
 
   // ── PWA Install prompt ───────────────────────────────────────────────────
   window._installPrompt = null;
@@ -3255,6 +3255,11 @@ function _mezclarOutlook(meetings, payload, clients, deletedIds, ahoraMs) {
       // el evento se vuelve a sellar, o una reunion borrada que cae a mas de un
       // mes volveria. Solo si ya tiene mas de 7 dias, para no mover el dato en
       // cada lectura.
+      // Por que 7: re-sellar en cada lectura horaria marcaria el dato sucio y
+      // empujaria el blob de ~4 MB durante semanas por UN solo borrado. Residual
+      // aceptado: una reunion borrada a mas de ~un mes vista, con la app sin
+      // abrir ~3 semanas, puede volver (la marca vence antes del siguiente
+      // re-sellado). Ya me equivoque en esta decision una vez: no revertirla a ojo.
       sellados.forEach(function(u) {
         // Solo si la marca tiene mas de 7 dias: re-sellar en cada lectura
         // (cada hora) marcaria el dato sucio y empujaria el blob de ~4 MB sin parar.
@@ -3275,6 +3280,102 @@ function _mezclarOutlook(meetings, payload, clients, deletedIds, ahoraMs) {
   if (nuevosBorrados) res.deletedIds = nuevosBorrados;
   return res;
 }
+// ── Seguir los cambios de Outlook en la app (14-nov-2026) ──────────────────
+// Suelta en la nube las alarmas que la app puso y que ya no corresponden:
+// una MOVIDA con `alarmaVieja` (solo viene si la alarma era de la app, nunca si
+// la puso Pepe). Sin esto suena una alarma a una hora a la que la reunion ya no
+// es: el peor resultado de todo el diseno. Los ids (<id>_<ms> y sus _r1.._r3)
+// los arma _cancelEntityCloudAlarms con el mismo esquema que scheduleAlarms.
+// Una CANCELADA no entra aca: queda con su alarma apagada y scheduleAlarms la
+// lleva por su rama "terminada" a _cancelEntityCloudAlarms.
+function _soltarAlarmasViejas(cambios) {
+  (cambios || []).forEach(function(c) {
+    if (!c || c.tipo !== 'MOVIDA' || !c.alarmaVieja || !c.meeting) return;
+    // Misma hora: el id seria el mismo que acaba de agendar la nueva. No se toca.
+    var nueva = c.meeting.alarm;
+    if (nueva && nueva.datetime === c.alarmaVieja.datetime) return;
+    _cancelEntityCloudAlarms(c.meeting, c.alarmaVieja);
+  });
+}
+// Avisa al toque los cambios de reuniones de HOY o MANANA que Pepe tiene que
+// saber ya: CANCELADA y MOVIDA. NUEVA la avisa _avisarReunionesNuevas; ACEPTADA
+// la hizo el mismo en Outlook; RETITULADA es un cambio de rotulo y una movida
+// que ademas se retitula ya avisa por la movida. Mas que eso es ruido, el anti
+// objetivo del diseno. Para MOVIDA tambien cuenta el dia de la alarma vieja: una
+// reunion que se fue de hoy a la semana que viene es justo lo que hay que decir.
+// `meetings` (opcional) poda la marca de lo que ya no existe.
+function _avisarCambiosReunion(cambios, ahoraMs, meetings) {
+  var avisados;
+  try { avisados = JSON.parse(localStorage.getItem('lbp_cambios_avisados') || '[]'); } catch (e) { avisados = []; }
+  if (!Array.isArray(avisados)) avisados = [];
+  var hoy = _fechaLocal(new Date(ahoraMs));
+  var manana = _fechaLocal(new Date(ahoraMs + 86400000));
+  var enVentana = function(f) { return f === hoy || f === manana; };
+  var n = 0;
+  (cambios || []).forEach(function(c) {
+    if (!c || !c.meeting || !c.meeting.id) return;
+    if (c.tipo !== 'CANCELADA' && c.tipo !== 'MOVIDA') return;
+    var m = c.meeting;
+    if (_esDiaEntero(m)) return;
+    var f = String(m.date || '');
+    var fVieja = c.alarmaVieja ? String(c.alarmaVieja.datetime || '').slice(0, 10) : '';
+    if (!enVentana(f) && !(c.tipo === 'MOVIDA' && enVentana(fVieja))) return;
+    // Una cancelada/movida cuya hora ya paso no le sirve a nadie. Una movida
+    // que salio de hoy hacia otro dia si, aunque la nueva sea lejana.
+    var t = String(m.startTime || '');
+    if (!/^([01]\d|2[0-3]):[0-5]\d$/.test(t)) return;
+    var ini = new Date(f + 'T' + t + ':00');
+    if (isNaN(ini.getTime())) return;
+    if (ini.getTime() <= ahoraMs && !(c.tipo === 'MOVIDA' && f !== hoy)) return;
+    var clave = c.tipo + '|' + m.id + '|' + f + '|' + t;
+    if (avisados.indexOf(clave) >= 0) return;
+    var titulo = c.tipo === 'CANCELADA' ? 'Reunión cancelada' : 'Reunión movida';
+    var cuando = (f === hoy ? 'hoy ' : f === manana ? 'mañana ' : f + ' ') + t;
+    _fireNotification(titulo, (m.title || 'sin título') + ' — ' + cuando, 'lbp_cambio_' + m.id, 'long');
+    avisados.push(clave);
+    n++;
+  });
+  if (meetings) {
+    var vivos = {};
+    meetings.forEach(function(m) { if (m && m.id) vivos[m.id] = 1; });
+    avisados = avisados.filter(function(k) { return vivos[k.split('|')[1]]; });
+  }
+  try { localStorage.setItem('lbp_cambios_avisados', JSON.stringify(avisados)); } catch (e) {}
+  return n;
+}
+// Pide la lectura de Outlook al worker, la mezcla con las reuniones de la app y
+// avisa lo que importa. Devuelve (promesa) los `cambios`. Nunca lanza: el worker
+// contesta 200 con `completa:false` si algo fallo, y eso no cambia nada.
+window._outlookPull = function(setDataFn) {
+  var key = null;
+  try { key = localStorage.getItem('lbp_sync_key'); } catch (e) {}
+  if (!key || !window.LBP_WORKER_URL || typeof setDataFn !== 'function') return Promise.resolve([]);
+  return fetch(window.LBP_WORKER_URL + '/meeting-proposals?key=' + encodeURIComponent(key))
+    .then(function(r) { return r.ok ? r.json() : null; })
+    .then(function(payload) {
+      if (!payload || payload.completa !== true) return [];
+      var dd = window._getDataGlobal && window._getDataGlobal();
+      if (!dd) return [];
+      var ahora = Date.now();
+      // La pasada sobre el dato vivo da los cambios para los efectos (el reductor
+      // de setData puede correr dos veces en React 18; los efectos no van dentro).
+      var previa = _mezclarOutlook(dd.meetings, payload, dd.clients || [], dd._deletedIds, ahora);
+      if (!previa.cambios.length && !previa.deletedIds) return [];   // nada que tocar: ni setData
+      setDataFn(function(d) {
+        var r = _mezclarOutlook(d.meetings, payload, d.clients || [], d._deletedIds, ahora);
+        if (r.meetings === d.meetings && !r.deletedIds) return d;
+        var nd = Object.assign({}, d, { meetings: r.meetings });
+        // Union por marca mas nueva: nunca pisar _deletedIds con una copia vieja.
+        if (r.deletedIds) nd._deletedIds = window._mergeTombstones(d._deletedIds, r.deletedIds);
+        return nd;
+      });
+      _soltarAlarmasViejas(previa.cambios);
+      _avisarCambiosReunion(previa.cambios, ahora, previa.meetings);
+      _avisarReunionesNuevas(previa.meetings, ahora);
+      return previa.cambios;
+    })
+    .catch(function() { return []; });
+};
 var tomorrowStr = function tomorrowStr() {
   var d = new Date(); d.setDate(d.getDate() + 1);
   return d.getFullYear() + '-' + String(d.getMonth()+1).padStart(2,'0') + '-' + String(d.getDate()).padStart(2,'0');
@@ -20318,6 +20419,21 @@ var App = function App() {
     var iv = setInterval(doPull, 15 * 60 * 1000);
     return function() { clearInterval(iv); };
   }, []);
+
+  // Reuniones de Outlook: cada hora Y al abrir. A diferencia de Google, esto no
+  // necesita token ni abre ninguna pantalla de login: es un GET con la clave de
+  // sync. Espera a que el dato este cargado (sin el, no hay con que mezclar y
+  // la primera lectura se perderia hasta la hora siguiente).
+  var _outlookListo = !!data;
+  useEffect(function() {
+    if (!_outlookListo) return;
+    var doPullOutlook = function() {
+      if (window._outlookPull) window._outlookPull(setData);
+    };
+    doPullOutlook();
+    var ivO = setInterval(doPullOutlook, 60 * 60 * 1000);
+    return function() { clearInterval(ivO); };
+  }, [_outlookListo]);
 
   var fireAlarmOnce = useCallback(function (title, body, current, total, intervalMin, sound, vibration, alarmId) {
     setActiveAlarm({ title: title, body: body, current: current, total: total });
