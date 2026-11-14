@@ -3138,9 +3138,16 @@ function _clienteDeOrganizador(organizador, clients) {
   if (halladas.length > 1) return null;
   var hallado = halladas[0] || null;
   if (!hallado) {
-    var textos = (DOMINIOS_CLIENTE[dominio] ? [DOMINIOS_CLIENTE[dominio]] : []).concat([dominio.split('.')[0]]);
-    var id = null;
-    textos.forEach(function(t) { if (!id) id = window._detectClientId(t, lista); });
+    // Solo la lista EXACTA. Antes se probaba tambien `dominio.split('.')[0]`
+    // contra window._detectClientId, cuyo match `\bNAME\b` toma el guion y los
+    // digitos como limite de palabra: `ax-logistica.com` caia en AX y
+    // `ck-partners.com` en CK, y los nombres de los CONTACTOS tambien son
+    // candidatos (`habib-consulting.com` -> CK). `clientId` manda la ficha de
+    // la marca, la Vista 360° y el informe semanal: una reunion archivada en la
+    // franquicia equivocada se lee como un hecho del registro de esa marca.
+    // Sin coincidencia exacta, vacio: es mejor que la equivocada.
+    var nombre = DOMINIOS_CLIENTE[dominio];
+    var id = nombre ? window._detectClientId(nombre, lista) : null;
     if (id) hallado = lista.filter(function(c) { return c.id === id; })[0] || null;
   }
   return hallado ? { id: hallado.id, name: hallado.businessName || hallado.name } : null;

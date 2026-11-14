@@ -783,3 +783,44 @@ test('la etiqueta del aviso lleva el tipo: una movida y una cancelada no se tapa
   assert.match(e.disparadas[1].tag, /CANCELADA/);
   assert.ok(e.disparadas.every(d => d.tag.indexOf('outlook_x1') >= 0), 'la etiqueta tiene que seguir llevando el id');
 });
+
+// ── I7 (revision de rama): el dominio no puede inventar la franquicia ──────
+// `dominio.split('.')[0]` entraba a window._detectClientId, cuyo match
+// `\bNAME\b` toma `-` y los digitos como limite de palabra: `ax-logistica.com`
+// caia en AX y `ck-partners.com` en CK. Y los nombres de los CONTACTOS tambien
+// son candidatos. `clientId` manda la ficha de la marca, la Vista 360° y el
+// informe semanal: una reunion archivada en la franquicia equivocada se lee
+// como un hecho en el registro de esa marca.
+const clientesMarcas = [
+  { id: 'ax', name: 'Armani Exchange', businessName: 'AX', contacts: [] },
+  { id: 'ck', name: 'Calvin Klein', businessName: 'CK', contacts: [{ name: 'Habib Rodriguez', email: 'habib@calvinklein.com' }] },
+  { id: 'mg', name: 'Mango', businessName: 'Mango', contacts: [] }
+];
+const cliente = (correo, lista) => _clienteDeOrganizador(correo, lista || clientesMarcas);
+
+test('un dominio que solo CONTIENE la sigla no resuelve ninguna franquicia', () => {
+  assert.equal(cliente('x@ax-logistica.com'), null, 'ax-logistica.com cayo en AX');
+  assert.equal(cliente('x@ck-partners.com'), null, 'ck-partners.com cayo en CK');
+  assert.equal(cliente('x@ax.systems'), null);
+  // Y tampoco por el nombre de una persona metido en el dominio.
+  assert.equal(cliente('x@habib-consulting.com'), null, 'el nombre de un contacto resolvio el cliente');
+});
+
+test('la lista exacta DOMINIOS_CLIENTE sigue resolviendo', () => {
+  const c = cliente('laura@mango.com');
+  assert.ok(c, 'mango.com tiene que seguir cayendo en Mango');
+  assert.equal(c.id, 'mg');
+});
+
+test('el dominio exacto de un contacto sigue resolviendo', () => {
+  const c = cliente('otra.persona@calvinklein.com');
+  assert.ok(c);
+  assert.equal(c.id, 'ck');
+});
+
+test('_clienteDeOrganizador ya no parte el dominio en pedazos', () => {
+  // Sin los comentarios: el comentario del arreglo nombra el termino viejo.
+  const src = fuente('_clienteDeOrganizador').split('\n')
+    .filter(l => !/^\s*\/\//.test(l)).join('\n');
+  assert.ok(!/dominio\.split\('\.'\)/.test(src), "quedo el termino dominio.split('.')[0]");
+});
