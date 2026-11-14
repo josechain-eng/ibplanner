@@ -990,6 +990,25 @@
     return pruned;
   };
 
+  // Une los tombstones de dos lados tomando la marca MAS NUEVA de cada id.
+  // Antes ganaba siempre la nube (Object.assign), y un tombstone re-sellado en
+  // este dispositivo volvia a la fecha vieja en el proximo pull. Un tombstone es
+  // un hecho que solo avanza ("borrada, y sigue borrada a T"); la marca mas nueva
+  // nunca esta mal y solo alarga la vida frente a la poda de 30 dias.
+  window._mergeTombstones = function(a, b) {
+    var out = Object.assign({}, a || {});
+    Object.keys(b || {}).forEach(function(id) {
+      if ((b[id] || 0) > (out[id] || 0)) out[id] = b[id];
+    });
+    return out;
+  };
+  // Hay algo nuevo en `merged` respecto de `base`: un id que no estaba o una
+  // marca mas nueva. Contar claves no vio nunca un re-sellado (mismas claves).
+  window._tombstonesCambiaron = function(base, merged) {
+    var b = base || {};
+    return Object.keys(merged || {}).some(function(id) { return (merged[id] || 0) > (b[id] || 0); });
+  };
+
   // Stamp a deletion tombstone into the data blob so other devices never re-add this item
   // Exposed on window so the React component script (separate <script> tag) can call it
   window._lbpRecordDel = function(d, id) {
@@ -1060,10 +1079,10 @@
     // para que la sincronizacion no borre, p.ej., el brainstormProfile.
     if (!merged.brainstormProfile && other && other.brainstormProfile) merged.brainstormProfile = other.brainstormProfile;
     // Combine tombstones from both sides — a deletion on either device is permanent
-    var allDeleted = Object.assign({}, local._deletedIds || {}, cloud._deletedIds || {});
+    var allDeleted = window._mergeTombstones(local._deletedIds, cloud._deletedIds);
     allDeleted = window._pruneTombstones(allDeleted);
     merged._deletedIds = allDeleted;
-    var changed = Object.keys(allDeleted).length > Object.keys(base._deletedIds || {}).length;
+    var changed = window._tombstonesCambiaron(base._deletedIds, allDeleted);
     _SYNC_LISTS.forEach(function(k) {
       var baseArr  = base[k]  || [];
       // Step 1: remove any base items tombstoned on EITHER side
@@ -1435,7 +1454,7 @@
         if (force) {
           // User explicitly clicked "Pull from Cloud" — cloud wins for existing items
           // but never lose local-only new items or combined tombstones
-          var allDeleted = Object.assign({}, (local._deletedIds || {}), (json.data._deletedIds || {}));
+          var allDeleted = window._mergeTombstones(local._deletedIds, json.data._deletedIds);
           allDeleted = window._pruneTombstones(allDeleted);
           merged = Object.assign({}, json.data, { _deletedIds: allDeleted });
           _SYNC_LISTS.forEach(function(k) {
@@ -3139,7 +3158,7 @@ function _reunionDeOutlook(ev, clients, ahoraMs) {
 // reuniones que existen.
 function _mezclarOutlook(meetings, payload, clients, deletedIds, ahoraMs) {
   var lista = meetings || [];
-  var sin = { meetings: lista, cambios: [], deletedIds: deletedIds };
+  var sin = { meetings: lista, cambios: [] };
   if (!payload || payload.completa !== true || !Array.isArray(payload.eventos)) return sin;
   var borrados = deletedIds || {};
   var hoy = _fechaLocal(new Date(ahoraMs));
@@ -3220,7 +3239,7 @@ function _mezclarOutlook(meetings, payload, clients, deletedIds, ahoraMs) {
   var existentes = {};
   lista.forEach(function(m) { if (m && m.outlookEventId) existentes[m.outlookEventId] = 1; });
   var creadas = [];
-  var nuevosBorrados = borrados;
+  var nuevosBorrados = null;   // solo se crea si hay algo que re-sellar
   payload.eventos.forEach(function(ev) {
     if (!ev || !ev.uid || ev.estado === 'RECHAZADA') return;
     // Sin fecha valida quedaria una reunion que no se puede mover ni cancelar
@@ -3237,10 +3256,8 @@ function _mezclarOutlook(meetings, payload, clients, deletedIds, ahoraMs) {
       // mes volveria. Solo si ya tiene mas de 7 dias, para no mover el dato en
       // cada lectura.
       sellados.forEach(function(u) {
-        if (ahoraMs - borrados[idDe(u)] > 7 * 86400000) {
-          if (nuevosBorrados === borrados) nuevosBorrados = Object.assign({}, borrados);
-          nuevosBorrados[idDe(u)] = ahoraMs;
-        }
+        if (!nuevosBorrados) nuevosBorrados = Object.assign({}, borrados);
+        nuevosBorrados[idDe(u)] = ahoraMs;
       });
       return;
     }
@@ -3249,8 +3266,10 @@ function _mezclarOutlook(meetings, payload, clients, deletedIds, ahoraMs) {
     existentes[ev.uid] = 1;
     cambios.push({ tipo: 'NUEVA', meeting: m });
   });
-  var res = { meetings: out.concat(creadas), cambios: cambios, deletedIds: nuevosBorrados };
-  if (!cambio && !creadas.length) { res.meetings = lista; }
+  // `deletedIds` va SOLO si hay tombstones re-sellados (mapa completo, para
+  // mezclar con _mergeTombstones); si no hay nada nuevo la clave no existe.
+  var res = { meetings: (cambio || creadas.length) ? out.concat(creadas) : lista, cambios: cambios };
+  if (nuevosBorrados) res.deletedIds = nuevosBorrados;
   return res;
 }
 var tomorrowStr = function tomorrowStr() {

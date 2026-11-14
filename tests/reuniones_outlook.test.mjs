@@ -297,14 +297,50 @@ test('un evento sin fecha valida no se importa ni se mueve', () => {
   assert.equal(mezclar(ms, pay([ev({ fecha: undefined })])).meetings, ms);
 });
 
-test('un tombstone viejo se vuelve a sellar mientras Outlook siga ofreciendo el evento', () => {
+test('un tombstone se vuelve a sellar cada vez que Outlook ofrece el evento', () => {
   const id = 'outlook_' + UID.replace(/[^a-z0-9]/gi, '');
-  const viejo = ahora - 20 * 86400000;
-  const r = mezclar([], pay([ev()]), { [id]: viejo, otro: 5 });
+  const del = { [id]: ahora - 1000, otro: 5 };
+  const r = mezclar([], pay([ev()]), del);
   assert.equal(r.meetings.length, 0);
   assert.equal(r.deletedIds[id], ahora);
   assert.equal(r.deletedIds.otro, 5);
-  // uno reciente no se toca (sin ruido de sincronizacion): misma referencia
-  const reciente = { [id]: ahora - 1000 };
-  assert.equal(mezclar([], pay([ev()]), reciente).deletedIds, reciente);
+  assert.equal(del[id], ahora - 1000, 'no muta el argumento');
+});
+
+test('deletedIds solo aparece si hubo algo que re-sellar; nunca se devuelve {} por un undefined', () => {
+  const ms = [importada()];
+  for (const r of [mezclar(ms, pay([ev()])), mezclar(ms, pay([], false)), mezclar([], pay([ev()]), undefined),
+    _mezclarOutlook(ms, pay([], false), clients, undefined, ahora), _mezclarOutlook(ms, null, clients, undefined, ahora)]) {
+    assert.equal('deletedIds' in r, false);
+  }
+  // y con un tombstone de otra reunion que no esta en la lectura, tampoco
+  assert.equal('deletedIds' in mezclar([], pay([ev()]), { outlook_otra: 1 }), false);
+});
+
+// ── el re-sellado tiene que sobrevivir a la sincronizacion ──
+const { _mergeTombstones, _tombstonesCambiaron } = (() => {
+  const w = new Function('var window = {};\n' + cuerpo(html.indexOf('window._mergeTombstones = function')) + ';\n' +
+    cuerpo(html.indexOf('window._tombstonesCambiaron = function')) + ';\nreturn window;')();
+  return w;
+})();
+const mergeT = _mergeTombstones, cambiaron = _tombstonesCambiaron;
+
+test('un tombstone re-sellado en este dispositivo sobrevive a un pull con la marca vieja de la nube', () => {
+  const local = { x: 2000, solo_local: 7 }, nube = { x: 1000, solo_nube: 9 };
+  assert.deepEqual(mergeT(local, nube), { x: 2000, solo_local: 7, solo_nube: 9 });
+  assert.deepEqual(mergeT(nube, local), { x: 2000, solo_local: 7, solo_nube: 9 });
+  assert.deepEqual(mergeT(undefined, undefined), {});
+});
+
+test('un re-sellado (mismas claves, marca mas nueva) cuenta como cambio y dispara el push', () => {
+  assert.equal(cambiaron({ x: 1000 }, { x: 2000 }), true);
+  assert.equal(cambiaron({ x: 1000 }, { x: 1000 }), false);
+  assert.equal(cambiaron({}, { x: 1 }), true);
+  assert.equal(cambiaron(undefined, {}), false);
+});
+
+test('_mergeCloudData y el pull forzado usan la union por marca mas nueva', () => {
+  assert.match(html, /var allDeleted = window\._mergeTombstones\(local\._deletedIds, cloud\._deletedIds\)/);
+  assert.match(html, /var allDeleted = window\._mergeTombstones\(local\._deletedIds, json\.data\._deletedIds\)/);
+  assert.match(html, /var changed = window\._tombstonesCambiaron\(base\._deletedIds, allDeleted\)/);
 });
