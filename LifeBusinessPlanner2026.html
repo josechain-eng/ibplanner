@@ -2979,6 +2979,10 @@ function _alarmaReunionGcal(m, ahoraMs) {
   a.datetime = fecha + 'T' + hhmm;
   a.label = m.confirmacion === 'PROPUESTA' ? 'Reunión propuesta' : 'Reunión aceptada';
   if (saltos) { a.repeatIntervals = saltos; a.repeatCount = saltos.length; }
+  // Marca de "la puso la app". Sin ella, al seguir los cambios de Outlook no se
+  // distingue esta alarma de la que Pepe puso a mano. Una alarma SIN marca es
+  // suya y no se toca (incluidas las 12 que puso la parte C el 13-nov).
+  a.auto = true;
   return a;
 }
 // ── Aviso al toque (13-nov-2026) ──────────────────────────────────────────
@@ -3058,6 +3062,150 @@ function _normalizarGcal(meetings, ahoraMs) {
     return nuevo;
   });
   return cambio ? out : lista;
+}
+// ── Reuniones de Outlook (14-nov-2026) ─────────────────────────────────────
+// Funciones puras: reciben el array de reuniones y el payload de
+// /meeting-proposals y devuelven el array nuevo. La red y los avisos son de
+// quien las llama.
+//
+// El organizador es un correo; el cliente sale de su dominio. Primero contra los
+// correos de los contactos de cada cliente, despues por el nombre del dominio.
+function _clienteDeOrganizador(organizador, clients) {
+  var DOMINIOS_CLIENTE = {
+    'mango.com': ['Mango'], 'hugoboss.com': ['Boss', 'Hugo Boss'],
+    'chillibeans.com.br': ['Chillibeans', 'Chilli Beans'],
+    'pfcb.com': ["P.F. Chang's", 'PF Changs', 'Chang'], 'pfchangs.com': ["P.F. Chang's", 'PF Changs', 'Chang']
+  };
+  var m = /@([^@\s>]+)\s*>?\s*$/.exec(String(organizador || '').trim());
+  if (!m) return null;
+  var dominio = m[1].toLowerCase();
+  var lista = clients || [];
+  var hallado = null;
+  lista.forEach(function(c) {
+    if (hallado) return;
+    var coincide = (c.contacts || []).some(function(x) {
+      var mail = String((x && x.email) || '').toLowerCase();
+      return mail.slice(mail.lastIndexOf('@') + 1) === dominio && mail.indexOf('@') >= 0;
+    });
+    if (coincide) hallado = c;
+  });
+  if (!hallado) {
+    var textos = (DOMINIOS_CLIENTE[dominio] || []).concat([dominio.split('.')[0]]);
+    var id = null;
+    textos.forEach(function(t) { if (!id) id = window._detectClientId(t, lista); });
+    if (id) hallado = lista.filter(function(c) { return c.id === id; })[0] || null;
+  }
+  return hallado ? { id: hallado.id, name: hallado.businessName || hallado.name } : null;
+}
+function _reunionDeOutlook(ev, clients, ahoraMs) {
+  var uid = String(ev.uid);
+  var dia = !!ev.diaEntero;
+  var ini = dia ? '00:00' : String(ev.inicio || '00:00');
+  var fin = dia ? '00:00' : String(ev.fin || ini);
+  var cli = _clienteDeOrganizador(ev.organizador, clients);
+  var m = {
+    id: 'outlook_' + uid.replace(/[^a-z0-9]/gi, ''),
+    outlookEventId: uid,
+    title: ev.titulo || '(Sin título)',
+    date: ev.fecha,
+    startTime: ini,
+    endTime: fin,
+    location: ev.ubicacion || '',
+    notes: ev.organizador ? 'Organizador: ' + ev.organizador : '',
+    agenda: '',
+    status: 'SCHEDULED',
+    isOnline: /\b(teams|meet|zoom)\b/i.test((ev.titulo || '') + ' ' + (ev.ubicacion || '')),
+    createdAt: new Date(ahoraMs).toISOString(),
+    fromGcal: false,
+    confirmacion: ev.estado === 'ACEPTADA' ? 'ACEPTADA' : 'PROPUESTA',
+    clientId: cli ? cli.id : '',
+    clientName: cli ? cli.name : ''
+  };
+  var a = _alarmaReunionGcal(m, ahoraMs);
+  if (a) m.alarm = a;
+  return m;
+}
+// Mezcla la lectura de Outlook con las reuniones de la app. Devuelve
+// { meetings, cambios }; `meetings` es la MISMA referencia si nada cambio.
+// Una lectura incompleta no cambia nada: es la ultima barrera contra cancelar
+// reuniones que existen.
+function _mezclarOutlook(meetings, payload, clients, deletedIds, ahoraMs) {
+  var lista = meetings || [];
+  var sin = { meetings: lista, cambios: [] };
+  if (!payload || payload.completa !== true || !Array.isArray(payload.eventos)) return sin;
+  var borrados = deletedIds || {};
+  var hoy = _fechaLocal(new Date(ahoraMs));
+  var cambios = [];
+  // uid (propio o de los duplicados colapsados) -> evento que lo representa
+  var porUid = {};
+  payload.eventos.forEach(function(ev) {
+    if (!ev || !ev.uid) return;
+    porUid[ev.uid] = ev;
+    (ev.otrosUids || []).forEach(function(u) { if (!porUid[u]) porUid[u] = ev; });
+  });
+  var idDe = function(uid) { return 'outlook_' + String(uid).replace(/[^a-z0-9]/gi, ''); };
+  var apagada = function(m) {
+    return Object.assign({}, m.alarm || defaultAlarm(), { enabled: false });
+  };
+  var cancelar = function(m) {
+    var c = Object.assign({}, m, { status: 'CANCELLED', alarm: apagada(m) });
+    cambios.push({ tipo: 'CANCELADA', meeting: c });
+    return c;
+  };
+  var vistos = {};
+  var cambio = false;
+  var out = lista.map(function(m) {
+    if (!m || !m.outlookEventId) return m;       // las que Pepe escribio: nunca
+    var ev = porUid[m.outlookEventId];
+    vistos[m.outlookEventId] = 1;
+    var nuevo = m;
+    if (!ev) {
+      // Ausente de una lectura completa: la cancelo si todavia era futura.
+      if (m.status !== 'CANCELLED' && String(m.date || '') >= hoy) { cambio = true; return cancelar(m); }
+      return m;
+    }
+    if (m.status === 'CANCELLED') return m;
+    if (ev.estado === 'RECHAZADA') {
+      if (String(m.date || '') >= hoy) { cambio = true; return cancelar(m); }
+      return m;
+    }
+    var dia = !!ev.diaEntero;
+    var ini = dia ? '00:00' : String(ev.inicio || '00:00');
+    var fin = dia ? '00:00' : String(ev.fin || ini);
+    var movida = m.date !== ev.fecha || m.startTime !== ini || m.endTime !== fin;
+    var conf = ev.estado === 'ACEPTADA' ? 'ACEPTADA' : 'PROPUESTA';
+    var aceptada = conf === 'ACEPTADA' && m.confirmacion !== 'ACEPTADA';
+    var titulo = ev.titulo || m.title;
+    if (!movida && !aceptada && conf === m.confirmacion && titulo === m.title) return m;
+    nuevo = Object.assign({}, m, { date: ev.fecha, startTime: ini, endTime: fin, title: titulo, confirmacion: conf });
+    // Solo se mueve la alarma que puso la app (o ninguna). Una sin marca es de Pepe.
+    if (!m.alarm || m.alarm.auto === true) {
+      delete nuevo.alarm;   // _alarmaReunionGcal se niega si ya hay alarm.datetime
+      var a = _alarmaReunionGcal(nuevo, ahoraMs);
+      if (a) nuevo.alarm = a;
+    }
+    cambio = true;
+    if (movida) cambios.push({ tipo: 'MOVIDA', meeting: nuevo });
+    else if (aceptada) cambios.push({ tipo: 'ACEPTADA', meeting: nuevo });
+    return nuevo;
+  });
+  var existentes = {};
+  lista.forEach(function(m) { if (m && m.outlookEventId) existentes[m.outlookEventId] = 1; });
+  var creadas = [];
+  payload.eventos.forEach(function(ev) {
+    if (!ev || !ev.uid || ev.estado === 'RECHAZADA') return;
+    var uids = [ev.uid].concat(ev.otrosUids || []);
+    // ya importada, o con otro de sus UIDs ya importado: es la misma reunion
+    if (uids.some(function(u) { return existentes[u]; })) return;
+    // borrada por Pepe: el tombstone manda
+    if (uids.some(function(u) { return borrados[idDe(u)]; })) return;
+    var m = _reunionDeOutlook(ev, clients, ahoraMs);
+    creadas.push(m);
+    existentes[ev.uid] = 1;
+    cambios.push({ tipo: 'NUEVA', meeting: m });
+  });
+  if (!cambio && !creadas.length) return sin;
+  return { meetings: out.concat(creadas), cambios: cambios };
 }
 var tomorrowStr = function tomorrowStr() {
   var d = new Date(); d.setDate(d.getDate() + 1);
