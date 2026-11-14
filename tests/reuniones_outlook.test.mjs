@@ -391,8 +391,48 @@ test('avisa una movida a mañana y una movida DESDE hoy (por la alarma vieja)', 
   assert.equal(e._avisarCambiosReunion([{ tipo: 'MOVIDA', meeting: nueva }], ahora), 1);
   const e2 = entornoAvisos();
   const lejos = reunion({ id: 'outlook_x2', date: iso(dia(9)) });
-  const vieja = { datetime: iso(dia(0)) + 'T15:00' };
-  assert.equal(e2._avisarCambiosReunion([{ tipo: 'MOVIDA', meeting: lejos, alarmaVieja: vieja }], ahora), 1);
+  assert.equal(e2._avisarCambiosReunion([{ tipo: 'MOVIDA', meeting: lejos, fechaVieja: iso(dia(0)), horaVieja: '16:00' }], ahora), 1);
+  assert.match(e2.disparadas[0].cuerpo, /hoy 16:00/);
+});
+
+test('movida desde hoy con alarma PROPIA de Pepe (sin alarmaVieja) avisa y dice desde cuando', () => {
+  const e = entornoAvisos();
+  const lejos = reunion({ id: 'outlook_x3', date: iso(dia(7)), alarm: { datetime: iso(dia(0)) + 'T15:00', recurrence: 'once' } });
+  const n = e._avisarCambiosReunion([{ tipo: 'MOVIDA', meeting: lejos, fechaVieja: iso(dia(0)), horaVieja: '16:00' }], ahora);
+  assert.equal(n, 1);
+  assert.match(e.disparadas[0].cuerpo, /hoy 16:00/);
+  assert.match(e.disparadas[0].cuerpo, new RegExp(iso(dia(7))));
+});
+
+test('movida lejos desde lejos no avisa', () => {
+  const e = entornoAvisos();
+  const m = reunion({ date: iso(dia(9)) });
+  assert.equal(e._avisarCambiosReunion([{ tipo: 'MOVIDA', meeting: m, fechaVieja: iso(dia(8)), horaVieja: '16:00' }], ahora), 0);
+});
+
+test('RETITULADA de hoy o mañana avisa con el titulo nuevo; una lejana no', () => {
+  const e = entornoAvisos();
+  const m = reunion({ title: 'Reunión Mensual - SE PASA A LAS 5' });
+  assert.equal(e._avisarCambiosReunion([{ tipo: 'RETITULADA', meeting: m }], ahora), 1);
+  assert.match(e.disparadas[0].cuerpo, /SE PASA A LAS 5/);
+  const e2 = entornoAvisos();
+  assert.equal(e2._avisarCambiosReunion([{ tipo: 'RETITULADA', meeting: reunion({ date: iso(dia(6)) }) }], ahora), 0);
+});
+
+test('movida y retitulada a la vez: un solo aviso', () => {
+  const e = entornoAvisos();
+  const m = reunion({ date: iso(dia(1)), title: 'Nuevo titulo' });
+  const n = e._avisarCambiosReunion([{ tipo: 'MOVIDA', meeting: m, fechaVieja: iso(dia(0)), horaVieja: '16:00' }, { tipo: 'RETITULADA', meeting: m }], ahora);
+  assert.equal(n, 1);
+});
+
+test('el merge: MOVIDA lleva fechaVieja y horaVieja siempre; sin importar la alarma', () => {
+  const m = Object.assign(_reunionDeOutlook(ev(), clients, ahora), { alarm: { enabled: true, datetime: iso(dia(3)) + 'T15:00', recurrence: 'once' } });
+  const r = mezclar([m], pay([ev({ fecha: iso(dia(8)) })]));
+  const mov = r.cambios.find(c => c.tipo === 'MOVIDA');
+  assert.equal(mov.fechaVieja, iso(dia(3)));
+  assert.equal(mov.horaVieja, '16:00');
+  assert.equal(mov.alarmaVieja, undefined);
 });
 
 test('no avisa una cancelada de la semana que viene', () => {
@@ -402,20 +442,13 @@ test('no avisa una cancelada de la semana que viene', () => {
   assert.equal(e.disparadas.length, 0);
 });
 
-test('no avisa de lo que no importa: NUEVA, ACEPTADA, RETITULADA, ya empezada, dia entero', () => {
+test('no avisa de lo que no importa: NUEVA, ACEPTADA, ya empezada, dia entero', () => {
   const e = entornoAvisos();
   const m = reunion();
-  const cambios = [{ tipo: 'NUEVA', meeting: m }, { tipo: 'ACEPTADA', meeting: m }, { tipo: 'RETITULADA', meeting: m },
+  const cambios = [{ tipo: 'NUEVA', meeting: m }, { tipo: 'ACEPTADA', meeting: m },
     { tipo: 'CANCELADA', meeting: reunion({ id: 'a', startTime: '08:00', status: 'CANCELLED' }) },
     { tipo: 'CANCELADA', meeting: reunion({ id: 'b', startTime: '00:00', endTime: '00:00', status: 'CANCELLED' }) }];
   assert.equal(e._avisarCambiosReunion(cambios, ahora), 0);
-});
-
-test('una reunion movida Y retitulada avisa una sola vez', () => {
-  const e = entornoAvisos();
-  const m = reunion({ date: iso(dia(1)) });
-  const n = e._avisarCambiosReunion([{ tipo: 'MOVIDA', meeting: m }, { tipo: 'RETITULADA', meeting: m }], ahora);
-  assert.equal(n, 1);
 });
 
 test('no repite el aviso del mismo cambio', () => {

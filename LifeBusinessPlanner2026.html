@@ -3228,7 +3228,10 @@ function _mezclarOutlook(meetings, payload, clients, deletedIds, ahoraMs) {
     // alarma automatica reemplazada: quien llama debe borrar sus copias en la
     // nube (<id>_<ms> y sus _r1.._r3), que si no siguen sonando en la fecha vieja.
     if (movida) {
-      var e = { tipo: 'MOVIDA', meeting: nuevo };
+      // fechaVieja/horaVieja: de cuando se movio, SIEMPRE (alarmaVieja solo viene si
+      // la alarma era de la app). Sin ellos no se sabe avisar que una reunion de
+      // hoy con alarma propia de Pepe se fue: su alarma sigue sonando hoy.
+      var e = { tipo: 'MOVIDA', meeting: nuevo, fechaVieja: m.date, horaVieja: m.startTime };
       if (alarmaVieja) e.alarmaVieja = alarmaVieja;
       cambios.push(e);
     }
@@ -3298,11 +3301,13 @@ function _soltarAlarmasViejas(cambios) {
   });
 }
 // Avisa al toque los cambios de reuniones de HOY o MANANA que Pepe tiene que
-// saber ya: CANCELADA y MOVIDA. NUEVA la avisa _avisarReunionesNuevas; ACEPTADA
-// la hizo el mismo en Outlook; RETITULADA es un cambio de rotulo y una movida
-// que ademas se retitula ya avisa por la movida. Mas que eso es ruido, el anti
-// objetivo del diseno. Para MOVIDA tambien cuenta el dia de la alarma vieja: una
-// reunion que se fue de hoy a la semana que viene es justo lo que hay que decir.
+// saber ya: CANCELADA, MOVIDA y RETITULADA (los organizadores meten el cambio
+// en el titulo: «... SE PASA A LAS 5»). NUEVA la avisa _avisarReunionesNuevas;
+// ACEPTADA la hizo el mismo en Outlook. Mas que eso es ruido, el anti objetivo
+// del diseno. MOVIDA cuenta por el dia NUEVO o por el VIEJO (fechaVieja): una
+// reunion que se fue de hoy a la semana que viene es justo lo que hay que decir,
+// y si la alarma era de Pepe seguira sonando hoy: avisar es lo unico que queda.
+// Una movida que ademas se retitulo avisa una vez (el aviso ya trae el titulo).
 // `meetings` (opcional) poda la marca de lo que ya no existe.
 function _avisarCambiosReunion(cambios, ahoraMs, meetings) {
   var avisados;
@@ -3311,27 +3316,42 @@ function _avisarCambiosReunion(cambios, ahoraMs, meetings) {
   var hoy = _fechaLocal(new Date(ahoraMs));
   var manana = _fechaLocal(new Date(ahoraMs + 86400000));
   var enVentana = function(f) { return f === hoy || f === manana; };
+  var horaOk = function(t) { return /^([01]\d|2[0-3]):[0-5]\d$/.test(t); };
+  // Hay una hora futura dentro de la ventana de hoy/manana.
+  var futuraEnVentana = function(f, t) {
+    if (!enVentana(f) || !horaOk(t)) return false;
+    var ini = new Date(f + 'T' + t + ':00');
+    return !isNaN(ini.getTime()) && ini.getTime() > ahoraMs;
+  };
+  var movidas = {};
+  (cambios || []).forEach(function(c) { if (c && c.tipo === 'MOVIDA' && c.meeting) movidas[c.meeting.id] = 1; });
   var n = 0;
   (cambios || []).forEach(function(c) {
     if (!c || !c.meeting || !c.meeting.id) return;
-    if (c.tipo !== 'CANCELADA' && c.tipo !== 'MOVIDA') return;
+    if (c.tipo !== 'CANCELADA' && c.tipo !== 'MOVIDA' && c.tipo !== 'RETITULADA') return;
+    if (c.tipo === 'RETITULADA' && movidas[c.meeting.id]) return;
     var m = c.meeting;
     if (_esDiaEntero(m)) return;
     var f = String(m.date || '');
-    var fVieja = c.alarmaVieja ? String(c.alarmaVieja.datetime || '').slice(0, 10) : '';
-    if (!enVentana(f) && !(c.tipo === 'MOVIDA' && enVentana(fVieja))) return;
-    // Una cancelada/movida cuya hora ya paso no le sirve a nadie. Una movida
-    // que salio de hoy hacia otro dia si, aunque la nueva sea lejana.
     var t = String(m.startTime || '');
-    if (!/^([01]\d|2[0-3]):[0-5]\d$/.test(t)) return;
-    var ini = new Date(f + 'T' + t + ':00');
-    if (isNaN(ini.getTime())) return;
-    if (ini.getTime() <= ahoraMs && !(c.tipo === 'MOVIDA' && f !== hoy)) return;
-    var clave = c.tipo + '|' + m.id + '|' + f + '|' + t;
+    var relevante = futuraEnVentana(f, t);
+    if (c.tipo === 'MOVIDA' && !relevante) relevante = futuraEnVentana(String(c.fechaVieja || ''), String(c.horaVieja || ''));
+    if (!relevante) return;
+    var clave = c.tipo + '|' + m.id + '|' + f + '|' + t + '|' + (c.tipo === 'RETITULADA' ? m.title : '');
     if (avisados.indexOf(clave) >= 0) return;
-    var titulo = c.tipo === 'CANCELADA' ? 'Reunión cancelada' : 'Reunión movida';
-    var cuando = (f === hoy ? 'hoy ' : f === manana ? 'mañana ' : f + ' ') + t;
-    _fireNotification(titulo, (m.title || 'sin título') + ' — ' + cuando, 'lbp_cambio_' + m.id, 'long');
+    var rotulo = function(fecha, hora) { return (fecha === hoy ? 'hoy ' : fecha === manana ? 'mañana ' : fecha + ' ') + hora; };
+    var titulo, cuerpo;
+    if (c.tipo === 'CANCELADA') {
+      titulo = 'Reunión cancelada';
+      cuerpo = (m.title || 'sin título') + ' — ' + rotulo(f, t);
+    } else if (c.tipo === 'MOVIDA') {
+      titulo = 'Reunión movida';
+      cuerpo = (m.title || 'sin título') + ' — de ' + (c.fechaVieja ? rotulo(c.fechaVieja, c.horaVieja || '') + ' a ' : 'antes a ') + rotulo(f, t);
+    } else {
+      titulo = 'Reunión retitulada';
+      cuerpo = rotulo(f, t) + ' — ahora: ' + (m.title || 'sin título');
+    }
+    _fireNotification(titulo, cuerpo, 'lbp_cambio_' + m.id, 'long');
     avisados.push(clave);
     n++;
   });
