@@ -3084,15 +3084,19 @@ function _clienteDeOrganizador(organizador, clients) {
   var dominio = m[1].toLowerCase();
   if (CORREO_LIBRE.test(dominio)) return null;
   var lista = clients || [];
-  var hallado = null;
+  var halladas = [];
   lista.forEach(function(c) {
-    if (hallado) return;
     var coincide = (c.contacts || []).some(function(x) {
       var mail = String((x && x.email) || '').toLowerCase();
       return mail.indexOf('@') >= 0 && mail.slice(mail.lastIndexOf('@') + 1) === dominio;
     });
-    if (coincide) hallado = c;
+    if (coincide) halladas.push(c);
   });
+  // Dos clientes con el mismo dominio: el orden de `clients` cambia entre
+  // dispositivos, asi que elegir uno archivaria la misma reunion en dos marcas.
+  // Ninguno es mejor que el equivocado.
+  if (halladas.length > 1) return null;
+  var hallado = halladas[0] || null;
   if (!hallado) {
     var textos = (DOMINIOS_CLIENTE[dominio] ? [DOMINIOS_CLIENTE[dominio]] : []).concat([dominio.split('.')[0]]);
     var id = null;
@@ -3135,7 +3139,7 @@ function _reunionDeOutlook(ev, clients, ahoraMs) {
 // reuniones que existen.
 function _mezclarOutlook(meetings, payload, clients, deletedIds, ahoraMs) {
   var lista = meetings || [];
-  var sin = { meetings: lista, cambios: [] };
+  var sin = { meetings: lista, cambios: [], deletedIds: deletedIds };
   if (!payload || payload.completa !== true || !Array.isArray(payload.eventos)) return sin;
   var borrados = deletedIds || {};
   var hoy = _fechaLocal(new Date(ahoraMs));
@@ -3180,37 +3184,74 @@ function _mezclarOutlook(meetings, payload, clients, deletedIds, ahoraMs) {
     var conf = ev.estado === 'ACEPTADA' ? 'ACEPTADA' : 'PROPUESTA';
     var aceptada = conf === 'ACEPTADA' && m.confirmacion !== 'ACEPTADA';
     var titulo = ev.titulo || m.title;
+    // Sin fecha valida no se mueve nada: pisaria la fecha buena.
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(String(ev.fecha || ''))) return m;
     if (!movida && !aceptada && conf === m.confirmacion && titulo === m.title) return m;
     nuevo = Object.assign({}, m, { date: ev.fecha, startTime: ini, endTime: fin, title: titulo, confirmacion: conf });
     // Solo se mueve la alarma que puso la app (o ninguna). Una sin marca es de Pepe.
+    var alarmaVieja;
     if (!m.alarm || m.alarm.auto === true) {
-      delete nuevo.alarm;   // _alarmaReunionGcal se niega si ya hay alarm.datetime
-      var a = _alarmaReunionGcal(nuevo, ahoraMs);
-      if (a) nuevo.alarm = a;
+      var sonda = Object.assign({}, nuevo);
+      delete sonda.alarm;   // _alarmaReunionGcal se niega si ya hay alarm.datetime
+      var a = _alarmaReunionGcal(sonda, ahoraMs);
+      if (a) {
+        nuevo.alarm = a;
+        if (m.alarm) alarmaVieja = m.alarm;
+      } else if (movida) {
+        // Solo una movida justifica soltar la alarma: si no, que no se pueda
+        // recalcular (T-60 ya paso) no es motivo para quedarse sin ninguna.
+        delete nuevo.alarm;
+        if (m.alarm) alarmaVieja = m.alarm;
+      }
     }
     cambio = true;
-    if (movida) cambios.push({ tipo: 'MOVIDA', meeting: nuevo });
-    else if (titulo !== m.title) cambios.push({ tipo: 'RETITULADA', meeting: nuevo });
-    else if (aceptada) cambios.push({ tipo: 'ACEPTADA', meeting: nuevo });
+    // Una entrada por cada cosa que cambio. `alarmaVieja` (solo en MOVIDA) es la
+    // alarma automatica reemplazada: quien llama debe borrar sus copias en la
+    // nube (<id>_<ms> y sus _r1.._r3), que si no siguen sonando en la fecha vieja.
+    if (movida) {
+      var e = { tipo: 'MOVIDA', meeting: nuevo };
+      if (alarmaVieja) e.alarmaVieja = alarmaVieja;
+      cambios.push(e);
+    }
+    if (titulo !== m.title) cambios.push({ tipo: 'RETITULADA', meeting: nuevo });
+    if (aceptada) cambios.push({ tipo: 'ACEPTADA', meeting: nuevo });
     return nuevo;
   });
   var existentes = {};
   lista.forEach(function(m) { if (m && m.outlookEventId) existentes[m.outlookEventId] = 1; });
   var creadas = [];
+  var nuevosBorrados = borrados;
   payload.eventos.forEach(function(ev) {
     if (!ev || !ev.uid || ev.estado === 'RECHAZADA') return;
+    // Sin fecha valida quedaria una reunion que no se puede mover ni cancelar
+    // y que rompe los ordenamientos por fecha.
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(String(ev.fecha || ''))) return;
     var uids = [ev.uid].concat(ev.otrosUids || []);
     // ya importada, o con otro de sus UIDs ya importado: es la misma reunion
     if (uids.some(function(u) { return existentes[u]; })) return;
     // borrada por Pepe: el tombstone manda
-    if (uids.some(function(u) { return borrados[idDe(u)]; })) return;
+    var sellados = uids.filter(function(u) { return borrados[idDe(u)]; });
+    if (sellados.length) {
+      // Los tombstones se podan a los 30 dias: mientras Outlook siga ofreciendo
+      // el evento se vuelve a sellar, o una reunion borrada que cae a mas de un
+      // mes volveria. Solo si ya tiene mas de 7 dias, para no mover el dato en
+      // cada lectura.
+      sellados.forEach(function(u) {
+        if (ahoraMs - borrados[idDe(u)] > 7 * 86400000) {
+          if (nuevosBorrados === borrados) nuevosBorrados = Object.assign({}, borrados);
+          nuevosBorrados[idDe(u)] = ahoraMs;
+        }
+      });
+      return;
+    }
     var m = _reunionDeOutlook(ev, clients, ahoraMs);
     creadas.push(m);
     existentes[ev.uid] = 1;
     cambios.push({ tipo: 'NUEVA', meeting: m });
   });
-  if (!cambio && !creadas.length) return sin;
-  return { meetings: out.concat(creadas), cambios: cambios };
+  var res = { meetings: out.concat(creadas), cambios: cambios, deletedIds: nuevosBorrados };
+  if (!cambio && !creadas.length) { res.meetings = lista; }
+  return res;
 }
 var tomorrowStr = function tomorrowStr() {
   var d = new Date(); d.setDate(d.getDate() + 1);

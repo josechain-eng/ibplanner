@@ -192,7 +192,8 @@ test('las reuniones sin outlookEventId no se tocan nunca', () => {
   const suya = { id: 'a1', title: 'Mia', date: iso(dia(3)), startTime: '16:00', endTime: '17:00', status: 'SCHEDULED' };
   const r = mezclar([suya], pay([]));
   assert.equal(r.meetings[0], suya);
-  assert.equal(r.meetings, r.meetings);
+  assert.equal(r.cambios.length, 0);
+  assert.equal(r.meetings.length, 1);
   assert.equal(mezclar([suya], pay([ev({ uid: 'otro' })])).meetings[0], suya);
 });
 
@@ -240,4 +241,70 @@ test('un cambio de titulo aparece en cambios', () => {
   const r = mezclar([importada()], pay([ev({ titulo: 'Reunión Mensual (nueva agenda)' })]));
   assert.equal(r.meetings[0].title, 'Reunión Mensual (nueva agenda)');
   assert.deepEqual(r.cambios.map(c => c.tipo), ['RETITULADA']);
+});
+
+// ── ronda de correcciones 2 ──
+const a1530 = (() => { const d = new Date(); d.setHours(15, 30, 0, 0); return d.getTime(); })();
+
+test('aceptar una reunion cuando ya paso su T-60 conserva la alarma que la app puso', () => {
+  const m = importada({ date: iso(dia(0)), startTime: '16:00', endTime: '16:30',
+    alarm: { enabled: true, datetime: iso(dia(0)) + 'T15:00', auto: true, recurrence: 'once' } });
+  const r = _mezclarOutlook([m], pay([ev({ fecha: iso(dia(0)), estado: 'ACEPTADA' })]), clients, {}, a1530);
+  assert.equal(r.meetings[0].confirmacion, 'ACEPTADA');
+  assert.equal(r.meetings[0].alarm.datetime, iso(dia(0)) + 'T15:00');
+  assert.equal(r.meetings[0].alarm.auto, true);
+});
+
+test('una movida lleva en cambios la alarma vieja para cancelarla en la nube', () => {
+  const m = importada();
+  const vieja = m.alarm;
+  const r = mezclar([m], pay([ev({ fecha: iso(dia(5)) })]));
+  const c = r.cambios.find(x => x.tipo === 'MOVIDA');
+  assert.equal(c.alarmaVieja, vieja);
+  assert.notEqual(r.meetings[0].alarm.datetime, vieja.datetime);
+});
+
+test('una movida con alarma de Pepe no lleva alarmaVieja', () => {
+  const suya = { enabled: true, datetime: iso(dia(3)) + 'T07:00', recurrence: 'once' };
+  const r = mezclar([importada({ alarm: suya })], pay([ev({ fecha: iso(dia(5)) })]));
+  assert.equal(r.cambios[0].alarmaVieja, undefined);
+});
+
+test('una movida al pasado con alarma de Pepe la conserva', () => {
+  const suya = { enabled: true, datetime: iso(dia(3)) + 'T07:00', recurrence: 'once' };
+  const r = mezclar([importada({ alarm: suya })], pay([ev({ fecha: iso(dia(0)), inicio: '09:30' })]));
+  assert.equal(r.meetings[0].alarm, suya);
+});
+
+test('movida + retitulada + aceptada emite las tres entradas', () => {
+  const r = mezclar([importada()], pay([ev({ fecha: iso(dia(5)), titulo: 'Otro nombre', estado: 'ACEPTADA' })]));
+  assert.deepEqual(r.cambios.map(c => c.tipo).sort(), ['ACEPTADA', 'MOVIDA', 'RETITULADA']);
+});
+
+test('dos clientes con el mismo dominio de contacto: no se resuelve ninguno, en cualquier orden', () => {
+  const b = { id: 'b', name: 'Boss', contacts: [{ email: 'p@hugoboss.com' }] };
+  const h = { id: 'h', name: 'Hugo', contacts: [{ email: 'p@hugoboss.com' }] };
+  assert.equal(_clienteDeOrganizador('x@hugoboss.com', [b, h]), null);
+  assert.equal(_clienteDeOrganizador('x@hugoboss.com', [h, b]), null);
+});
+
+test('un evento sin fecha valida no se importa ni se mueve', () => {
+  for (const f of [undefined, '', '2026-1-5', 'manana']) {
+    const r = mezclar([], pay([ev({ fecha: f })]));
+    assert.equal(r.meetings.length, 0, String(f));
+  }
+  const ms = [importada()];
+  assert.equal(mezclar(ms, pay([ev({ fecha: undefined })])).meetings, ms);
+});
+
+test('un tombstone viejo se vuelve a sellar mientras Outlook siga ofreciendo el evento', () => {
+  const id = 'outlook_' + UID.replace(/[^a-z0-9]/gi, '');
+  const viejo = ahora - 20 * 86400000;
+  const r = mezclar([], pay([ev()]), { [id]: viejo, otro: 5 });
+  assert.equal(r.meetings.length, 0);
+  assert.equal(r.deletedIds[id], ahora);
+  assert.equal(r.deletedIds.otro, 5);
+  // uno reciente no se toca (sin ruido de sincronizacion): misma referencia
+  const reciente = { [id]: ahora - 1000 };
+  assert.equal(mezclar([], pay([ev()]), reciente).deletedIds, reciente);
 });
