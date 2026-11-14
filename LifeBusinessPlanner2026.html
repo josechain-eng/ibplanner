@@ -3256,6 +3256,9 @@ function _mezclarOutlook(meetings, payload, clients, deletedIds, ahoraMs) {
       // mes volveria. Solo si ya tiene mas de 7 dias, para no mover el dato en
       // cada lectura.
       sellados.forEach(function(u) {
+        // Solo si la marca tiene mas de 7 dias: re-sellar en cada lectura
+        // (cada hora) marcaria el dato sucio y empujaria el blob de ~4 MB sin parar.
+        if (ahoraMs - borrados[idDe(u)] <= 7 * 86400000) return;
         if (!nuevosBorrados) nuevosBorrados = Object.assign({}, borrados);
         nuevosBorrados[idDe(u)] = ahoraMs;
       });

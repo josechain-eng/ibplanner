@@ -297,14 +297,27 @@ test('un evento sin fecha valida no se importa ni se mueve', () => {
   assert.equal(mezclar(ms, pay([ev({ fecha: undefined })])).meetings, ms);
 });
 
-test('un tombstone se vuelve a sellar cada vez que Outlook ofrece el evento', () => {
+test('un tombstone con mas de 7 dias se re-sella mientras Outlook ofrezca el evento', () => {
   const id = 'outlook_' + UID.replace(/[^a-z0-9]/gi, '');
-  const del = { [id]: ahora - 1000, otro: 5 };
+  const del = { [id]: ahora - 8 * 86400000, otro: 5 };
   const r = mezclar([], pay([ev()]), del);
   assert.equal(r.meetings.length, 0);
   assert.equal(r.deletedIds[id], ahora);
   assert.equal(r.deletedIds.otro, 5);
-  assert.equal(del[id], ahora - 1000, 'no muta el argumento');
+  assert.equal(del[id], ahora - 8 * 86400000, 'no muta el argumento');
+  // y sobrevive a un pull con la marca vieja de la nube
+  const nube = { [id]: ahora - 8 * 86400000 };
+  assert.equal(mergeT(nube, r.deletedIds)[id], ahora);
+  assert.equal(mergeT(r.deletedIds, nube)[id], ahora);
+});
+
+test('un tombstone de 7 dias o menos no se re-sella (no se empuja el blob cada hora)', () => {
+  const id = 'outlook_' + UID.replace(/[^a-z0-9]/gi, '');
+  for (const edad of [1000, 3 * 86400000, 7 * 86400000]) {
+    const r = mezclar([], pay([ev()]), { [id]: ahora - edad });
+    assert.equal(r.meetings.length, 0);
+    assert.equal('deletedIds' in r, false, 'edad ' + edad);
+  }
 });
 
 test('deletedIds solo aparece si hubo algo que re-sellar; nunca se devuelve {} por un undefined', () => {
