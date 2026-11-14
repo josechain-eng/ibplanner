@@ -1438,7 +1438,9 @@
   // force=false → auto-pull; skip only if local has real data and cloud is empty
   window._cloudPull = function(onDone, force) {
     var syncKey = localStorage.getItem('lbp_sync_key');
-    if (!syncKey || !window.LBP_WORKER_URL) { if (onDone) onDone(false, 'missing config'); return; }
+    // _lbpCloudPullDone: la senal que espera la primera lectura de Outlook (ver
+    // window._alPrimerPullDeNube). Sin configuracion no hay nada que esperar.
+    if (!syncKey || !window.LBP_WORKER_URL) { window._lbpCloudPullDone = true; if (onDone) onDone(false, 'missing config'); return; }
     _workerFetch('/sync?key=' + encodeURIComponent(syncKey))
       .then(function(res) { return res && res.json(); })
       .then(function(json) {
@@ -1496,7 +1498,11 @@
           window.dispatchEvent(new Event('lbp_cloud_sync'));
         }
         if (onDone) onDone(true);
-      }).catch(function(e) { if (onDone) onDone(false, e && e.message ? e.message : 'network error'); });
+      }).catch(function(e) { if (onDone) onDone(false, e && e.message ? e.message : 'network error'); })
+      // Despues del catch: cubre el exito, el "no data in cloud yet", el guard
+      // del dispositivo nuevo y el error de red. Terminado es terminado; si
+      // fallo, la primera lectura de Outlook arranca igual.
+      .then(function() { window._lbpCloudPullDone = true; });
   };
   // Flush on tab close / hide
   window.addEventListener('beforeunload', function() { if (window._flushCloudSync) window._flushCloudSync(); });
@@ -3422,6 +3428,32 @@ function _avisarCambiosReunion(cambios, ahoraMs, meetings) {
 // Pide la lectura de Outlook al worker, la mezcla con las reuniones de la app y
 // avisa lo que importa. Devuelve (promesa) los `cambios`. Nunca lanza: el worker
 // contesta 200 con `completa:false` si algo fallo, y eso no cambia nada.
+// Corre `fn` recien cuando el primer pull de la nube termino, y devuelve una
+// funcion para cancelar la espera (la usa el cleanup del efecto). A los 30 s
+// corre igual: una nube caida no puede dejar la importacion apagada para
+// siempre. `o` existe para poder probarla con un reloj falso.
+window._alPrimerPullDeNube = function(fn, o) {
+  o = o || {};
+  var listo = o.listo || function() { return window._lbpCloudPullDone === true; };
+  var programar = o.programar || function(cb, ms) { return setTimeout(cb, ms); };
+  var cancelar = o.cancelar || function(h) { clearTimeout(h); };
+  var paso = o.paso || 500;
+  var tope = o.tope || 30000;
+  var esperado = 0, mango = null, muerto = false;
+  var intentar = function() {
+    if (muerto) return;
+    mango = null;
+    if (listo() || esperado >= tope) { fn(); return; }
+    esperado += paso;
+    mango = programar(intentar, paso);
+  };
+  intentar();
+  return function() {
+    muerto = true;
+    if (mango !== null) cancelar(mango);
+    mango = null;
+  };
+};
 window._outlookPull = function(setDataFn) {
   var key = null;
   try { key = localStorage.getItem('lbp_sync_key'); } catch (e) {}
@@ -20526,9 +20558,17 @@ var App = function App() {
     var doPullOutlook = function() {
       if (window._outlookPull) window._outlookPull(setData);
     };
-    doPullOutlook();
+    // La PRIMERA lectura espera a que el primer pull de la nube termine. Antes
+    // leia en cuanto `data` existia y corria una carrera contra
+    // load -> _cloudPull, que tiene ~4 MB que bajar: en un telefono abierto
+    // despues de unos dias la reunion que se importo en la Mac todavia no esta
+    // local, se re-crea con los valores por defecto, _stampUpdatedAt le pone
+    // updatedAt = ahora y ese dato gana la mezcla por item — se pierden la
+    // alarma, las notas o el clientId que Pepe le puso. Las lecturas de cada
+    // hora ya no esperan nada.
+    var cancelarEspera = window._alPrimerPullDeNube(doPullOutlook);
     var ivO = setInterval(doPullOutlook, 60 * 60 * 1000);
-    return function() { clearInterval(ivO); };
+    return function() { cancelarEspera(); clearInterval(ivO); };
   }, [_outlookListo]);
 
   var fireAlarmOnce = useCallback(function (title, body, current, total, intervalMin, sound, vibration, alarmId) {

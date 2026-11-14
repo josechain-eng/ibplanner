@@ -866,3 +866,86 @@ test('el boton "Mandar a Google Calendar" de la tarjeta sigue existiendo', () =>
   assert.match(card, /'Mandar a Google Calendar'/);
   assert.match(card, /if\(window\._gcalPush\)window\._gcalPush\(m\);/);
 });
+
+// ── La primera lectura de Outlook espera al primer pull de la nube ─────────
+// El efecto leia en cuanto `data` existia, corriendo una carrera contra
+// load -> _cloudPull, que tiene ~4 MB que bajar. En un telefono abierto
+// despues de unos dias, la reunion que se importo en la Mac todavia no esta
+// local: se re-crea con los valores por defecto, _stampUpdatedAt le pone
+// updatedAt = ahora y ese dato gana la mezcla por item, asi que se pierden la
+// alarma, las notas o el clientId que Pepe le puso a esa reunion.
+function traerEspera() {
+  const i = html.indexOf('window._alPrimerPullDeNube = function');
+  assert.ok(i > 0, 'no encuentro window._alPrimerPullDeNube');
+  const src = cuerpo(i + 'window._alPrimerPullDeNube = '.length);
+  return new Function('ventana', 'var window = ventana;\nreturn ' + src + ';');
+}
+
+function relojFalso() {
+  const pendientes = [];
+  return {
+    programar: (cb, ms) => { pendientes.push({ cb, ms }); return pendientes.length; },
+    cancelar: (h) => { pendientes[h - 1] = null; },
+    tic: () => { const p = pendientes.filter(Boolean); pendientes.length = 0; p.forEach(x => x.cb()); },
+    pendientes
+  };
+}
+
+test('la primera lectura no corre hasta que el primer pull de la nube termino', () => {
+  const ventana = { _lbpCloudPullDone: false };
+  const esperar = traerEspera()(ventana);
+  const r = relojFalso();
+  let corridas = 0;
+  esperar(function() { corridas++; }, { listo: () => ventana._lbpCloudPullDone === true,
+    programar: r.programar, cancelar: r.cancelar, paso: 500, tope: 30000 });
+  assert.equal(corridas, 0, 'leyo antes del pull de la nube');
+  r.tic(); r.tic();
+  assert.equal(corridas, 0);
+  ventana._lbpCloudPullDone = true;
+  r.tic();
+  assert.equal(corridas, 1, 'no leyo cuando el pull ya habia terminado');
+  r.tic();
+  assert.equal(corridas, 1, 'leyo dos veces');
+});
+
+test('si el pull de la nube nunca termina, a los 30 s lee igual', () => {
+  const esperar = traerEspera()({});
+  const r = relojFalso();
+  let corridas = 0;
+  esperar(function() { corridas++; }, { listo: () => false,
+    programar: r.programar, cancelar: r.cancelar, paso: 500, tope: 2000 });
+  for (let i = 0; i < 4; i++) { assert.equal(corridas, 0); r.tic(); }
+  assert.equal(corridas, 1, 'una nube caida dejaria la importacion apagada para siempre');
+});
+
+test('cancelar la espera (cleanup del efecto) la corta', () => {
+  const esperar = traerEspera()({});
+  const r = relojFalso();
+  let corridas = 0;
+  const cancelar = esperar(function() { corridas++; }, { listo: () => false,
+    programar: r.programar, cancelar: r.cancelar, paso: 500, tope: 30000 });
+  cancelar();
+  r.tic(); r.tic();
+  assert.equal(corridas, 0);
+});
+
+test('_cloudPull marca que el primer pull termino, por cualquier camino', () => {
+  const i = html.indexOf('window._cloudPull = function');
+  const src = cuerpo(i + 'window._cloudPull = '.length);
+  // Salida temprana por falta de configuracion: no hay nada que esperar.
+  assert.match(src, /if \(!syncKey \|\| !window\.LBP_WORKER_URL\) \{[^}]*_lbpCloudPullDone = true/);
+  // Y el final de la cadena, despues del catch: cubre el exito, el "no data",
+  // el guard del dispositivo nuevo y el error de red.
+  assert.match(src, /\}\)\s*\n[\s\S]{0,600}\.then\(function\(\) \{ window\._lbpCloudPullDone = true; \}\);/);
+});
+
+test('el efecto de Outlook pasa la primera lectura por la espera', () => {
+  const ef = html.slice(html.indexOf('var _outlookListo = !!data;'), html.indexOf('var fireAlarmOnce = useCallback'));
+  assert.match(ef, /window\._alPrimerPullDeNube\(doPullOutlook\)/);
+  assert.match(ef, /setInterval\(doPullOutlook, 60 \* 60 \* 1000\)/);
+  // El cleanup corta la espera y el intervalo.
+  assert.match(ef, /cancelarEspera\(\)/);
+  assert.match(ef, /clearInterval\(ivO\)/);
+  // Y ya NO hay una lectura suelta al montar que se saltee la espera.
+  assert.ok(!/\n\s*doPullOutlook\(\);/.test(ef), 'quedo la lectura directa al montar');
+});
