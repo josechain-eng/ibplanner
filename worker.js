@@ -244,7 +244,9 @@ async function handleRequest(request, env) {
     }
 
     // POST /test-push  \u2192  immediately push to all devices for a syncKey (diagnostic)
-    // POST /push-campanas  {n}  -> aviso a todos los devices registrados.
+    // POST /push-campanas  {n, tipo?}  -> aviso a todos los devices registrados.
+    // tipo 'reuniones' avisa de reuniones de Outlook; cualquier otro valor (o
+    // ninguno) avisa de campanas, que es lo que mandaba el caller original.
     // Lo llama el worker del briefing cuando el puente encontro campanas.
     // Pide el mismo secreto que el resto de la cadena: la URL de este worker
     // esta configurada dentro de la PWA publicada y se ve en cualquier traza
@@ -256,9 +258,21 @@ async function handleRequest(request, env) {
       if (!env.BRIEFING_KEY || auth !== 'Bearer ' + env.BRIEFING_KEY) {
         return json({ error: 'no autorizado' }, 401);
       }
-      let n = 0;
-      try { n = parseInt((await request.json()).n, 10) || 0; } catch (err) { n = 0; }
+      let n = 0, tipo = '';
+      try {
+        const cuerpo = await request.json();
+        n = parseInt(cuerpo.n, 10) || 0;
+        tipo = cuerpo.tipo === 'reuniones' ? 'reuniones' : '';
+      } catch (err) { n = 0; }
       if (!n) return json({ sent: 0, note: 'nada que avisar' });
+      const plural = n === 1 ? '' : 's';
+      const aviso = tipo === 'reuniones'
+        ? { title: '\uD83D\uDCC5 Reuniones en tu correo',
+            body: n + ' reunion' + (plural ? 'es' : '') + ' nueva' + plural + ' de Outlook para revisar en tu agenda.',
+            alarmId: 'reun_' }
+        : { title: '\uD83C\uDFF7 Campanas en tu correo',
+            body: n + ' correo' + plural + ' de campana listo' + plural + ' para revisar en Campaigns.',
+            alarmId: 'camp_' };
       const registry = JSON.parse(await env.LBP_KV.get('synckeys_registry') || '[]');
       let sent = 0;
       for (const syncKey of registry) {
@@ -266,10 +280,8 @@ async function handleRequest(request, env) {
         for (const sub of subs) {
           try {
             await sendPush(sub, {
-              title: '\uD83C\uDFF7 Campanas en tu correo',
-              body: n + ' correo' + (n === 1 ? '' : 's') + ' de campana listo' + (n === 1 ? '' : 's') +
-                    ' para revisar en Campaigns.',
-              alarmId: 'camp_' + Date.now(), vibration: 'long'
+              title: aviso.title, body: aviso.body,
+              alarmId: aviso.alarmId + Date.now(), vibration: 'long'
             });
             sent++;
           } catch (err) { /* un device caido no frena a los demas */ }
@@ -549,6 +561,39 @@ async function handleRequest(request, env) {
         return b.items.length - a.items.length;
       });
       return json({ ts: payload.ts || null, days, emails: inWindow.length, analyzed: analyzed.length, byClient }, 200);
+    }
+
+    // GET /meeting-proposals?key=<syncKey>
+    // Las reuniones que el puente leyo del calendario de Outlook. Es un proxy
+    // del briefing: NO llama a ningun modelo y NO escribe nada. Sin secreto o
+    // con el briefing caido responde 200 con el error y la forma vacia, para
+    // que la app no se rompa.
+    if (p === '/meeting-proposals' && request.method === 'GET') {
+      const vacio = { completa: false, eventos: [] };
+      const syncKey = url.searchParams.get('key') || '';
+      if (!syncKey) return json(Object.assign({ error: 'Falta key' }, vacio), 200);
+      const briefKey = env.BRIEFING_KEY;
+      if (!briefKey) return json(Object.assign({ error: 'Falta el secreto BRIEFING_KEY en el worker' }, vacio), 200);
+      const briefPath = '/reuniones-correo?key=' + encodeURIComponent(briefKey);
+      try {
+        // Service binding: un fetch a la URL publica de workers.dev desde otro
+        // Worker de la misma cuenta devuelve 404.
+        let r;
+        if (env.BRIEFING_SERVICE) {
+          r = await env.BRIEFING_SERVICE.fetch(new Request('https://briefing.internal' + briefPath));
+        } else {
+          r = await fetch((env.BRIEFING_URL || 'https://briefing-diario-pepe.josechain.workers.dev') + briefPath);
+        }
+        if (!r.ok) return json(Object.assign({ error: 'Briefing respondio ' + r.status + (env.BRIEFING_SERVICE ? ' (binding)' : ' (http)') }, vacio), 200);
+        const payload = await r.json();
+        return json({
+          ts: payload.ts || null,
+          completa: payload.completa === true,
+          eventos: Array.isArray(payload.eventos) ? payload.eventos : []
+        }, 200);
+      } catch (err) {
+        return json(Object.assign({ error: 'No pude leer el briefing: ' + err.message }, vacio), 200);
+      }
     }
 
     // GET /campaign-actions?key=<syncKey>
