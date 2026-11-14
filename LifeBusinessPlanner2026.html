@@ -3071,26 +3071,30 @@ function _normalizarGcal(meetings, ahoraMs) {
 // El organizador es un correo; el cliente sale de su dominio. Primero contra los
 // correos de los contactos de cada cliente, despues por el nombre del dominio.
 function _clienteDeOrganizador(organizador, clients) {
+  // Red de seguridad, nunca pisa a los contactos: solo se mira si ningun
+  // contacto de un cliente tiene ese dominio. Nombres EXACTOS de sus clientes.
   var DOMINIOS_CLIENTE = {
-    'mango.com': ['Mango'], 'hugoboss.com': ['Boss', 'Hugo Boss'],
-    'chillibeans.com.br': ['Chillibeans', 'Chilli Beans'],
-    'pfcb.com': ["P.F. Chang's", 'PF Changs', 'Chang'], 'pfchangs.com': ["P.F. Chang's", 'PF Changs', 'Chang']
+    'mango.com': 'Mango', 'hugoboss.com': 'Boss', 'chillibeans.com.br': 'Chillibeans'
   };
+  // Correo personal: el dominio no dice de que marca es. Un contacto de un
+  // cliente con yahoo.com.mx no hace cliente de todo el que escribe desde yahoo.
+  var CORREO_LIBRE = /^(yahoo\.|ymail\.|gmail\.|googlemail\.|hotmail\.|outlook\.|live\.|icloud\.|me\.com$|mac\.com$|aol\.|proton\.|protonmail\.|msn\.)/;
   var m = /@([^@\s>]+)\s*>?\s*$/.exec(String(organizador || '').trim());
   if (!m) return null;
   var dominio = m[1].toLowerCase();
+  if (CORREO_LIBRE.test(dominio)) return null;
   var lista = clients || [];
   var hallado = null;
   lista.forEach(function(c) {
     if (hallado) return;
     var coincide = (c.contacts || []).some(function(x) {
       var mail = String((x && x.email) || '').toLowerCase();
-      return mail.slice(mail.lastIndexOf('@') + 1) === dominio && mail.indexOf('@') >= 0;
+      return mail.indexOf('@') >= 0 && mail.slice(mail.lastIndexOf('@') + 1) === dominio;
     });
     if (coincide) hallado = c;
   });
   if (!hallado) {
-    var textos = (DOMINIOS_CLIENTE[dominio] || []).concat([dominio.split('.')[0]]);
+    var textos = (DOMINIOS_CLIENTE[dominio] ? [DOMINIOS_CLIENTE[dominio]] : []).concat([dominio.split('.')[0]]);
     var id = null;
     textos.forEach(function(t) { if (!id) id = window._detectClientId(t, lista); });
     if (id) hallado = lista.filter(function(c) { return c.id === id; })[0] || null;
@@ -3186,6 +3190,7 @@ function _mezclarOutlook(meetings, payload, clients, deletedIds, ahoraMs) {
     }
     cambio = true;
     if (movida) cambios.push({ tipo: 'MOVIDA', meeting: nuevo });
+    else if (titulo !== m.title) cambios.push({ tipo: 'RETITULADA', meeting: nuevo });
     else if (aceptada) cambios.push({ tipo: 'ACEPTADA', meeting: nuevo });
     return nuevo;
   });

@@ -207,3 +207,37 @@ test('la alarma que pone la app lleva auto: true', () => {
   const a = _alarmaReunionGcal({ fromGcal: true, date: iso(dia(3)), startTime: '15:00' }, ahora);
   assert.equal(a.auto, true);
 });
+
+// ── correccion 1 (14-nov): correo personal no identifica a un cliente ──
+test('un organizador en yahoo.com.mx no cae en el cliente cuyo contacto usa yahoo.com.mx', () => {
+  const c = [{ id: 'kd', name: 'Kids Delux', contacts: [{ email: 'duena@yahoo.com.mx' }] }];
+  assert.equal(_clienteDeOrganizador('alguien@yahoo.com.mx', c), null);
+  for (const d of ['gmail.com', 'hotmail.com', 'outlook.com', 'live.com', 'icloud.com', 'me.com', 'aol.com',
+    'proton.me', 'protonmail.com', 'msn.com', 'googlemail.com', 'yahoo.es', 'outlook.com.br']) {
+    const cc = [{ id: 'z', name: 'Z', contacts: [{ email: 'q@' + d }] }];
+    assert.equal(_clienteDeOrganizador('x@' + d, cc), null, d);
+  }
+});
+
+test('el dominio de empresa de un contacto sigue identificando al cliente', () => {
+  const c = [{ id: 'bo', name: 'Boss', contacts: [{ email: 'a@hugoboss.com' }] }, { id: 'hu', name: 'Hugo', contacts: [] }];
+  assert.deepEqual(_clienteDeOrganizador('x@hugoboss.com', c), { id: 'bo', name: 'Boss' });
+});
+
+// ── correccion 2: la lista fija nunca pisa a los contactos ──
+test('la red de seguridad por dominio usa los nombres reales y no pisa a los contactos', () => {
+  const sin = [{ id: 'cb', name: 'Chillibeans', contacts: [] }];
+  assert.deepEqual(_clienteDeOrganizador('x@chillibeans.com.br', sin), { id: 'cb', name: 'Chillibeans' });
+  // un contacto de otro cliente con ese dominio gana sobre la lista fija
+  const dos = [{ id: 'cb', name: 'Chillibeans', contacts: [] }, { id: 'o', name: 'Otro', contacts: [{ email: 'a@chillibeans.com.br' }] }];
+  assert.equal(_clienteDeOrganizador('x@chillibeans.com.br', dos).id, 'o');
+  // PF Chang's no es cliente
+  assert.equal(_clienteDeOrganizador('x@pfchangs.com', clients), null);
+});
+
+// ── correccion 4: retitular tambien se avisa ──
+test('un cambio de titulo aparece en cambios', () => {
+  const r = mezclar([importada()], pay([ev({ titulo: 'Reunión Mensual (nueva agenda)' })]));
+  assert.equal(r.meetings[0].title, 'Reunión Mensual (nueva agenda)');
+  assert.deepEqual(r.cambios.map(c => c.tipo), ['RETITULADA']);
+});
