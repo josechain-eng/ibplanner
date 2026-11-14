@@ -31,6 +31,11 @@ const nombres = ['defaultAlarm', '_fechaLocal', '_esDiaEntero', '_alarmaReunionG
 const { _alarmaReunionGcal, _clienteDeOrganizador, _reunionDeOutlook, _mezclarOutlook } =
   new Function(prologo + nombres.map(fuente).join('\n') + '\nreturn {' + nombres.join(',') + '};')();
 
+// Extrae un juego cualquiera de funciones del HTML y las devuelve ejecutables.
+function traer(nom) {
+  return new Function(prologo + nom.map(fuente).join('\n') + '\nreturn {' + nom.join(',') + '};')();
+}
+
 const dia = (n) => { const d = new Date(); d.setHours(0, 0, 0, 0); d.setDate(d.getDate() + n); return d; };
 const iso = (d) => d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0');
 const ahora = (() => { const d = new Date(); d.setHours(9, 0, 0, 0); return d.getTime(); })();
@@ -531,4 +536,48 @@ test('_outlookPull y su gancho en la app: al montar, cada hora, con la clave de 
   assert.match(pull, /_soltarAlarmasViejas/);
   assert.match(html, /setInterval\(doPullOutlook, 60 \* 60 \* 1000\)/);
   assert.match(html, /LBP_VERSION = '5\.69'/);
+});
+
+// ── C1 (revision de rama): una reunion CANCELADA tiene que VERSE cancelada ──
+// Medido: `todayMeetings` filtraba solo por fecha y `MeetCard` nunca miraba
+// `status`, asi que una reunion que el organizador cancelo seguia en «REUNIONES
+// DE HOY» con su chip verde «Aceptada», seguia contando en el KPI y era igual a
+// las vivas en la lista. Solo su alarma callaba. El diseno eligio «marcar, no
+// borrar» para que la vea, y el aviso de una cancelacion de pasado manana se
+// callo con el argumento de que «el chip ya lo muestra»: no lo mostraba.
+test('el chip de una cancelada dice Cancelada y manda sobre el estado de respuesta', () => {
+  const { _chipReunion } = traer(['_reunionCancelada', '_chipReunion']);
+  const c = _chipReunion({ status: 'CANCELLED', confirmacion: 'ACEPTADA' });
+  assert.equal(c.texto, 'Cancelada');
+  assert.equal(c.color, '#F44336');
+  assert.equal(_chipReunion({ status: 'SCHEDULED', confirmacion: 'ACEPTADA' }).texto, 'Aceptada');
+  assert.equal(_chipReunion({ status: 'SCHEDULED', confirmacion: 'PROPUESTA' }).texto, 'Propuesta');
+  // Una reunion que Pepe escribio a mano no lleva chip: no tiene estado de respuesta.
+  assert.equal(_chipReunion({ status: 'SCHEDULED' }), null);
+  // Pero si la cancelo, el chip rojo igual: lo que importa es que se vea.
+  assert.equal(_chipReunion({ status: 'CANCELLED' }).texto, 'Cancelada');
+  assert.equal(_chipReunion(null), null);
+});
+
+test('una cancelada no cuenta en el KPI de Reuniones de hoy, pero sigue en la lista', () => {
+  // La lista sigue mostrandola (el diseno eligio marcar, no borrar); el numero no
+  // la cuenta, porque es una cifra que Pepe lee.
+  assert.match(html, /var todayMeetings = \(data\.meetings \|\| \[\]\)\.filter\(function\(m\) \{ return m\.date === todayStr; \}\);/);
+  assert.match(html, /var todayMeetingsVivas = todayMeetings\.filter\(function\(m\) \{ return !_reunionCancelada\(m\); \}\);/);
+  assert.match(html, /'Reuniones','\\uD83D\\uDCC5','#9C68D6',todayMeetingsVivas\.length/);
+});
+
+test('la tarjeta de reuniones y REUNIONES DE HOY marcan la cancelada', () => {
+  // MeetCard: el titulo tachado y el chip.
+  const card = html.slice(html.indexOf('var MeetCard = function MeetCard('), html.indexOf('var _spmeetings = useSortPref'));
+  assert.match(card, /_reunionCancelada\(m\)/, 'MeetCard no mira si esta cancelada');
+  assert.match(card, /textDecoration: *_reunionCancelada\(m\) *\? *'line-through' *: *'none'/, 'el titulo no se tacha');
+  assert.match(card, /_chipReunion\(m\)/, 'la tarjeta no muestra el chip');
+  // «REUNIONES DE HOY»: el chip sale de _chipReunion y el titulo se tacha.
+  // En el HTML el emoji va escapado como texto (\\uXXXX), no como caracter.
+  const hoy = html.slice(html.indexOf('\\uD83D\\uDCC5 REUNIONES DE HOY'), html.indexOf('\\uD83D\\uDCCB TAREAS PARA HOY'));
+  assert.match(hoy, /_chipReunion\(m\)/, 'la fila de hoy no usa el chip comun');
+  assert.match(hoy, /line-through/, 'la fila de hoy no tacha el titulo de una cancelada');
+  assert.ok(!/m\.confirmacion==='PROPUESTA'\?'Propuesta':'Aceptada'/.test(hoy),
+            'quedo el chip viejo, que ignora status');
 });

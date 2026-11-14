@@ -2963,6 +2963,27 @@ function _fechaLocal(d) {
   return d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' +
          String(d.getDate()).padStart(2, '0');
 }
+// ── Una reunion cancelada se tiene que VER cancelada (14-nov-2026) ─────────
+// El diseno eligio "marcar, no borrar" justamente para que Pepe vea que el
+// organizador la cancelo, y el aviso al toque de una cancelacion de pasado
+// manana se callo con el argumento de que "el chip ya lo muestra". No lo
+// mostraba: ni la tarjeta, ni «REUNIONES DE HOY», ni el KPI miraban `status`,
+// asi que una reunion cancelada seguia con su chip verde «Aceptada» y lo unico
+// que cambiaba era que su alarma callaba.
+function _reunionCancelada(m) {
+  return !!m && m.status === 'CANCELLED';
+}
+// El chip de una reunion, con los mismos colores que ya usaba «REUNIONES DE
+// HOY». Cancelada manda sobre el estado de respuesta: de nada sirve decir
+// «Aceptada» de algo que ya no existe. Una reunion que Pepe escribio a mano no
+// lleva chip (no tiene estado de respuesta), salvo que este cancelada.
+function _chipReunion(m) {
+  if (_reunionCancelada(m)) return { texto: 'Cancelada', color: '#F44336', fondo: 'rgba(244,67,54,.15)' };
+  if (!m || !m.confirmacion) return null;
+  return m.confirmacion === 'PROPUESTA'
+    ? { texto: 'Propuesta', color: '#FF9800', fondo: 'rgba(255,152,0,.15)' }
+    : { texto: 'Aceptada', color: '#4CAF50', fondo: 'rgba(76,175,80,.15)' };
+}
 // La alarma que le toca a una reunion importada, o null si no le toca ninguna.
 // Los saltos [30,45,55] sobre una base en T-60 dan avisos en T-60, T-30, T-15 y
 // T-5: es el mecanismo "escalante" que la app ya tiene (scheduleAlarms agenda
@@ -4995,6 +5016,9 @@ var HomeScreen = function HomeScreen(_ref14) {
     return t.dueDate && t.dueDate < todayStr && t.status !== 'DONE';
   });
   var todayMeetings = (data.meetings || []).filter(function(m) { return m.date === todayStr; });
+  // El numero es una cifra que Pepe lee: una reunion cancelada no es una reunion
+  // de hoy. La LISTA de abajo si la sigue mostrando, tachada y con su chip rojo.
+  var todayMeetingsVivas = todayMeetings.filter(function(m) { return !_reunionCancelada(m); });
   var overdueProjects = projects.filter(function(p) {
     return p.dueDate && p.dueDate < todayStr && !['DONE','ARCHIVED'].includes(p.status);
   });
@@ -5552,7 +5576,7 @@ var HomeScreen = function HomeScreen(_ref14) {
         })
       ),
       /*#__PURE__*/React.createElement("div",{style:{display:'grid',gridTemplateColumns:'repeat(3,1fr)',gap:8,marginBottom:14}},
-        [['tasks','Tareas hoy','\uD83D\uDCCB','#60A5FA',todayTasks.length],['meetings','Reuniones','\uD83D\uDCC5','#9C68D6',todayMeetings.length],['tasks','Vencidas','\u26A0\uFE0F','#F59E0B',overdueTasks.length]].map(function(s,i){
+        [['tasks','Tareas hoy','\uD83D\uDCCB','#60A5FA',todayTasks.length],['meetings','Reuniones','\uD83D\uDCC5','#9C68D6',todayMeetingsVivas.length],['tasks','Vencidas','\u26A0\uFE0F','#F59E0B',overdueTasks.length]].map(function(s,i){
           return /*#__PURE__*/React.createElement("div",{key:i,onClick:function(){navigate(s[0]);},
             style:{background:i===2&&overdueTasks.length>0?'rgba(245,158,11,.15)':'rgba(255,255,255,.07)',border:'1px solid '+(i===0?'rgba(96,165,250,.25)':i===1?'rgba(156,104,214,.25)':'rgba(245,158,11,.25)'),borderRadius:10,padding:'8px 6px',textAlign:'center',cursor:'pointer',transition:'all .15s'},
             onMouseEnter:function(e){e.currentTarget.style.background='rgba(255,255,255,.14)';},
@@ -5571,11 +5595,10 @@ var HomeScreen = function HomeScreen(_ref14) {
         todayMeetings.map(function(m,i){return /*#__PURE__*/React.createElement("div",{key:m.id||i,onClick:function(){navigate('meetings');},
           style:{display:'flex',alignItems:'center',gap:8,padding:'7px 10px',background:'rgba(156,104,214,.1)',border:'1px solid rgba(156,104,214,.2)',borderRadius:8,marginBottom:5,cursor:'pointer'}},
           m.startTime&&/*#__PURE__*/React.createElement("span",{style:{fontSize:11,fontWeight:700,color:'#9C68D6',background:'rgba(156,104,214,.2)',borderRadius:5,padding:'2px 6px',flexShrink:0}},m.startTime),
-          /*#__PURE__*/React.createElement("span",{style:{fontSize:12,fontWeight:500,flex:1}},m.title),
-          m.confirmacion&&/*#__PURE__*/React.createElement("span",{style:{fontSize:10,fontWeight:700,borderRadius:5,padding:'2px 6px',flexShrink:0,
-            color:m.confirmacion==='PROPUESTA'?'#FF9800':'#4CAF50',
-            background:m.confirmacion==='PROPUESTA'?'rgba(255,152,0,.15)':'rgba(76,175,80,.15)'}},
-            m.confirmacion==='PROPUESTA'?'Propuesta':'Aceptada'),
+          /*#__PURE__*/React.createElement("span",{style:{fontSize:12,fontWeight:500,flex:1,
+            textDecoration:_reunionCancelada(m)?'line-through':'none',opacity:_reunionCancelada(m)?.55:1}},m.title),
+          (function(){var ch=_chipReunion(m);return ch&&/*#__PURE__*/React.createElement("span",{style:{fontSize:10,fontWeight:700,borderRadius:5,padding:'2px 6px',flexShrink:0,
+            color:ch.color,background:ch.fondo}},ch.texto);})(),
           m.clientName&&/*#__PURE__*/React.createElement("span",{style:{fontSize:10,opacity:.5,flexShrink:0}},m.clientName)
         );})
       ),
@@ -9247,9 +9270,14 @@ var MeetingsScreen = function MeetingsScreen(_ref26) {
       style: {
         fontWeight: 700,
         fontSize: 14,
-        wordBreak: 'break-word'
+        wordBreak: 'break-word',
+        textDecoration: _reunionCancelada(m) ? 'line-through' : 'none',
+        opacity: _reunionCancelada(m) ? .55 : 1
       }
-    }, m.title), /*#__PURE__*/React.createElement("div", {
+    }, m.title), (function(){
+      var ch = _chipReunion(m);
+      return ch && /*#__PURE__*/React.createElement("span", {style:{display:'inline-block',marginTop:2,fontSize:10,fontWeight:700,borderRadius:5,padding:'2px 6px',color:ch.color,background:ch.fondo}}, ch.texto);
+    })(), /*#__PURE__*/React.createElement("div", {
       style: {
         fontSize: 11,
         color: 'var(--text-dim)'

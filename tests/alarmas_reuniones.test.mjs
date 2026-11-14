@@ -114,11 +114,18 @@ test('la pasada es idempotente: correrla dos veces da la misma lista', () => {
     'si no devuelve la misma referencia, cada sync de 15 min reescribe los datos');
 });
 
-test('el resumen del dia aclara si la reunion es aceptada o propuesta', () => {
+test('el resumen del dia aclara si la reunion es aceptada, propuesta o cancelada', () => {
   const i = html.indexOf('\\uD83D\\uDCC5 REUNIONES DE HOY');
   const cuerpo = html.slice(i, i + 1800);
-  assert.ok(/m\.confirmacion/.test(cuerpo), 'la tarjeta no mira el campo');
-  assert.ok(cuerpo.includes('Propuesta') && cuerpo.includes('Aceptada'), 'faltan los dos textos');
+  // El chip salio a _chipReunion el 14-nov, para que una CANCELADA tambien se
+  // vea: antes la fila solo miraba `confirmacion` y una reunion que el
+  // organizador habia cancelado seguia con su chip verde «Aceptada».
+  assert.ok(/_chipReunion\(m\)/.test(cuerpo), 'la fila de hoy no muestra el chip');
+  const j = html.indexOf('function _chipReunion(');
+  const chip = html.slice(j, j + 600);
+  assert.ok(/m\.confirmacion/.test(chip), 'el chip no mira el campo');
+  assert.ok(chip.includes('Propuesta') && chip.includes('Aceptada') && chip.includes('Cancelada'),
+            'faltan los textos del chip');
 });
 
 test('los dos textos de la alarma existen', () => {
