@@ -949,3 +949,26 @@ test('el efecto de Outlook pasa la primera lectura por la espera', () => {
   // Y ya NO hay una lectura suelta al montar que se saltee la espera.
   assert.ok(!/\n\s*doPullOutlook\(\);/.test(ef), 'quedo la lectura directa al montar');
 });
+
+// ── La ubicacion llega de verdad (revision de rama) ────────────────────────
+// _reunionDeOutlook ya leia `ev.ubicacion`, pero CAL_SCRIPT mandaba 8 campos y
+// ninguno era `location of ev`, asi que `location` salia siempre vacio y
+// `isOnline` solo veia el titulo. El plan nombraba la ubicacion como entrada de
+// isOnline. Medido contra su Outlook el 14-nov: las dos reuniones futuras
+// traen «Reunión de Microsoft Teams» en la ubicacion y nada de eso en el
+// titulo, asi que antes de esto las dos entraban como presenciales.
+test('la ubicacion de Outlook llega a location y la ve isOnline', () => {
+  const m = _reunionDeOutlook(ev({ titulo: 'Reunión Mensual Bolivia',
+    ubicacion: 'Reunión de Microsoft Teams' }), clients, ahora);
+  assert.equal(m.location, 'Reunión de Microsoft Teams');
+  assert.equal(m.isOnline, true, 'el titulo no dice Teams: tiene que verlo en la ubicacion');
+});
+
+test('una ubicacion de sala no la hace online, y sin ubicacion queda vacia', () => {
+  const sala = _reunionDeOutlook(ev({ titulo: 'Revisión', ubicacion: 'Sala 2, Piso 3' }), clients, ahora);
+  assert.equal(sala.location, 'Sala 2, Piso 3');
+  assert.equal(sala.isOnline, false);
+  const sin = _reunionDeOutlook(ev({ titulo: 'Revisión' }), clients, ahora);
+  assert.equal(sin.location, '');
+  assert.equal(sin.isOnline, false);
+});
