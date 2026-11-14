@@ -576,9 +576,19 @@ async function handleRequest(request, env) {
       // de la app (existe data:<key>). Sin esto, cualquiera que vea la URL del
       // worker en una traza de red leeria la agenda y los correos de los
       // organizadores. Se chequea ANTES de llamar al briefing.
-      let blob = null;
-      try { blob = await env.LBP_KV.get('data:' + syncKey); } catch (err) { blob = null; }
-      if (!blob) return json(Object.assign({ error: 'Key no valida' }, vacio), 200);
+      // Con list(), que NO baja el valor: un get de data:<key> traia ~4,6 MB en
+      // un camino que se pide al abrir la app y cada hora por dispositivo. En la
+      // historia de este mismo worker, una validacion que bajaba y parseaba
+      // data:<syncKey> cada minuto es lo que rompio la push del briefing de las
+      // 8am. El nombre se compara EXACTO: `prefix` casa por prefijo, asi que una
+      // clave corta como "lbp_" pasaria el control. Si el KV falla, falla
+      // cerrado: mejor no contestar que contestar a cualquiera.
+      let existe = false;
+      try {
+        const r = await env.LBP_KV.list({ prefix: 'data:' + syncKey, limit: 1 });
+        existe = ((r && r.keys) || []).some(k => k && k.name === 'data:' + syncKey);
+      } catch (err) { existe = false; }
+      if (!existe) return json(Object.assign({ error: 'Key no valida' }, vacio), 200);
       const briefKey = env.BRIEFING_KEY;
       if (!briefKey) return json(Object.assign({ error: 'Falta el secreto BRIEFING_KEY en el worker' }, vacio), 200);
       const briefPath = '/reuniones-correo?key=' + encodeURIComponent(briefKey);

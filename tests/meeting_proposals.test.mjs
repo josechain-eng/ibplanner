@@ -23,10 +23,24 @@ const VACIO = { ts: null, completa: false, eventos: [] };
 function entorno(o) {
   o = o || {};
   const llamadas = [];
+  const gets = [], listas = [];
+  // El KV falso anota lo que se le pide. `get` de un blob de datos devuelve un
+  // texto gordo a proposito: si el endpoint lo bajara, se nota en la prueba.
+  const blob = '{"x":"' + 'z'.repeat(5000) + '"}';
   const env = {
     BRIEFING_KEY: o.sinBriefKey ? undefined : 'bk',
-    LBP_KV: { get: async k => (k === 'data:lbp_x' ? '{}' : null), put: async () => {} },
-    llamadas,
+    LBP_KV: {
+      get: async k => { gets.push(k); return k === 'data:lbp_x' ? blob : null; },
+      list: async opciones => {
+        listas.push(opciones);
+        const pre = (opciones && opciones.prefix) || '';
+        // Como el KV de verdad: `prefix` casa por PREFIJO, no exacto.
+        const todas = ['data:lbp_x', 'subs:lbp_x'];
+        return { keys: todas.filter(n => n.indexOf(pre) === 0).map(n => ({ name: n })), list_complete: true };
+      },
+      put: async () => {}
+    },
+    llamadas, gets, listas,
   };
   if (!o.sinBinding) {
     env.BRIEFING_SERVICE = {
@@ -188,4 +202,40 @@ test('push-campanas tipo reuniones avisa de reuniones, no de campanas', async ()
 test('push-campanas con un tipo desconocido cae a campanas', async () => {
   const a = await avisoPara({ n: 1, tipo: 'otra-cosa' });
   assert.match(a.title, /Campanas/);
+});
+
+// ── I3 (revision de rama): el control de la key no puede bajar el blob ─────
+// El endpoint hacia `get('data:<syncKey>')` solo para probar que la clave
+// existe: ~4,6 MB en un camino que se pide al abrir la app y cada hora por
+// dispositivo. En la historia de este mismo worker, una validacion que bajaba y
+// parseaba `data:<syncKey>` cada minuto es lo que rompio la push del briefing
+// de las 8am. El control se queda; el costo, no.
+test('meeting-proposals no baja el blob de datos para validar la key', async () => {
+  const env = entorno();
+  const r = await (await cargar()).fetch(pedir(), env);
+  assert.equal((await r.json()).completa, true);
+  assert.deepEqual(env.gets.filter(k => k.indexOf('data:') === 0), [],
+                   'bajo el blob de ~4,6 MB solo para ver si la clave existe');
+  assert.deepEqual(env.listas, [{ prefix: 'data:lbp_x', limit: 1 }]);
+});
+
+test('meeting-proposals sigue exigiendo la key EXACTA, no un prefijo', async () => {
+  // `list({prefix})` casa por prefijo: sin comparar el nombre, una clave corta
+  // como "lbp_" pasaria el control y leeria su agenda.
+  const env = entorno();
+  const r = await (await cargar()).fetch(pedir('lbp_'), env);
+  const b = await r.json();
+  assert.equal(r.status, 200);
+  assert.match(b.error, /key/i);
+  assert.equal(b.completa, false);
+  assert.deepEqual(b.eventos, []);
+  assert.deepEqual(env.llamadas, [], 'llamo al briefing con una clave parcial');
+});
+
+test('meeting-proposals con un KV que revienta falla cerrado', async () => {
+  const env = entorno();
+  env.LBP_KV.list = async () => { throw new Error('KV caido'); };
+  const b = await (await (await cargar()).fetch(pedir(), env)).json();
+  assert.match(b.error, /key/i);
+  assert.deepEqual(env.llamadas, []);
 });
