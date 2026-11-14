@@ -25,7 +25,7 @@ function entorno(o) {
   const llamadas = [];
   const env = {
     BRIEFING_KEY: o.sinBriefKey ? undefined : 'bk',
-    LBP_KV: { get: async () => null, put: async () => {} },
+    LBP_KV: { get: async k => (k === 'data:lbp_x' ? '{}' : null), put: async () => {} },
     llamadas,
   };
   if (!o.sinBinding) {
@@ -49,6 +49,18 @@ test('meeting-proposals sin key devuelve el error en 200', async () => {
   assert.match(b.error, /key/i);
   assert.equal(b.completa, false);
   assert.deepEqual(b.eventos, []);
+});
+
+test('meeting-proposals con una key inventada devuelve la forma vacia y no llama al briefing', async () => {
+  const env = entorno();
+  const r = await (await cargar()).fetch(pedir('cualquier-cosa-inventada'), env);
+  const b = await r.json();
+  assert.equal(r.status, 200);
+  assert.ok(b.error);
+  assert.equal(b.completa, false);
+  assert.deepEqual(b.eventos, []);
+  assert.equal(b.ts, undefined);
+  assert.deepEqual(env.llamadas, []);   // ni una llamada entre Workers sin autenticar
 });
 
 test('meeting-proposals sin BRIEFING_KEY lo dice, en 200', async () => {

@@ -572,6 +572,13 @@ async function handleRequest(request, env) {
       const vacio = { completa: false, eventos: [] };
       const syncKey = url.searchParams.get('key') || '';
       if (!syncKey) return json(Object.assign({ error: 'Falta key' }, vacio), 200);
+      // La key tiene que ser una sync key real: el mismo criterio que el resto
+      // de la app (existe data:<key>). Sin esto, cualquiera que vea la URL del
+      // worker en una traza de red leeria la agenda y los correos de los
+      // organizadores. Se chequea ANTES de llamar al briefing.
+      let blob = null;
+      try { blob = await env.LBP_KV.get('data:' + syncKey); } catch (err) { blob = null; }
+      if (!blob) return json(Object.assign({ error: 'Key no valida' }, vacio), 200);
       const briefKey = env.BRIEFING_KEY;
       if (!briefKey) return json(Object.assign({ error: 'Falta el secreto BRIEFING_KEY en el worker' }, vacio), 200);
       const briefPath = '/reuniones-correo?key=' + encodeURIComponent(briefKey);
