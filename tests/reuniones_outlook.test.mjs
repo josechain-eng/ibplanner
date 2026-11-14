@@ -581,3 +581,72 @@ test('la tarjeta de reuniones y REUNIONES DE HOY marcan la cancelada', () => {
   assert.ok(!/m\.confirmacion==='PROPUESTA'\?'Propuesta':'Aceptada'/.test(hoy),
             'quedo el chip viejo, que ignora status');
 });
+
+// ── I1 (revision de rama): la marca `auto` no sobrevive a una edicion suya ──
+// La restriccion dura del diseno: «las alarmas que puso el a mano no se tocan
+// nunca». AlarmPanel.update esparcia la alarma existente en cada cambio de
+// campo, asi que `auto: true` quedaba pegado, y el merge solo preguntaba por
+// `auto === true` antes de recalcularla. Medido: una alarma automatica que el
+// APAGO volvia encendida con solo que Outlook retitulara la reunion, y una que
+// el RE-HORARIO a las 08:00 volvia a T-60 al moverse la reunion.
+function traerUpdate() {
+  const i = html.indexOf('var update = function update(patch) {');
+  assert.ok(i > 0, 'no encuentro AlarmPanel.update');
+  const src = cuerpo(i + 'var update = '.length);
+  return new Function('alarm', 'patch',
+    'var _objectSpread = Object.assign;\n' +
+    'var onChange = function(a) { return a; };\n' +
+    'var update = ' + src + ';\n' +
+    'return update(patch);');
+}
+
+test('tocar un campo de la alarma la deja de marcar como automatica', () => {
+  const update = traerUpdate();
+  const auto = { enabled: true, datetime: '2026-12-02T15:00', recurrence: 'once', auto: true };
+  assert.equal(update(auto, { enabled: false }).auto, false, 'apagarla no borro la marca');
+  assert.equal(update(auto, { datetime: '2026-12-02T08:00' }).auto, false, 're-horarearla no borro la marca');
+  // Los demas modulos nunca leen `auto`: agregarla no les cambia nada.
+  assert.equal(update(auto, { enabled: false }).datetime, '2026-12-02T15:00');
+});
+
+test('una alarma automatica que Pepe APAGO no vuelve encendida cuando Outlook retitula', () => {
+  const update = traerUpdate();
+  const base = _reunionDeOutlook(ev(), clients, ahora);
+  assert.equal(base.alarm.auto, true);
+  // Pepe abre el panel y la apaga: eso es lo que guarda la app.
+  const suya = Object.assign({}, base, { alarm: update(base.alarm, { enabled: false }) });
+  const r = mezclar([suya], pay([ev({ titulo: 'Reunión Mensual (SE PASA A LAS 5)' })]));
+  const m = r.meetings[0];
+  assert.equal(m.title, 'Reunión Mensual (SE PASA A LAS 5)', 'el retitulo tiene que entrar igual');
+  assert.equal(m.alarm.enabled, false, 'la alarma que Pepe apago volvio a encenderse');
+});
+
+test('una alarma automatica que Pepe RE-HORARIO no se resetea a T-60 cuando la reunion se mueve', () => {
+  const update = traerUpdate();
+  const base = _reunionDeOutlook(ev(), clients, ahora);
+  const suya = Object.assign({}, base, { alarm: update(base.alarm, { datetime: iso(dia(3)) + 'T08:00' }) });
+  const r = mezclar([suya], pay([ev({ inicio: '18:00', fin: '18:30' })]));
+  const m = r.meetings[0];
+  assert.equal(m.startTime, '18:00', 'la reunion tiene que moverse igual');
+  assert.equal(m.alarm.datetime, iso(dia(3)) + 'T08:00', 'le pisaron la hora que el eligio');
+  // Y no se le pide a la nube que suelte una alarma que es de el.
+  assert.equal(r.cambios.filter(c => c.tipo === 'MOVIDA')[0].alarmaVieja, undefined);
+});
+
+test('dato viejo: una alarma con auto:true pero apagada se trata como suya', () => {
+  // En su telefono ya hay alarmas automaticas que apago ANTES de este arreglo:
+  // les quedo `auto: true`. `enabled === false` tambien es una decision suya.
+  const base = _reunionDeOutlook(ev(), clients, ahora);
+  const vieja = Object.assign({}, base, { alarm: Object.assign({}, base.alarm, { enabled: false }) });
+  const r = mezclar([vieja], pay([ev({ inicio: '18:00', fin: '18:30' })]));
+  assert.equal(r.meetings[0].alarm.enabled, false, 'se encendio sola');
+  assert.equal(r.meetings[0].alarm.datetime, base.alarm.datetime, 'le movio la hora');
+});
+
+test('las 12 alarmas del 13-nov (sin clave auto) siguen intactas', () => {
+  const base = _reunionDeOutlook(ev(), clients, ahora);
+  const sinMarca = { enabled: true, datetime: iso(dia(3)) + 'T10:00', recurrence: 'once' };
+  const m = Object.assign({}, base, { alarm: sinMarca });
+  const r = mezclar([m], pay([ev({ inicio: '18:00' })]));
+  assert.deepEqual(r.meetings[0].alarm, sinMarca);
+});

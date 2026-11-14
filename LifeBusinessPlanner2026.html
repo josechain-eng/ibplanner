@@ -3228,9 +3228,13 @@ function _mezclarOutlook(meetings, payload, clients, deletedIds, ahoraMs) {
     if (!/^\d{4}-\d{2}-\d{2}$/.test(String(ev.fecha || ''))) return m;
     if (!movida && !aceptada && conf === m.confirmacion && titulo === m.title) return m;
     nuevo = Object.assign({}, m, { date: ev.fecha, startTime: ini, endTime: fin, title: titulo, confirmacion: conf });
-    // Solo se mueve la alarma que puso la app (o ninguna). Una sin marca es de Pepe.
+    // Solo se mueve la alarma que puso la app (o ninguna). Una sin marca es de
+    // Pepe, y una APAGADA tambien es una decision suya: `enabled === false` es
+    // el mismo criterio que usa _alarmaReunionGcal para no tocar nada. Hace
+    // falta aparte de `auto` por el dato que ya esta en su telefono, donde la
+    // marca quedo pegada a alarmas automaticas que el apago.
     var alarmaVieja;
-    if (!m.alarm || m.alarm.auto === true) {
+    if (!m.alarm || (m.alarm.auto === true && m.alarm.enabled !== false)) {
       var sonda = Object.assign({}, nuevo);
       delete sonda.alarm;   // _alarmaReunionGcal se niega si ya hay alarm.datetime
       var a = _alarmaReunionGcal(sonda, ahoraMs);
@@ -3453,7 +3457,15 @@ var AlarmPanel = function AlarmPanel(_ref8) {
     open = _useState6[0],
     setOpen = _useState6[1];
   var update = function update(patch) {
-    return onChange(_objectSpread(_objectSpread({}, alarm), patch));
+    // `auto: false` SIEMPRE: en cuanto Pepe toca un campo del panel la alarma
+    // pasa a ser suya, y el seguimiento de Outlook no la vuelve a mover. Antes
+    // se esparcia la alarma entera y la marca quedaba pegada: una alarma
+    // automatica que el APAGO volvia encendida con solo que Outlook retitulara
+    // la reunion, y una que RE-HORARIO a las 08:00 volvia a T-60 al moverse.
+    // En los demas modulos nadie lee `auto`: agregarla no les cambia nada.
+    return onChange(_objectSpread(_objectSpread(_objectSpread({}, alarm), patch), {}, {
+      auto: false
+    }));
   };
   var toggleEnabled = function toggleEnabled(e) {
     e.stopPropagation();
