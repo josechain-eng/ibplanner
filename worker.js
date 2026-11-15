@@ -245,7 +245,9 @@ async function handleRequest(request, env) {
 
     // POST /test-push  \u2192  immediately push to all devices for a syncKey (diagnostic)
     // POST /push-campanas  {n, tipo?}  -> aviso a todos los devices registrados.
-    // tipo 'reuniones' avisa de reuniones de Outlook; cualquier otro valor (o
+    // tipo 'reuniones' avisa de reuniones de Outlook; 'reuniones-cambio' avisa
+    // de una reunion que se movio, se cancelo o cambio de estado (con la app
+    // cerrada el no se enteraba de nada hasta abrirla); cualquier otro valor (o
     // ninguno) avisa de campanas, que es lo que mandaba el caller original.
     // Lo llama el worker del briefing cuando el puente encontro campanas.
     // Pide el mismo secreto que el resto de la cadena: la URL de este worker
@@ -262,17 +264,28 @@ async function handleRequest(request, env) {
       try {
         const cuerpo = await request.json();
         n = parseInt(cuerpo.n, 10) || 0;
-        tipo = cuerpo.tipo === 'reuniones' ? 'reuniones' : '';
+        tipo = (cuerpo.tipo === 'reuniones' || cuerpo.tipo === 'reuniones-cambio') ? cuerpo.tipo : '';
       } catch (err) { n = 0; }
       if (!n) return json({ sent: 0, note: 'nada que avisar' });
       const plural = n === 1 ? '' : 's';
-      const aviso = tipo === 'reuniones'
-        ? { title: '\uD83D\uDCC5 Reuniones en tu correo',
-            body: n + ' reunion' + (plural ? 'es' : '') + ' nueva' + plural + ' de Outlook para revisar en tu agenda.',
-            alarmId: 'reun_' }
-        : { title: '\uD83C\uDFF7 Campanas en tu correo',
-            body: n + ' correo' + plural + ' de campana listo' + plural + ' para revisar en Campaigns.',
-            alarmId: 'camp_' };
+      // Etiquetas (alarmId) distintas por tipo: con el mismo prefijo, un aviso
+      // taparia al otro en la bandeja del telefono.
+      const cuantas = n + ' reuni' + (n === 1 ? '\u00f3n' : 'ones');
+      let aviso;
+      if (tipo === 'reuniones') {
+        aviso = { title: '\uD83D\uDCC5 Reuniones en tu correo',
+                  body: n + ' reunion' + (plural ? 'es' : '') + ' nueva' + plural + ' de Outlook para revisar en tu agenda.',
+                  alarmId: 'reun_' };
+      } else if (tipo === 'reuniones-cambio') {
+        aviso = { title: '\uD83D\uDCC5 Cambio en tus reuniones',
+                  body: cuantas + ' de Outlook cambi' + (n === 1 ? '\u00f3' : 'aron') +
+                        ' de horario o se cancel' + (n === 1 ? '\u00f3' : 'aron') + '. Revis\u00e1 la agenda.',
+                  alarmId: 'reuncam_' };
+      } else {
+        aviso = { title: '\uD83C\uDFF7 Campanas en tu correo',
+                  body: n + ' correo' + plural + ' de campana listo' + plural + ' para revisar en Campaigns.',
+                  alarmId: 'camp_' };
+      }
       const registry = JSON.parse(await env.LBP_KV.get('synckeys_registry') || '[]');
       let sent = 0;
       for (const syncKey of registry) {

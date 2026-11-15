@@ -239,3 +239,24 @@ test('meeting-proposals con un KV que revienta falla cerrado', async () => {
   assert.match(b.error, /key/i);
   assert.deepEqual(env.llamadas, []);
 });
+
+// ── I8: el aviso de que una reunion CAMBIO (no de que hay una nueva) ──────
+// El worker del briefing ahora avisa tambien por un UID que desaparecio o por
+// un horario/estado que cambio. Ese aviso no puede decir «reuniones nuevas»:
+// lo que tiene que hacer es mandarlo a mirar la agenda.
+test('push-campanas tipo reuniones-cambio manda a revisar la agenda', async () => {
+  const a = await avisoPara({ n: 1, tipo: 'reuniones-cambio' });
+  assert.match(a.title + ' ' + a.body, /agenda/i);
+  assert.doesNotMatch(a.title + ' ' + a.body, /nueva/i);
+  assert.doesNotMatch(a.title + ' ' + a.body, /campana/i);
+  const dos = await avisoPara({ n: 2, tipo: 'reuniones-cambio' });
+  assert.match(dos.body, /2 reuniones/);
+});
+
+test('el aviso de cambio y el de nuevas no comparten la etiqueta', async () => {
+  // Si compartieran el prefijo del alarmId, uno taparia al otro en la bandeja.
+  const SRC2 = SRC.slice(SRC.indexOf("'/push-campanas'"), SRC.indexOf("'/push-campanas'") + 2500);
+  const ids = [...SRC2.matchAll(/alarmId: '([a-z_]+)'/g)].map(m => m[1]);
+  assert.equal(new Set(ids).size, ids.length, 'hay alarmId repetidos: ' + ids);
+  assert.ok(ids.length >= 3, 'esperaba campanas, reuniones y reuniones-cambio');
+});
