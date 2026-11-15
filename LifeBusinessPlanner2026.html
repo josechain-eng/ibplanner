@@ -5703,7 +5703,7 @@ var HomeScreen = function HomeScreen(_ref14) {
     style: {
       paddingTop: 16
     }
-  }, (overdueTasks.length > 0 || overdueProjects.length > 0 || overdueGoals.length > 0 || todayMeetings.length > 0) && /*#__PURE__*/React.createElement("div", {
+  }, (overdueTasks.length > 0 || overdueProjects.length > 0 || overdueGoals.length > 0 || todayMeetingsVivas.length > 0) && /*#__PURE__*/React.createElement("div", {
     style:{display:'grid',gridTemplateColumns:'1fr 1fr',gap:6,marginBottom:10}
   },
     overdueTasks.length > 0 && /*#__PURE__*/React.createElement("div", {
@@ -5712,11 +5712,11 @@ var HomeScreen = function HomeScreen(_ref14) {
     }, /*#__PURE__*/React.createElement("span",{style:{fontSize:14}},"\u26A0\uFE0F"),
       /*#__PURE__*/React.createElement("span",{style:{fontSize:11,color:'#F44336',fontWeight:600,lineHeight:1.3}}, overdueTasks.length," task",overdueTasks.length>1?"s":""," overdue")
     ),
-    todayMeetings.length > 0 && /*#__PURE__*/React.createElement("div", {
+    todayMeetingsVivas.length > 0 && /*#__PURE__*/React.createElement("div", {
       onClick:function(){window._lbpMeetingFilter='today';navigate('meetings');},
       style:{background:'rgba(96,165,250,.12)',border:'1px solid rgba(96,165,250,.35)',borderRadius:8,padding:'7px 10px',cursor:'pointer',display:'flex',alignItems:'center',gap:5}
     }, /*#__PURE__*/React.createElement("span",{style:{fontSize:14}},"\uD83D\uDCC5"),
-      /*#__PURE__*/React.createElement("span",{style:{fontSize:11,color:'#60A5FA',fontWeight:600,lineHeight:1.3}}, todayMeetings.length," meeting",todayMeetings.length>1?"s":""," today")
+      /*#__PURE__*/React.createElement("span",{style:{fontSize:11,color:'#60A5FA',fontWeight:600,lineHeight:1.3}}, todayMeetingsVivas.length," meeting",todayMeetingsVivas.length>1?"s":""," today")
     ),
     overdueProjects.length > 0 && /*#__PURE__*/React.createElement("div", {
       onClick:function(){window._lbpProjectFilter='overdue';navigate('projects');},

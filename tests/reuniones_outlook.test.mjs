@@ -972,3 +972,14 @@ test('una ubicacion de sala no la hace online, y sin ubicacion queda vacia', () 
   assert.equal(sin.location, '');
   assert.equal(sin.isOnline, false);
 });
+
+test('el aviso "N meetings today" tampoco cuenta las canceladas', () => {
+  // Segundo contador de la misma pantalla, con el mismo problema que el KPI:
+  // con una sola reunion y cancelada decia «1 meeting today».
+  const i = html.indexOf('" meeting",');
+  assert.ok(i > 0, 'no encuentro el aviso de reuniones de hoy');
+  const bloque = html.slice(i - 900, i + 120);
+  assert.ok(!/todayMeetings\.length/.test(bloque),
+            'el aviso sigue contando las canceladas');
+  assert.match(bloque, /todayMeetingsVivas\.length," meeting",todayMeetingsVivas\.length>1/);
+});
