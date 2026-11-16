@@ -535,7 +535,11 @@ test('_outlookPull y su gancho en la app: al montar, cada hora, con la clave de 
   assert.match(pull, /_mergeTombstones\(d\._deletedIds, /);
   assert.match(pull, /_soltarAlarmasViejas/);
   assert.match(html, /setInterval\(doPullOutlook, 60 \* 60 \* 1000\)/);
-  assert.match(html, /LBP_VERSION = '5\.69'/);
+  // Piso, no version exacta: fijarla exacta hace que cualquier subida de version
+  // rompa una prueba que no tiene nada que ver (paso al subir a 5.66 y 5.67).
+  const _v = html.match(/window\.LBP_VERSION = '(\d+)\.(\d+)'/);
+  assert.ok(_v, 'no encuentro LBP_VERSION');
+  assert.ok(Number(_v[1]) * 1000 + Number(_v[2]) >= 5069, 'version ' + _v[1] + '.' + _v[2] + ' es anterior a 5.69');
 });
 
 // ── C1 (revision de rama): una reunion CANCELADA tiene que VERSE cancelada ──
