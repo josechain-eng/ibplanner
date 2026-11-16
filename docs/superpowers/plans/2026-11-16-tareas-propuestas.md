@@ -91,7 +91,7 @@ El comentario tiene que decir por qué: `/email-actions` y `/task-proposals` ya 
 
 - [ ] **Step 4: Hacer que `collapse_threads` publique `mensajes`** en `ventura_bridge.py:521`
 
-Dentro del bucle que ya ordena cada grupo por fecha descendente, añadir al dict del hilo la lista de `{"from", "date", "snippet"}` de los primeros `MENSAJES_POR_HILO` del grupo ordenado. `snippet`/`msgCount` quedan como están: el briefing diario no lee `mensajes` y re-recorta a 300 (`Briefing Diario/worker.js:1039` y `:1085`), así que el cambio es aditivo.
+Dentro del bucle que ya ordena cada grupo por fecha descendente, añadir al dict del hilo la lista de `{"from", "date", "snippet"}` de los primeros `MENSAJES_POR_HILO` del grupo ordenado. `snippet`/`msgCount` quedan como están: el briefing diario lee la bandeja del puente en `fetchIngestedVentura` (`Briefing Diario/worker.js:1119-1134`), que copia campo por campo, **no copia `mensajes`** y re-recorta `snippet` a **250** (`:1128`), así que el cambio es aditivo. (Las líneas 1039 y 1085 de ese archivo, que recortan a 300, son los caminos de Gmail y de embarques, no este.)
 
 - [ ] **Step 5: Correr las pruebas nuevas y las que ya había**
 
