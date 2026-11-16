@@ -157,3 +157,47 @@ test('un briefing que responde null no rompe: 200 con la forma vacia', async () 
   assert.deepEqual(b.propuestas, []);
   assert.equal(llamadasModelo, 0);
 });
+
+test('una tarea con createdAt NUMERICO (las que nacen de correo o de _tpAplicar) entra al contexto', async () => {
+  const env = entorno();
+  kv.set('data:lbp_x', JSON.stringify({ tasks: [
+    { title: 'Tarea con createdAt numerico', createdAt: Date.now() - 86400000 },
+    { title: 'Tarea numerica vieja', createdAt: Date.now() - 90 * 86400000 },
+    { title: 'Tarea sin createdAt usable', createdAt: 'basura', dueDate: HOY } ] }));
+  await llamar(env);
+  assert.match(cuerposModelo[0], /Tarea con createdAt numerico/);
+  assert.match(cuerposModelo[0], /Tarea sin createdAt usable/, 'createdAt ilegible debe caer a dueDate');
+  assert.doesNotMatch(cuerposModelo[0], /Tarea numerica vieja/, 'fuera de los 60 dias no entra');
+});
+
+test('el tope de 60 hilos informa cuantos quedaron fuera (los mas viejos) en vez de callarlo', async () => {
+  const env = entorno();
+  const muchos = [];
+  for (let i = 0; i < 75; i++) muchos.push({ threadId: 'o-' + i, subject: 'Asunto ' + i, from: 'a@b.c', date: HOY + 'T09:00:00', snippet: 's' + i });
+  env.BRIEFING_SERVICE.fetch = async () => new Response(JSON.stringify({ ts: TS, emails: muchos }), { status: 200 });
+  const b = await llamar(env);
+  assert.equal(b.analizados, 60);
+  assert.equal(b.recortados, 15);
+  assert.equal(llamadasModelo, 6);
+  assert.doesNotMatch(cuerposModelo.join(''), /Asunto 74/, 'el hilo 75 (el mas viejo) queda fuera');
+  assert.equal((await llamar(entorno())).recortados, 0);
+});
+
+test('una tanda caida se informa: fallos y tandas viajan al cliente y la respuesta no se cachea', async () => {
+  const env = entorno();
+  const muchos = [];
+  for (let i = 0; i < 20; i++) muchos.push({ threadId: 'o-' + i, subject: 'Asunto ' + i, from: 'a@b.c', date: HOY + 'T09:00:00', snippet: 's' });
+  env.BRIEFING_SERVICE.fetch = async () => new Response(JSON.stringify({ ts: TS, emails: muchos }), { status: 200 });
+  let n = 0;
+  globalThis.fetch = async () => {
+    n++;
+    if (n === 1) return new Response('boom', { status: 500 });
+    return new Response(JSON.stringify({ content: [{ type: 'text', text: JSON.stringify({ propuestas: [] }) }] }), { status: 200 });
+  };
+  const b = await llamar(env);
+  assert.equal(b.tandas, 2);
+  assert.equal(b.fallos, 1);
+  assert.equal(b.cacheada, false);
+  assert.ok(b.descartes.length >= 1);
+  assert.ok(![...kv.keys()].some(k => k.startsWith('tprop:')), 'con una tanda caida no se cachea');
+});

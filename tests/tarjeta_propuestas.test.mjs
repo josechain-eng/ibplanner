@@ -103,3 +103,27 @@ test('deshacer reescribe la entrada como revocada, sin marca de borrado ni trata
   assert.ok(!bloque.includes('_deletedIds'));
   assert.ok(/delete tratadas\.current\[id\]/.test(bloque), 'deshacer debe soltar la guarda de idempotencia');
 });
+
+test('la tarjeta muestra los descartes del lote, como CampanasCorreo', () => {
+  assert.ok(/lote\.descartes\.length/.test(bloque) && /lote\.descartes\.map\(/.test(bloque), 'descartes se guarda pero no se muestra');
+  assert.ok(bloque.includes('Descartado por la validación'));
+});
+
+test('una tanda de la IA caida se dice en la tarjeta y no se lee como «sin novedades»', () => {
+  assert.ok(/fallos:res\.fallos/.test(bloque) && /tandas:res\.tandas/.test(bloque), 'no lee fallos/tandas de la respuesta');
+  assert.ok(/lote\.fallos>0/.test(bloque), 'no mira lote.fallos');
+  assert.ok(bloque.includes('esta lista puede estar incompleta'), 'falta el aviso');
+  assert.ok(/incompleta \?[^:]*'No sé si hay propuestas/.test(bloque.replace(/\n\s*/g, ' ')), 'con fallos, la frase vacia no puede ser «Sin novedades»');
+});
+
+test('el recorte de hilos se dice en la tarjeta', () => {
+  assert.ok(/recortados:res\.recortados/.test(bloque), 'no lee recortados');
+  assert.ok(/lote\.recortados>0/.test(bloque) && bloque.includes('quedaron sin leer'), 'falta el aviso del recorte');
+});
+
+test('un puente que nunca publico (ts null) no dice «Sin novedades»', () => {
+  assert.ok(/sinPuente\s*=\s*!!\(lote && !lote\.ts\)/.test(bloque), 'no hay rama para !lote.ts');
+  assert.ok(bloque.includes('todavía no hay correos publicados'), 'falta la frase de ts null');
+  const plano = bloque.replace(/\n\s*/g, ' ');
+  assert.ok(plano.indexOf('sinPuente ?') < plano.indexOf("'Sin novedades:"), 'la rama de ts null debe ir antes de «Sin novedades»');
+});

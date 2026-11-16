@@ -260,3 +260,11 @@ test('el aviso de cambio y el de nuevas no comparten la etiqueta', async () => {
   assert.equal(new Set(ids).size, ids.length, 'hay alarmId repetidos: ' + ids);
   assert.ok(ids.length >= 3, 'esperaba campanas, reuniones y reuniones-cambio');
 });
+
+test('meeting-proposals usa _syncKeyValida: no queda una copia en linea del chequeo de la key', () => {
+  const ini = SRC.indexOf("p === '/meeting-proposals'");
+  const fin = SRC.indexOf("p === '/task-proposals'");
+  const bloque = SRC.slice(ini, fin);
+  assert.ok(bloque.includes('await _syncKeyValida(env, syncKey)'), 'no llama al chequeo compartido');
+  assert.ok(!bloque.includes('LBP_KV.list('), 'quedo una copia en linea del list() de la key');
+});

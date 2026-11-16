@@ -602,11 +602,7 @@ async function handleRequest(request, env) {
       // 8am. El nombre se compara EXACTO: `prefix` casa por prefijo, asi que una
       // clave corta como "lbp_" pasaria el control. Si el KV falla, falla
       // cerrado: mejor no contestar que contestar a cualquiera.
-      let existe = false;
-      try {
-        const r = await env.LBP_KV.list({ prefix: 'data:' + syncKey, limit: 1 });
-        existe = ((r && r.keys) || []).some(k => k && k.name === 'data:' + syncKey);
-      } catch (err) { existe = false; }
+      const existe = await _syncKeyValida(env, syncKey);
       if (!existe) return json(Object.assign({ error: 'Key no valida' }, vacio), 200);
       const briefKey = env.BRIEFING_KEY;
       if (!briefKey) return json(Object.assign({ error: 'Falta el secreto BRIEFING_KEY en el worker' }, vacio), 200);
@@ -790,12 +786,22 @@ async function handleRequest(request, env) {
       }
       const cutoff = Date.now() - days * 86400000;
       const todos = Array.isArray(payload.emails) ? payload.emails : (Array.isArray(payload.correos) ? payload.correos : []);
-      const hilos = todos.filter(function (e) {
+      const enRango = todos.filter(function (e) {
         const t = e && e.date ? Date.parse(e.date) : NaN;
         return !isNaN(t) && t >= cutoff;
-      }).slice(0, 60);
+      });
+      // Tope de hilos que van al modelo. Sale de la cuenta de tandas: 60 hilos son
+      // 6 llamadas en paralelo de 10 (medido: 7,7 s), y una sola llamada grande a
+      // este worker ya dio un 524 a las 2:06 (por eso /campaign-actions parte en
+      // tandas de 10). Tampoco se sube a mas: una tarjeta que propone sobre una pila
+      // sin tope se vuelve una tarea, y el spec la quiere corta. El puente publica
+      // del mas nuevo al mas viejo, asi que lo que sobra son los hilos MAS VIEJOS de
+      // la ventana. Si se recorta, se informa (recortados) en vez de perderlos en silencio.
+      const MAX_HILOS = 60;
+      const hilos = enRango.slice(0, MAX_HILOS);
+      const recortados = enRango.length - hilos.length;
       if (!hilos.length) {
-        return json({ ts: payload.ts || null, days, correos: todos.length, analizados: 0, propuestas: [], descartes: [], cacheada: false,
+        return json({ ts: payload.ts || null, days, correos: todos.length, analizados: 0, recortados: 0, propuestas: [], descartes: [], cacheada: false,
                       note: 'Sin correos en la ventana. Abri Outlook y corre el puente.' }, 200);
       }
       // Titulos de tareas de los ultimos 60 dias (abiertas y cerradas): sirven
@@ -806,7 +812,10 @@ async function handleRequest(request, env) {
         const dentro = Date.now() - 60 * 86400000;
         titulos = ((blob ? JSON.parse(blob) : {}).tasks || []).filter(function (t) {
           if (!t || !t.title) return false;
-          const f = Date.parse(t.createdAt || t.dueDate || '');
+          // createdAt es mixto: texto ISO (tareas a mano) o numero en ms (las que
+          // nacen de correo, de la IA o de _tpAplicar). Date.parse(numero) da NaN.
+          let f = typeof t.createdAt === 'number' ? t.createdAt : Date.parse(t.createdAt || '');
+          if (isNaN(f)) f = Date.parse(t.dueDate || '');
           return !isNaN(f) && f >= dentro;
         }).map(function (t) { return String(t.title).slice(0, 120); }).slice(-150);
       } catch (err) { titulos = []; }
@@ -845,7 +854,7 @@ async function handleRequest(request, env) {
       }));
       const fallos = resultados.map(function (r) { return r.fallo; }).filter(Boolean);
       if (fallos.length === tandas.length) {
-        return falla('La IA no respondio: ' + fallos[0], { ts: payload.ts || null, days, correos: todos.length, analizados: hilos.length, descartes: fallos, cacheada: false });
+        return falla('La IA no respondio: ' + fallos[0], { ts: payload.ts || null, days, correos: todos.length, analizados: hilos.length, recortados, descartes: fallos, cacheada: false });
       }
       // El worker, no el modelo, decide el hilo: correo fuera de rango o repetido se descarta.
       const descartes = fallos.slice();
@@ -864,7 +873,7 @@ async function handleRequest(request, env) {
                             cita: String(pr.cita || '').slice(0, 300), clienteSugerido: String(pr.cliente || '').trim() });
         });
       });
-      const salida = { ts: payload.ts || null, days, correos: todos.length, analizados: hilos.length, propuestas, descartes, cacheada: false };
+      const salida = { ts: payload.ts || null, days, correos: todos.length, analizados: hilos.length, recortados, fallos: fallos.length, tandas: tandas.length, propuestas, descartes, cacheada: false };
       // Una respuesta con tandas caidas no se cachea: el proximo pedido reintenta.
       if (!fallos.length) {
         try { await env.LBP_KV.put(cacheKey, JSON.stringify(salida), { expirationTtl: 172800 }); } catch (err) { /* sin cache, igual responde */ }
