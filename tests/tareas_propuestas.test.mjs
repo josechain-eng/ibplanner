@@ -217,3 +217,22 @@ test('tareasDecididas esta en _SYNC_LISTS', () => {
   const i = html.indexOf('var _SYNC_LISTS = [');
   assert.ok(html.slice(i, html.indexOf('];', i)).includes("'tareasDecididas'"));
 });
+test('una decision revocada devuelve la propuesta a la lista', () => {
+  const p = P();
+  const dec = [{ id: p.hiloId, decision: 'revocada', ts: Date.now() }];
+  assert.deepEqual(_tpFiltrar([p], dec), [p]);
+  assert.deepEqual(_tpFiltrar([p], [{ id: p.hiloId, decision: 'no', ts: Date.now() }]), []);
+});
+test('✓ sobre un hilo revocado crea la tarea y reemplaza la entrada (no la duplica)', () => {
+  const p = P();
+  const d = D({ tareasDecididas: [{ id: p.hiloId, decision: 'revocada', ts: Date.now() - 1000 }] });
+  const r = _tpAplicar(d, [{ propuesta: p, decision: 'ok' }]);
+  assert.equal(r.res.creadas, 1, 'una revocada no puede bloquear la creacion');
+  assert.equal(r.tasks.length, 1);
+  const mias = r.tareasDecididas.filter((x) => x.id === p.hiloId);
+  assert.equal(mias.length, 1);
+  assert.equal(mias[0].decision, 'ok');
+  // y una decision real sigue bloqueando
+  const otra = _tpAplicar(D({ tareasDecididas: r.tareasDecididas, tasks: r.tasks }), [{ propuesta: p, decision: 'ok' }]);
+  assert.equal(otra.res.creadas, 0);
+});

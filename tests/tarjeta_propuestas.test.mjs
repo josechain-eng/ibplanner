@@ -66,7 +66,7 @@ test('hay un boton para volver a leer que pasa refresh=1', () => {
 test('hay una pantalla de lo descartado con deshacer', () => {
   assert.ok(/decision\s*===\s*'no'/.test(bloque), 'no lista las descartadas');
   assert.ok(/Deshacer/.test(bloque), 'falta el deshacer');
-  assert.ok(/\.id\s*!==\s*\w+/.test(bloque), 'deshacer debe sacar la entrada de tareasDecididas');
+  assert.ok(/x\.id\s*===\s*id/.test(bloque), 'deshacer debe tocar solo la entrada de ese id');
 });
 
 test('cuando el correo esta viejo la tarjeta lo dice con la fecha', () => {
@@ -95,4 +95,11 @@ test('se monta en el Home justo despues de la tarjeta del briefing', () => {
 
 test('version 5.71', () => {
   assert.ok(html.includes("window.LBP_VERSION = '5.71'"));
+});
+
+test('deshacer reescribe la entrada como revocada, sin marca de borrado ni tratadas pegada', () => {
+  assert.ok(/decision:\s*'revocada'/.test(bloque), 'deshacer debe escribir decision revocada');
+  assert.ok(!bloque.includes('_lbpRecordDel'), 'la marca de borrado mata la proxima decision del hilo');
+  assert.ok(!bloque.includes('_deletedIds'));
+  assert.ok(/delete tratadas\.current\[id\]/.test(bloque), 'deshacer debe soltar la guarda de idempotencia');
 });

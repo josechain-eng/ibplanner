@@ -3548,7 +3548,8 @@ window._tpHoraAlarma = function(data, ymd, extra) {
 // Saca las propuestas que ya tienen decision (aceptada o descartada).
 window._tpFiltrar = function(propuestas, decididas) {
   var ya = {};
-  (decididas || []).forEach(function(x) { if (x && x.id) ya[x.id] = true; });
+  // 'revocada' = deshecha desde la tarjeta: la propuesta vuelve a estar pendiente.
+  (decididas || []).forEach(function(x) { if (x && x.id && x.decision !== 'revocada') ya[x.id] = true; });
   return (propuestas || []).filter(function(p) { return !ya[p.hiloId]; });
 };
 // Una sola decision por id (gana el ts mas nuevo) y nada de mas de 180 dias.
@@ -3576,10 +3577,12 @@ window._tpAplicar = function(data, decisiones, extra) {
   (decisiones || []).forEach(function(x) {
     var p = x && x.propuesta;
     if (!p || !p.hiloId) return;
-    if (decididas.some(function(d) { return d.id === p.hiloId; })) {
+    if (decididas.some(function(d) { return d.id === p.hiloId && d.decision !== 'revocada'; })) {
       res.detalle.push('Ya decidida: ' + p.titulo);
       return;
     }
+    // Una decision revocada no bloquea: la entrada se REEMPLAZA (una sola por id).
+    decididas = decididas.filter(function(d) { return d.id !== p.hiloId; });
     var ts = Date.now();
     if (x.decision === 'no') {
       decididas.push({ id: p.hiloId, decision: 'no', ts: ts });
@@ -19611,12 +19614,14 @@ var TareasPropuestas = function TareasPropuestas(props) {
   };
   var deshacer = function(id){
     delete tratadas.current[id];
-    // Con marca de borrado: sin ella el otro dispositivo, que todavia trae la
-    // entrada, la devolveria al sincronizar y el deshacer no valdria.
+    // No se borra la entrada ni se sella una marca de borrado: la marca queda 30
+    // dias, el merge descarta por id sin mirar fechas y mataria la proxima
+    // decision del mismo hilo. La entrada se reescribe como 'revocada' (cambia
+    // su contenido, asi que el merge por item la toma) y un ✓ posterior la pisa.
     setData(function(prev){
       return Object.assign({}, prev, {
-        tareasDecididas: (prev.tareasDecididas||[]).filter(function(x){return x.id!==id;}),
-        _deletedIds: _lbpRecordDel(prev, id)});
+        tareasDecididas: (prev.tareasDecididas||[]).map(function(x){
+          return x.id===id ? {id:id, decision:'revocada', ts:Date.now()} : x;})});
     });
   };
   var cuando = function(f){ return f && f.length>=16 ? f.slice(8,10)+'/'+f.slice(5,7)+' '+f.slice(11,16) : (f||''); };
