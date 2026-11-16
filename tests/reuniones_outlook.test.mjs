@@ -1033,3 +1033,39 @@ test('guardar la edicion de una reunion de Outlook no la manda a Google Calendar
 test('el boton de la tarjeta sigue mandando a Google Calendar por pedido de Pepe', () => {
   assert.match(html, /txt: m\.gcalEventId \? 'Re-sincronizar con Google Calendar' : 'Mandar a Google Calendar',\s*fn: function\(e\)\{e\.stopPropagation\(\);if\(window\._gcalPush\)window\._gcalPush\(m\);\}/);
 });
+
+// ── Informe semanal: una reunion CANCELLED no se informa (16-nov-2026) ──
+// El informe sale a terceros (dueno y franquicias). Una reunion cancelada ni
+// "ocurrio" (done) ni sigue "agendada" (meetingsUpcoming). Se OMITE, no se
+// informa como cancelada: agregar un tipo de linea nuevo es decision de producto.
+function informe(meetings) {
+  const construir = new Function(prologo + 'return ' + cuerpo(html.indexOf('window._buildWeeklyReport = function')) + ';')();
+  const data = {
+    clients: [{ id: 'cl_t', name: 'Cliente T', businessName: 'Cliente T' }],
+    meetings: meetings.map((m) => Object.assign({ clientId: 'cl_t', startTime: '10:00' }, m)),
+  };
+  return construir(data, 7, 'prueba');
+}
+const titulosDone = (rep) => rep.byClient.flatMap((g) => g.done).map((x) => x.title);
+
+test('informe: una reunion normal en la ventana aparece en done', () => {
+  const rep = informe([{ id: 'm1', title: 'Reunion viva', date: iso(dia(-2)), status: 'SCHEDULED' }]);
+  assert.ok(titulosDone(rep).includes('Reunion: Reunion viva'));
+});
+test('informe: una reunion normal de los proximos 7 dias aparece en meetingsUpcoming', () => {
+  const rep = informe([{ id: 'm2', title: 'Reunion proxima', date: iso(dia(3)), status: 'SCHEDULED' }]);
+  assert.deepEqual(rep.meetingsUpcoming.map((x) => x.title), ['Reunion proxima']);
+});
+test('informe: una reunion DONE en la ventana sigue en done', () => {
+  const rep = informe([{ id: 'm3', title: 'Reunion hecha', date: iso(dia(-1)), status: 'DONE' }]);
+  assert.ok(titulosDone(rep).includes('Reunion: Reunion hecha'));
+});
+test('informe: una reunion CANCELLED en la ventana NO aparece en done', () => {
+  const rep = informe([{ id: 'm4', title: 'Reunion cancelada', date: iso(dia(-2)), status: 'CANCELLED' }]);
+  assert.ok(!titulosDone(rep).some((t) => /cancelada/.test(t)));
+  assert.equal(rep.meetingsUpcoming.length, 0);
+});
+test('informe: una reunion CANCELLED de los proximos 7 dias NO aparece en meetingsUpcoming', () => {
+  const rep = informe([{ id: 'm5', title: 'Reunion cancelada', date: iso(dia(3)), status: 'CANCELLED' }]);
+  assert.equal(rep.meetingsUpcoming.length, 0);
+});

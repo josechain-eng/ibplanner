@@ -651,6 +651,12 @@
     // ── REUNIONES ───────────────────────────────────────────────
     var meetingsUpcoming = [];
     (data.meetings || []).forEach(function(m) {
+      // Una reunion CANCELLED (v5.69: el import de Outlook la marca solo cuando el
+      // organizador cancela) se OMITE: ni 'hecha' en la ventana ni 'agendada' en los
+      // proximos 7 dias. Este informe sale al dueno y a las franquicias. Informarla
+      // como cancelada seria un tipo de linea nuevo: decision de producto, consultar
+      // antes de 'mejorarlo'. DONE y ARCHIVED no se filtran aqui a proposito.
+      if (m.status === 'CANCELLED') return;
       var cid = resolveClientId(m, (m.title || '') + ' ' + (m.notes || '') + ' ' + (m.contact || ''));
       var b = bucket(cid);
       var mTs = m.date ? new Date(m.date).getTime() : null;
