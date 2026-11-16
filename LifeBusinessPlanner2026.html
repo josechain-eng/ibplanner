@@ -990,7 +990,9 @@
     // 'docCategories' son listas de texto suelto ("INVOICE") y el merge, que
     // filtra por id, las borraria enteras: quedan afuera a proposito
     // (5-nov-2026).
-    'imports'];
+    'imports',
+    // tareasDecididas: lista de objetos con `id` (el hiloId), la condicion que el merge exige.
+    'tareasDecididas'];
 
   // Prune deletion tombstones older than 30 days to keep the blob lean
   // Exposed on window so the React component script (separate <script> tag) can call it
@@ -3504,6 +3506,108 @@ window._outlookPull = function(setDataFn) {
       return previa.cambios;
     })
     .catch(function() { return []; });
+};
+// ── Tareas propuestas desde el correo (16-nov-2026) ─────────────────────────
+// Funciones puras. /task-proposals trae lo que el correo pide; aca se decide en
+// que dia cae, a que hora suena y que se recuerda para que no vuelva.
+// Fechas y horas SIEMPRE locales y a mano: toISOString() corre el dia en UTC-4.
+
+// Primer dia ESTRICTAMENTE posterior a `ymd` que no es sabado, domingo ni
+// feriado. Solo cuenta cat:'feriado' de _LBP_EVENTS (m/d, cualquier anio, aprox
+// incluido); las categorias escolar, retail y marketing se trabajan.
+window._tpProximoDiaHabil = function(ymd) {
+  var p = String(ymd).split('-');
+  var d = new Date(+p[0], +p[1] - 1, +p[2], 12, 0, 0);
+  var feriados = (window._LBP_EVENTS || []).filter(function(e) { return e.cat === 'feriado'; });
+  for (var i = 0; i < 366; i++) {
+    d.setDate(d.getDate() + 1);
+    var dow = d.getDay();
+    if (dow === 0 || dow === 6) continue;
+    var esFeriado = feriados.some(function(e) { return e.m === d.getMonth() + 1 && e.d === d.getDate(); });
+    if (!esFeriado) break;
+  }
+  return d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' +
+         String(d.getDate()).padStart(2, '0');
+};
+// Primer hueco libre de la escalera 09:40, 09:45, 09:50... de ese dia. Ocupan
+// lugar las alarmas habilitadas de data.tasks y los datetimes de `extra` (lo ya
+// asignado en esta misma tanda, que React puede no haber vuelto a pintar).
+window._tpHoraAlarma = function(data, ymd, extra) {
+  var ocupadas = {};
+  ((data && data.tasks) || []).forEach(function(t) {
+    if (t && t.alarm && t.alarm.enabled && t.alarm.datetime) ocupadas[t.alarm.datetime] = true;
+  });
+  (extra || []).forEach(function(dt) { ocupadas[dt] = true; });
+  var min = 9 * 60 + 40;
+  var hhmm = function(m) {
+    return String(Math.floor(m / 60)).padStart(2, '0') + ':' + String(m % 60).padStart(2, '0');
+  };
+  while (ocupadas[ymd + 'T' + hhmm(min)] && min < 23 * 60 + 55) min += 5;
+  return ymd + 'T' + hhmm(min);
+};
+// Saca las propuestas que ya tienen decision (aceptada o descartada).
+window._tpFiltrar = function(propuestas, decididas) {
+  var ya = {};
+  (decididas || []).forEach(function(x) { if (x && x.id) ya[x.id] = true; });
+  return (propuestas || []).filter(function(p) { return !ya[p.hiloId]; });
+};
+// Una sola decision por id (gana el ts mas nuevo) y nada de mas de 180 dias.
+window._tpPodarDecididas = function(decididas) {
+  var corte = Date.now() - 180 * 24 * 3600 * 1000;
+  var por = {};
+  (decididas || []).forEach(function(x) {
+    if (!x || !x.id || !(x.ts > corte)) return;
+    if (!por[x.id] || x.ts > por[x.id].ts) por[x.id] = x;
+  });
+  return Object.keys(por).map(function(k) { return por[k]; });
+};
+// Aplica decisiones [{propuesta, decision:'ok'|'no'}] sin tocar `data`: devuelve
+// { tasks, tareasDecididas, res:{creadas, descartadas, detalle} } con las listas
+// nuevas. `extra` (opcional, 3er parametro): datetimes de alarma ya asignados
+// fuera de data.tasks, por ejemplo por filas aplicadas de a una en la tarjeta.
+// Lo ya decidido no se vuelve a crear. clienteSugerido NO decide el clientId:
+// solo el dominio del remitente, via _clienteDeOrganizador.
+window._tpAplicar = function(data, decisiones, extra) {
+  var tasks = ((data && data.tasks) || []).slice();
+  var decididas = ((data && data.tareasDecididas) || []).slice();
+  var res = { creadas: 0, descartadas: 0, detalle: [] };
+  var puestas = (extra || []).slice();
+  var hoy = today();
+  (decisiones || []).forEach(function(x) {
+    var p = x && x.propuesta;
+    if (!p || !p.hiloId) return;
+    if (decididas.some(function(d) { return d.id === p.hiloId; })) {
+      res.detalle.push('Ya decidida: ' + p.titulo);
+      return;
+    }
+    var ts = Date.now();
+    if (x.decision === 'no') {
+      decididas.push({ id: p.hiloId, decision: 'no', ts: ts });
+      res.descartadas++;
+      res.detalle.push('Descartada: ' + p.titulo);
+      return;
+    }
+    if (x.decision !== 'ok') return;
+    var dueDate = window._tpProximoDiaHabil(hoy);
+    var datetime = window._tpHoraAlarma({ tasks: tasks }, dueDate, puestas);
+    puestas.push(datetime);
+    var cli = _clienteDeOrganizador(p.remitente, (data && data.clients) || []);
+    tasks.push({
+      id: uid(), title: p.titulo,
+      description: (p.cita ? p.cita + ' ' : '') + 'De: ' + p.remitente + ' · ' + p.asunto + ' · ' + p.fecha,
+      status: 'INBOX', priority: 'MEDIUM', dueDate: dueDate,
+      clientId: (cli && cli.id) || '',
+      category: 'Work', tags: ['Correo'], createdAt: ts,
+      alarm: { enabled: true, datetime: datetime, recurrence: 'once',
+               customInterval: 1, customUnit: 'days', label: 'Tarea propuesta',
+               repeatCount: 0, repeatInterval: 5, repeatIntervals: null,
+               sound: 'bell', vibration: 'long' }
+    });
+    decididas.push({ id: p.hiloId, decision: 'ok', ts: ts });
+    res.creadas++;
+    res.detalle.push('Creada: ' + p.titulo + ' (' + dueDate + ' ' + datetime.slice(11) + ')');
+  });
+  return { tasks: tasks, tareasDecididas: window._tpPodarDecididas(decididas), res: res };
 };
 var tomorrowStr = function tomorrowStr() {
   var d = new Date(); d.setDate(d.getDate() + 1);
