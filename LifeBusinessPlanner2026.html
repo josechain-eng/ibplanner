@@ -22,7 +22,7 @@
 <script>
 (function() {
   // ── Version ──────────────────────────────────────────────────────────────
-  window.LBP_VERSION = '5.71';
+  window.LBP_VERSION = '5.72';
 
   // ── PWA Install prompt ───────────────────────────────────────────────────
   window._installPrompt = null;
@@ -104,15 +104,11 @@
     {m:1,d:30,label:'Aniversario Ventura Mall',cat:'retail'},
     {m:2,d:1,label:'Inicio de clases escolar',cat:'escolar',aprox:true},
     {m:2,d:14,label:'San Valentín — campaña enamorados',cat:'marketing'},
-    {m:2,d:16,label:'Carnaval',cat:'feriado',aprox:true},
-    {m:2,d:17,label:'Carnaval',cat:'feriado',aprox:true},
     {m:2,d:20,label:'Descuentos fin de temporada (verano)',cat:'retail',aprox:true},
     {m:3,d:19,label:'Día del Padre',cat:'marketing'},
-    {m:4,d:3,label:'Viernes Santo',cat:'feriado',aprox:true},
     {m:4,d:12,label:'Día del Niño — campaña',cat:'marketing'},
     {m:5,d:1,label:'Día del Trabajo',cat:'feriado'},
     {m:5,d:27,label:'Día de la Madre — campaña fuerte',cat:'marketing'},
-    {m:6,d:4,label:'Corpus Christi',cat:'feriado',aprox:true},
     {m:6,d:21,label:'Año Nuevo Andino (Willkakuti)',cat:'feriado'},
     {m:7,d:3,label:'Inicio vacación de invierno',cat:'escolar',aprox:true},
     {m:7,d:16,label:'Fin vacación de invierno',cat:'escolar',aprox:true},
@@ -127,15 +123,49 @@
     {m:12,d:1,label:'Ventas navideñas arrancan',cat:'retail'},
     {m:12,d:25,label:'Navidad',cat:'feriado'}
   ];
+
+  // Carnaval, Viernes Santo y Corpus Christi se mueven cada anio porque cuelgan
+  // de la Pascua, asi que NO pueden vivir en la lista de arriba, que es mes/dia
+  // para cualquier anio. Estaban clavados con las fechas de 2026 y en 2027
+  // habrian hecho saltear dos dias habiles cualquiera (16-17 de febrero) sin
+  // saltear los de verdad (8-9 de febrero).
+  // Comprobado: para 2026 esta funcion devuelve exactamente lo que estaba
+  // escrito a mano, asi que el comportamiento de este anio no cambia.
+  window._LBP_FERIADOS_MOVILES = function(anio) {
+    var y = Number(anio);
+    if (!y || isNaN(y)) return [];
+    // Pascua por el algoritmo anonimo gregoriano.
+    var a = y % 19, b = Math.floor(y / 100), c = y % 100;
+    var d = Math.floor(b / 4), e = b % 4;
+    var f = Math.floor((b + 8) / 25), g = Math.floor((b - f + 1) / 3);
+    var h = (19 * a + b - d - g + 15) % 30;
+    var i = Math.floor(c / 4), k = c % 4;
+    var l = (32 + 2 * e + 2 * i - h - k) % 7;
+    var m = Math.floor((a + 11 * h + 22 * l) / 451);
+    var mes = Math.floor((h + l - 7 * m + 114) / 31);
+    var dia = ((h + l - 7 * m + 114) % 31) + 1;
+    var pascua = new Date(y, mes - 1, dia, 12, 0, 0);
+    // Mediodia a proposito: sumar dias no puede cruzar a otra fecha por horario.
+    var corrido = function(dias, label) {
+      var x = new Date(pascua.getTime());
+      x.setDate(x.getDate() + dias);
+      return { m: x.getMonth() + 1, d: x.getDate(), label: label, cat: 'feriado', aprox: true };
+    };
+    return [corrido(-48, 'Carnaval'), corrido(-47, 'Carnaval'),
+            corrido(-2, 'Viernes Santo'), corrido(60, 'Corpus Christi')];
+  };
   // Devuelve eventos en los próximos `months` meses (por defecto 3), ordenados por fecha.
   window._lbpUpcomingEvents = function(fromDate, months) {
     months = months || 3;
     var start = new Date(fromDate.getFullYear(), fromDate.getMonth(), fromDate.getDate());
     var end = new Date(start.getFullYear(), start.getMonth() + months, start.getDate());
     var out = [];
-    (window._LBP_EVENTS || []).forEach(function(ev) {
-      // probar este año y el siguiente (para el cruce de año)
-      [start.getFullYear(), start.getFullYear() + 1].forEach(function(yr) {
+    // Este año y el siguiente (para el cruce de año). Los movibles se piden por
+    // anio: en enero, los de 2027 no son los de 2026.
+    [start.getFullYear(), start.getFullYear() + 1].forEach(function(yr) {
+      var lista = (window._LBP_EVENTS || []).concat(
+        window._LBP_FERIADOS_MOVILES ? window._LBP_FERIADOS_MOVILES(yr) : []);
+      lista.forEach(function(ev) {
         var dt = new Date(yr, ev.m - 1, ev.d);
         if (dt >= start && dt < end) out.push({ dt: dt, label: ev.label, cat: ev.cat, aprox: ev.aprox });
       });
@@ -3513,17 +3543,24 @@ window._outlookPull = function(setDataFn) {
 // Fechas y horas SIEMPRE locales y a mano: toISOString() corre el dia en UTC-4.
 
 // Primer dia ESTRICTAMENTE posterior a `ymd` que no es sabado, domingo ni
-// feriado. Solo cuenta cat:'feriado' de _LBP_EVENTS (m/d, cualquier anio, aprox
-// incluido); las categorias escolar, retail y marketing se trabajan.
+// feriado. Cuenta los cat:'feriado' fijos de _LBP_EVENTS mas los movibles DEL
+// ANIO que se esta mirando (Carnaval, Viernes Santo, Corpus); las categorias
+// escolar, retail y marketing se trabajan.
 window._tpProximoDiaHabil = function(ymd) {
   var p = String(ymd).split('-');
   var d = new Date(+p[0], +p[1] - 1, +p[2], 12, 0, 0);
-  var feriados = (window._LBP_EVENTS || []).filter(function(e) { return e.cat === 'feriado'; });
+  var fijos = (window._LBP_EVENTS || []).filter(function(e) { return e.cat === 'feriado'; });
+  var cache = {};
+  var feriadosDe = function(anio) {
+    if (!cache[anio]) cache[anio] = fijos.concat(
+      window._LBP_FERIADOS_MOVILES ? window._LBP_FERIADOS_MOVILES(anio) : []);
+    return cache[anio];
+  };
   for (var i = 0; i < 366; i++) {
     d.setDate(d.getDate() + 1);
     var dow = d.getDay();
     if (dow === 0 || dow === 6) continue;
-    var esFeriado = feriados.some(function(e) { return e.m === d.getMonth() + 1 && e.d === d.getDate(); });
+    var esFeriado = feriadosDe(d.getFullYear()).some(function(e) { return e.m === d.getMonth() + 1 && e.d === d.getDate(); });
     if (!esFeriado) break;
   }
   return d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' +

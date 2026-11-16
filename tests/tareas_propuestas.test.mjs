@@ -36,7 +36,8 @@ const eventos = html.slice(iEv, html.indexOf('\n  ];', iEv) + 4) + ';\n';
 
 const detect = cuerpo(html.indexOf('window._detectClientId = function'));
 const alias = cuerpo(html.indexOf('window._LBP_CLIENT_ALIASES = {'));
-const prologo = 'var window = {};\n' + alias + ';\n' + detect + ';\n' + eventos;
+const moviles = fuenteWindow('_LBP_FERIADOS_MOVILES');
+const prologo = 'var window = {};\n' + alias + ';\n' + detect + ';\n' + eventos + moviles;
 const tp = ['_tpProximoDiaHabil', '_tpHoraAlarma', '_tpFiltrar', '_tpPodarDecididas', '_tpAplicar'];
 const nombres = ['uid', '_fechaLocal', '_clienteDeOrganizador'];
 // `hoy` fija la fecha de today(); sin ella, el reloj real. Solo cambia today:
