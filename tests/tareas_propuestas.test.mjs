@@ -38,9 +38,15 @@ const detect = cuerpo(html.indexOf('window._detectClientId = function'));
 const alias = cuerpo(html.indexOf('window._LBP_CLIENT_ALIASES = {'));
 const prologo = 'var window = {};\n' + alias + ';\n' + detect + ';\n' + eventos;
 const tp = ['_tpProximoDiaHabil', '_tpHoraAlarma', '_tpFiltrar', '_tpPodarDecididas', '_tpAplicar'];
-const nombres = ['uid', 'today', '_fechaLocal', '_clienteDeOrganizador'];
-const f = new Function(prologo + nombres.map(fuente).join('\n') + '\n' + tp.map(fuenteWindow).join('\n') +
-  '\nreturn window;')();
+const nombres = ['uid', '_fechaLocal', '_clienteDeOrganizador'];
+// `hoy` fija la fecha de today(); sin ella, el reloj real. Solo cambia today:
+// el resto se extrae igual que siempre.
+function montar(hoy) {
+  const today = hoy ? "function today(){return '" + hoy + "';}" : fuente('today');
+  return new Function(prologo + today + '\n' + nombres.map(fuente).join('\n') + '\n' +
+    tp.map(fuenteWindow).join('\n') + '\nreturn window;')();
+}
+const f = montar();
 const { _tpProximoDiaHabil, _tpHoraAlarma, _tpFiltrar, _tpPodarDecididas, _tpAplicar } = f;
 
 const P = (over) => Object.assign({ hiloId: 'hilo:pago royalty fogo', titulo: 'Ver Pago Royalty Fogo',
@@ -162,12 +168,23 @@ test('la cita y el correo de origen quedan en la descripcion', () => {
 });
 test('la fecha limite que menciona el correo no pisa el dueDate', () => {
   const p = P({ cita: 'Necesito esto para el 2030-01-15, gracias', fecha: '2030-01-10' });
-  const t = _tpAplicar(D(), [{ propuesta: p, decision: 'ok' }]).tasks[0];
-  const h = new Date();
-  const hoy = h.getFullYear() + '-' + String(h.getMonth() + 1).padStart(2, '0') + '-' + String(h.getDate()).padStart(2, '0');
-  const esperado = _tpProximoDiaHabil(hoy);
-  assert.equal(t.dueDate, esperado);
+  const t = montar('2026-11-17')._tpAplicar(D(), [{ propuesta: p, decision: 'ok' }]).tasks[0];
+  assert.equal(t.dueDate, '2026-11-18');
+});
+test('la tarea cae en el proximo dia habil: jueves 24-dic salta Navidad y el fin de semana', () => {
+  const t = montar('2026-12-24')._tpAplicar(D(), [{ propuesta: P(), decision: 'ok' }]).tasks[0];
+  assert.equal(t.dueDate, '2026-12-28');
+  assert.equal(t.alarm.datetime, '2026-12-28T09:40');
+});
+test('la tarea cae en el proximo dia habil: viernes cae en lunes', () => {
+  const t = montar('2026-11-20')._tpAplicar(D(), [{ propuesta: P(), decision: 'ok' }]).tasks[0];
+  assert.equal(t.dueDate, '2026-11-23');
+  assert.equal(t.alarm.datetime, '2026-11-23T09:40');
+});
+test('con el reloj real, dueDate es una fecha local valida posterior a hoy', () => {
+  const t = _tpAplicar(D(), [{ propuesta: P(), decision: 'ok' }]).tasks[0];
   assert.match(t.dueDate, /^\d{4}-\d{2}-\d{2}$/);
+  assert.equal(t.alarm.datetime, t.dueDate + 'T09:40');
 });
 test('la tarea sigue la forma del proyecto', () => {
   const t = _tpAplicar(D(), [{ propuesta: P(), decision: 'ok' }]).tasks[0];
