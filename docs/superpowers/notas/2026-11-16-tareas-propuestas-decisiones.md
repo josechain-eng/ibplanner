@@ -125,12 +125,10 @@ La revisión final los triagó uno por uno y ninguno llega a la vara de fusionar
 
 ## Dos cosas con fecha, fuera de esta rama
 
-**Enero 2027 — los feriados móviles.** `window._LBP_EVENTS` tiene Carnaval el
-16-17 de febrero, Viernes Santo el 3 de abril y Corpus el 4 de junio: son las
-fechas de 2026. En 2027 Carnaval cae el 8-9 de febrero y Viernes Santo el 26 de
-marzo. Desde enero, la app va a saltear dos días hábiles cualquiera y **no** va
-a saltear los feriados de verdad — y la tarjeta del día va a mostrar mal esas
-fechas el mismo día. Es dato preexistente de la app, no lo introdujo esta rama.
+**~~Enero 2027 — los feriados móviles.~~ Resuelto el mismo día, en la v5.72.**
+Carnaval, Viernes Santo y Corpus salieron de la lista fija y ahora se calculan
+desde la Pascua, así que valen para cualquier año. Para 2026 dan exactamente
+las fechas que estaban escritas a mano, y hay una prueba que lo deja fijado.
 
 **Ya — la clave de OpenAI mal pegada.** El worker `life-planner` tiene cuatro
 secretos y el **nombre** de uno de ellos es el **valor** de una API key de
