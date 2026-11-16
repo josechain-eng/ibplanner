@@ -983,3 +983,53 @@ test('el aviso "N meetings today" tampoco cuenta las canceladas', () => {
             'el aviso sigue contando las canceladas');
   assert.match(bloque, /todayMeetingsVivas\.length," meeting",todayMeetingsVivas\.length>1/);
 });
+
+// ── Cierre, item 3: una reunion YA importada recibe su ubicacion ──────────
+// `location` empezo a viajar despues de que dos reuniones de diciembre ya
+// estaban importadas, y el camino de actualizacion no la refrescaba: se
+// quedaban sin su enlace de Teams. Se actualiza EN SILENCIO (sin entrada en
+// `cambios`): un enlace que aparece no es algo que Pepe necesite que le avisen.
+test('una reunion ya importada recibe la ubicacion de Outlook, sin avisar', () => {
+  const vieja = _reunionDeOutlook(ev(), clients, ahora);
+  assert.equal(vieja.location, '');
+  const r = mezclar([vieja], pay([ev({ ubicacion: 'Reunión de Microsoft Teams' })]));
+  assert.equal(r.meetings[0].location, 'Reunión de Microsoft Teams');
+  assert.deepEqual(r.cambios, [], 'no es un cambio reportable');
+});
+
+test('sin ubicacion en la lectura no se borra la que ya tenia, y igual no toca nada', () => {
+  const conLoc = Object.assign(_reunionDeOutlook(ev({ ubicacion: 'Sala 2' }), clients, ahora));
+  const sin = mezclar([conLoc], pay([ev()]));
+  assert.equal(sin.meetings[0].location, 'Sala 2');
+  const lista = [conLoc];
+  assert.equal(mezclar(lista, pay([ev({ ubicacion: 'Sala 2' })])).meetings, lista, 'misma identidad: ni setData');
+});
+
+test('la ubicacion se actualiza junto con un cambio de horario sin perder el aviso', () => {
+  const vieja = _reunionDeOutlook(ev(), clients, ahora);
+  const r = mezclar([vieja], pay([ev({ inicio: '17:00', fin: '17:30', ubicacion: 'Teams' })]));
+  assert.equal(r.meetings[0].location, 'Teams');
+  assert.ok(r.cambios.some(c => c.tipo === 'MOVIDA'));
+});
+
+// ── Cierre, item 4: guardar la edicion de una reunion importada tambien ──
+// escribia en su Google Calendar personal (otra puerta al mismo problema que
+// _gcalFlushPushQueue). El boton «Mandar a Google Calendar» de la tarjeta, que
+// es Pepe pidiendolo, sigue llamando _gcalPush directo.
+test('guardar la edicion de una reunion de Outlook no la manda a Google Calendar', () => {
+  const ini = html.indexOf('var save = function save() {\n    if (!form.title) return;\n    var _savedM;');
+  assert.ok(ini > 0, 'no encuentro el save de reuniones');
+  const sav = cuerpo(ini);
+  const llamadas = sav.match(/[^\n]*_gcalPush\(_savedM\)[^\n]*/g) || [];
+  assert.equal(llamadas.length, 1);
+  assert.match(llamadas[0], /outlookEventId/, 'el push de guardar no excluye las de Outlook: ' + llamadas[0]);
+  // el guard evalua con la reunion guardada: una de Outlook no empuja, una a mano si
+  const empuja = (m) => new Function('_savedM', 'window',
+    'var n = 0; window._gcalPush = function(){ n++; };\n' + llamadas[0].trim() + '\nreturn n;')(m, { _gcalPush() {} });
+  assert.equal(empuja({ id: 'a', outlookEventId: UID }), 0);
+  assert.equal(empuja({ id: 'b' }), 1);
+});
+
+test('el boton de la tarjeta sigue mandando a Google Calendar por pedido de Pepe', () => {
+  assert.match(html, /txt: m\.gcalEventId \? 'Re-sincronizar con Google Calendar' : 'Mandar a Google Calendar',\s*fn: function\(e\)\{e\.stopPropagation\(\);if\(window\._gcalPush\)window\._gcalPush\(m\);\}/);
+});

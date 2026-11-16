@@ -3246,8 +3246,18 @@ function _mezclarOutlook(meetings, payload, clients, deletedIds, ahoraMs) {
     var titulo = ev.titulo || m.title;
     // Sin fecha valida no se mueve nada: pisaria la fecha buena.
     if (!/^\d{4}-\d{2}-\d{2}$/.test(String(ev.fecha || ''))) return m;
-    if (!movida && !aceptada && conf === m.confirmacion && titulo === m.title) return m;
+    // La ubicacion (el enlace de Teams) se refresca EN SILENCIO: no genera
+    // entrada en `cambios`, un enlace que aparece no es un aviso que Pepe
+    // necesite. Sin ubicacion en la lectura no se borra la que ya hay.
+    var ubic = ev.ubicacion ? String(ev.ubicacion) : '';
+    var ubicNueva = !!ubic && ubic !== m.location;
+    if (!movida && !aceptada && conf === m.confirmacion && titulo === m.title) {
+      if (!ubicNueva) return m;
+      cambio = true;
+      return Object.assign({}, m, { location: ubic });
+    }
     nuevo = Object.assign({}, m, { date: ev.fecha, startTime: ini, endTime: fin, title: titulo, confirmacion: conf });
+    if (ubicNueva) nuevo.location = ubic;
     // Solo se mueve la alarma que puso la app (o ninguna). Una sin marca es de
     // Pepe, y una APAGADA tambien es una decision suya: `enabled === false` es
     // el mismo criterio que usa _alarmaReunionGcal para no tocar nada. Hace
@@ -9292,7 +9302,10 @@ var MeetingsScreen = function MeetingsScreen(_ref26) {
         });
       });
     }
-    if (window._gcalPush) window._gcalPush(_savedM);
+    // Las de Outlook no: guardar una edicion CREARIA la reunion en su Google
+    // Calendar personal, una escritura que nadie pidio. El boton de la tarjeta
+    // es el camino en el que Pepe lo decide.
+    if (window._gcalPush && !_savedM.outlookEventId) window._gcalPush(_savedM);
     setForm({
       title: '',
       date: today(),
