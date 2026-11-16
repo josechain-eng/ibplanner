@@ -757,6 +757,133 @@ async function handleRequest(request, env) {
                     acciones: out.acciones, descartes: out.descartes.concat(fallos) }, 200);
     }
 
+    // GET /task-proposals?key=<syncKey>&days=10&refresh=1
+    // Lee los hilos de correo que publica el puente y le pide a Claude que
+    // diga que le queda pendiente A PEPE. NO escribe tareas: devuelve
+    // propuestas para la tarjeta. La respuesta del dia se cachea en KV.
+    // Toda falla responde 200 con {error, propuestas: []}.
+    if (p === '/task-proposals' && request.method === 'GET') {
+      const syncKey = url.searchParams.get('key') || '';
+      const falla = function (msg, extra) { return json(Object.assign({ error: msg, propuestas: [] }, extra || {}), 200); };
+      if (!syncKey) return falla('Falta key');
+      const days = Math.min(Math.max(parseInt(url.searchParams.get('days') || '10', 10) || 10, 1), 60);
+      const refresh = url.searchParams.get('refresh') === '1';
+      // Solo una sync key real: nombre EXACTO de data:<key> (prefix casaria
+      // "lbp_"), falla cerrado si el KV lanza, y ANTES del briefing o el modelo.
+      let keyOk = false;
+      try {
+        const rk = await env.LBP_KV.list({ prefix: 'data:' + syncKey, limit: 1 });
+        keyOk = ((rk && rk.keys) || []).some(k => k && k.name === 'data:' + syncKey);
+      } catch (err) { keyOk = false; }
+      if (!keyOk) return falla('Key no valida');
+      const cacheKey = 'tprop:' + syncKey + ':' + _hoyBolivia();
+      if (!refresh) {
+        try {
+          const c = await env.LBP_KV.get(cacheKey);
+          if (c) return json(Object.assign(JSON.parse(c), { cacheada: true }), 200);
+        } catch (err) { /* cache ilegible: se recalcula */ }
+      }
+      const briefKey = env.BRIEFING_KEY;
+      if (!briefKey) return falla('Falta el secreto BRIEFING_KEY en el worker');
+      let payload;
+      const briefPath = '/ventura-emails?key=' + encodeURIComponent(briefKey);
+      try {
+        // Service binding: workers.dev entre Workers de la misma cuenta da 404.
+        let r;
+        if (env.BRIEFING_SERVICE) {
+          r = await env.BRIEFING_SERVICE.fetch(new Request('https://briefing.internal' + briefPath));
+        } else {
+          r = await fetch((env.BRIEFING_URL || 'https://briefing-diario-pepe.josechain.workers.dev') + briefPath);
+        }
+        if (!r.ok) return falla('Briefing respondio ' + r.status + (env.BRIEFING_SERVICE ? ' (binding)' : ' (http)'));
+        payload = await r.json();
+      } catch (err) {
+        return falla('No pude leer el briefing: ' + err.message);
+      }
+      const cutoff = Date.now() - days * 86400000;
+      const todos = Array.isArray(payload.emails) ? payload.emails : (Array.isArray(payload.correos) ? payload.correos : []);
+      const hilos = todos.filter(function (e) {
+        const t = e && e.date ? Date.parse(e.date) : NaN;
+        return !isNaN(t) && t >= cutoff;
+      }).slice(0, 60);
+      if (!hilos.length) {
+        return json({ ts: payload.ts || null, days, correos: todos.length, analizados: 0, propuestas: [], descartes: [], cacheada: false,
+                      note: 'Sin correos en la ventana. Abri Outlook y corre el puente.' }, 200);
+      }
+      // Titulos de tareas de los ultimos 60 dias (abiertas y cerradas): sirven
+      // de ejemplo de estilo y de lista de lo ya cubierto.
+      let titulos = [];
+      try {
+        const blob = await env.LBP_KV.get('data:' + syncKey);
+        const dentro = Date.now() - 60 * 86400000;
+        titulos = ((blob ? JSON.parse(blob) : {}).tasks || []).filter(function (t) {
+          if (!t || !t.title) return false;
+          const f = Date.parse(t.createdAt || t.dueDate || '');
+          return !isNaN(f) && f >= dentro;
+        }).map(function (t) { return String(t.title).slice(0, 120); }).slice(-150);
+      } catch (err) { titulos = []; }
+      const contexto = 'TAREAS DE PEPE DE LOS ULTIMOS 60 DIAS (estilo y lo ya cubierto):\n' +
+        (titulos.length ? titulos.map(function (t) { return '- ' + t; }).join('\n') : '(ninguna)') + '\n\n';
+      // Cada hilo con TODOS sus mensajes, del mas viejo al mas nuevo. Un hilo
+      // publicado antes de la Tarea 1 no trae mensajes: se cae al snippet.
+      function cuerpoHilos(lista) {
+        return 'CORREOS:\n' + lista.map(function (h) {
+          const ms = Array.isArray(h.mensajes) && h.mensajes.length
+            ? h.mensajes.slice().reverse()
+            : [{ from: h.from, date: h.date, snippet: h.snippet }];
+          return '[' + h.n + '] FECHA: ' + (h.date || '?') + '\nDE: ' + String(h.from || '').slice(0, 120) +
+                 '\nASUNTO: ' + String(h.subject || '').slice(0, 160) + '\nMENSAJES (del mas viejo al mas nuevo):\n' +
+                 ms.map(function (m) {
+                   return '> ' + (m.date || '?') + ' | ' + String(m.from || '').slice(0, 120) + ': ' + String(m.snippet || '').slice(0, 1200);
+                 }).join('\n');
+        }).join('\n\n---\n\n');
+      }
+      const numerados = hilos.map(function (h, i) { return Object.assign({}, h, { n: i + 1 }); });
+      const POR_TANDA = 10;
+      const tandas = [];
+      for (let i = 0; i < numerados.length; i += POR_TANDA) tandas.push(numerados.slice(i, i + POR_TANDA));
+      const resultados = await Promise.all(tandas.map(async function (grupo, gi) {
+        const d = {};
+        const texto = await callClaude(env, [{ role: 'user', content: contexto + cuerpoHilos(grupo) }], TP_SP, 4096, d);
+        if (!texto) return { propuestas: [], fallo: 'tanda ' + (gi + 1) + ' de ' + tandas.length + ': ' + (d.motivo || 'sin respuesta') };
+        try {
+          const m = String(texto).match(/\{[\s\S]*\}/);
+          const p2 = m ? JSON.parse(m[0]) : null;
+          if (!p2 || !Array.isArray(p2.propuestas)) return { propuestas: [], fallo: 'tanda ' + (gi + 1) + ': la IA no devolvio JSON valido' };
+          return { propuestas: p2.propuestas, fallo: null };
+        } catch (err) {
+          return { propuestas: [], fallo: 'tanda ' + (gi + 1) + ': JSON ilegible' };
+        }
+      }));
+      const fallos = resultados.map(function (r) { return r.fallo; }).filter(Boolean);
+      if (fallos.length === tandas.length) {
+        return falla('La IA no respondio: ' + fallos[0], { ts: payload.ts || null, days, correos: todos.length, analizados: hilos.length, descartes: fallos, cacheada: false });
+      }
+      // El worker, no el modelo, decide el hilo: correo fuera de rango o repetido se descarta.
+      const descartes = fallos.slice();
+      const usados = new Set();
+      const propuestas = [];
+      resultados.forEach(function (r) {
+        r.propuestas.forEach(function (pr) {
+          const n = pr && Number(pr.correo);
+          const h = Number.isInteger(n) ? numerados[n - 1] : null;
+          if (!h) { descartes.push('correo ' + (pr && pr.correo) + ' no existe: ' + String((pr && pr.titulo) || '').slice(0, 80)); return; }
+          if (usados.has(n)) { descartes.push('correo ' + n + ' repetido: ' + String(pr.titulo || '').slice(0, 80)); return; }
+          if (!String(pr.titulo || '').trim()) { descartes.push('correo ' + n + ' sin titulo'); return; }
+          usados.add(n);
+          propuestas.push({ hiloId: _tpHiloId(h.subject, h.threadId), titulo: String(pr.titulo).trim().slice(0, 160),
+                            remitente: h.from || '', asunto: h.subject || '', fecha: h.date || '',
+                            cita: String(pr.cita || '').slice(0, 300), clienteSugerido: String(pr.cliente || '').trim() });
+        });
+      });
+      const salida = { ts: payload.ts || null, days, correos: todos.length, analizados: hilos.length, propuestas, descartes, cacheada: false };
+      // Una respuesta con tandas caidas no se cachea: el proximo pedido reintenta.
+      if (!fallos.length) {
+        try { await env.LBP_KV.put(cacheKey, JSON.stringify(salida), { expirationTtl: 172800 }); } catch (err) { /* sin cache, igual responde */ }
+      }
+      return json(salida, 200);
+    }
+
     if (p === '/chat' && request.method === 'POST') {
       const apiKey = env.ANTHROPIC_API_KEY;
       if (!apiKey) return json({ error: 'ANTHROPIC_API_KEY not set.' }, 500);
@@ -1119,6 +1246,37 @@ async function registerSyncKey(env, syncKey) {
     registry.push(syncKey);
     await env.LBP_KV.put('synckeys_registry', JSON.stringify(registry));
   }
+}
+
+// Prompt de propuesta de tareas desde el correo. Responde que le queda
+// pendiente A PEPE, no que dice el correo.
+const TP_SP = 'Eres el asistente de LB Planner, la app de Pepe (gerente de Ventura Mall, Bolivia). ' +
+  'Recibis hilos de su correo corporativo, cada uno numerado [N] con todos sus mensajes del mas viejo ' +
+  'al mas nuevo, y la lista de las tareas de Pepe de los ultimos 60 dias (abiertas y cerradas).\n\n' +
+  'TU TRABAJO: decir que le queda pendiente A PEPE tras leer cada hilo completo. No resumas el correo: ' +
+  'responde que tiene que hacer EL.\n\n' +
+  'REGLAS DURAS:\n' +
+  '- Un pendiente es algo que Pepe debe hacer, responder, revisar, aprobar o dar seguimiento. Si el ultimo ' +
+  'mensaje es de Pepe y cierra el tema, o el tema ya se resolvio en el hilo, no hay pendiente.\n' +
+  '- Lee el hilo entero: el pedido suele estar en un mensaje viejo y el nuevo solo dice "gracias".\n' +
+  '- Una linea imperativa por pendiente, en la taquigrafia de Pepe: corta, sin articulos de mas, como los ' +
+  'titulos de sus tareas de ejemplo ("Ver pago royalty Fogo", "Mandar pedido a Mango").\n' +
+  '- Las tareas de la lista ya estan cubiertas, abiertas o cerradas: si un pendiente ya esta ahi, omitelo.\n' +
+  '- Nada de newsletters, avisos automaticos, notificaciones del sistema, publicidad ni confirmaciones.\n' +
+  '- Si un correo no deja ningun pendiente de Pepe, omitelo. Es normal devolver pocas propuestas o ninguna.\n' +
+  '- NUNCA inventes. "cita" es una frase textual copiada del correo que justifica el pendiente.\n' +
+  '- "cliente" es la tienda o franquicia de la que habla (Mango, CK, Fogo, etc.) o vacio si no hay.\n\n' +
+  'Responde SOLO con JSON, sin texto antes ni despues: ' +
+  '{"propuestas":[{"correo":N,"titulo":"...","cita":"...","cliente":"..."}]}. ' +
+  'Si no hay nada: {"propuestas":[]}.';
+
+// Espejo de normalize_subject del puente (ventura_bridge.py): minusculas,
+// UN solo prefijo re|res|fwd|rv con espacios opcionales alrededor de los dos
+// puntos, y trim. No quitar prefijos repetidos: los dos lados tienen que coincidir.
+function _tpHiloId(subject, threadId) {
+  const s = String(subject || '').toLowerCase().replace(/^\s*(re|res|fwd|rv)\s*:\s*/i, '').trim();
+  if (!s || s === '(sin asunto)') return 'msg:' + threadId;
+  return 'hilo:' + s;
 }
 
 // Prompt de extraccion de campanas desde el correo. Cada regla nace de un
