@@ -26,7 +26,7 @@ function entorno(opts) {
   return {
     BRIEFING_KEY: o.sinBriefKey ? undefined : 'bk',
     // Sin ANTHROPIC_API_KEY a proposito: callClaude devuelve '' sin salir a la red.
-    LBP_KV: { get: async k => (k === 'data:lbp_x' ? (o.datos === undefined ? DATOS : o.datos) : null), put: async () => {} },
+    LBP_KV: { list: async op => ({ keys: ['data:lbp_x'].filter(n => n.indexOf((op && op.prefix) || '') === 0).map(n => ({ name: n })) }), get: async k => (k === 'data:lbp_x' ? (o.datos === undefined ? DATOS : o.datos) : null), put: async () => {} },
     BRIEFING_SERVICE: {
       fetch: async () => (o.briefStatus && o.briefStatus !== 200)
         ? new Response('no', { status: o.briefStatus })
@@ -150,7 +150,7 @@ function envConIA(porLlamada, contador) {
   return {
     ANTHROPIC_API_KEY: 'sk-test',
     BRIEFING_KEY: 'bk',
-    LBP_KV: { get: async k => (k === 'data:lbp_x' ? DATOS : null), put: async () => {} },
+    LBP_KV: { list: async op => ({ keys: ['data:lbp_x'].filter(n => n.indexOf((op && op.prefix) || '') === 0).map(n => ({ name: n })) }), get: async k => (k === 'data:lbp_x' ? DATOS : null), put: async () => {} },
     BRIEFING_SERVICE: {
       fetch: async () => new Response(JSON.stringify({
         ts: 't',

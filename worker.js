@@ -467,6 +467,17 @@ async function handleRequest(request, env) {
     // Se usa para la seccion de comunicaciones del informe de actividades.
     if (p === '/email-actions' && request.method === 'GET') {
       const days = Math.min(parseInt(url.searchParams.get('days') || '14', 10) || 14, 60);
+      const syncKey = url.searchParams.get('key') || '';
+      // Solo una sync key real (existe data:<key>): igual que /meeting-proposals.
+      // Se valida con list() (no baja el blob de ~4,6 MB), comparando el nombre
+      // EXACTO porque `prefix` casa por prefijo ("lbp_" pasaria), y falla cerrado
+      // si el KV lanza. ANTES de llamar al briefing o al modelo.
+      let keyOk = false;
+      try {
+        const rk = await env.LBP_KV.list({ prefix: 'data:' + syncKey, limit: 1 });
+        keyOk = ((rk && rk.keys) || []).some(k => k && k.name === 'data:' + syncKey);
+      } catch (err) { keyOk = false; }
+      if (!keyOk) return json({ error: 'Key no valida', emails: 0, byClient: [] }, 200);
       const briefUrl = env.BRIEFING_URL || 'https://briefing-diario-pepe.josechain.workers.dev';
       const briefKey = env.BRIEFING_KEY;
       if (!briefKey) return json({ error: 'Falta el secreto BRIEFING_KEY en el worker', emails: 0, byClient: [] }, 200);
@@ -488,7 +499,6 @@ async function handleRequest(request, env) {
       }
       // Nombres canonicos de las franquicias, leidos de los datos del usuario,
       // para que el informe use SIEMPRE los mismos nombres que el resto del doc.
-      const syncKey = url.searchParams.get('key') || '';
       let clients = [];
       if (syncKey) {
         try {
@@ -633,6 +643,16 @@ async function handleRequest(request, env) {
     if (p === '/campaign-actions' && request.method === 'GET') {
       const syncKey = url.searchParams.get('key') || '';
       if (!syncKey) return json({ error: 'Falta key', correos: 0, acciones: [] }, 200);
+      // Solo una sync key real (existe data:<key>): igual que /meeting-proposals.
+      // Se valida con list() (no baja el blob de ~4,6 MB), comparando el nombre
+      // EXACTO porque `prefix` casa por prefijo ("lbp_" pasaria), y falla cerrado
+      // si el KV lanza. ANTES de llamar al briefing o al modelo.
+      let keyOk = false;
+      try {
+        const rk = await env.LBP_KV.list({ prefix: 'data:' + syncKey, limit: 1 });
+        keyOk = ((rk && rk.keys) || []).some(k => k && k.name === 'data:' + syncKey);
+      } catch (err) { keyOk = false; }
+      if (!keyOk) return json({ error: 'Key no valida', correos: 0, acciones: [] }, 200);
       const briefKey = env.BRIEFING_KEY;
       if (!briefKey) return json({ error: 'Falta el secreto BRIEFING_KEY en el worker', correos: 0, acciones: [] }, 200);
       let payload;
