@@ -1,4 +1,4 @@
-// /email-actions y /campaign-actions solo contestan a una sync key real
+// /email-actions, /campaign-actions y /task-proposals solo contestan a una sync key real
 // (existe data:<key>). Una key inventada o el prefijo "lbp_" devuelven la forma
 // vacia de CADA endpoint y no gastan ni una llamada entre Workers ni al modelo.
 import { test } from 'node:test';
@@ -52,7 +52,8 @@ async function con(fn) {
 
 const CASOS = [
   ['/email-actions', (b) => { assert.equal(b.emails, 0); assert.deepEqual(b.byClient, []); }],
-  ['/campaign-actions', (b) => { assert.equal(b.correos, 0); assert.deepEqual(b.acciones, []); }]
+  ['/campaign-actions', (b) => { assert.equal(b.correos, 0); assert.deepEqual(b.acciones, []); }],
+  ['/task-proposals', (b) => { assert.deepEqual(b.propuestas, []); }]
 ];
 
 for (const [ruta, forma] of CASOS) {

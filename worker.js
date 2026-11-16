@@ -472,11 +472,7 @@ async function handleRequest(request, env) {
       // Se valida con list() (no baja el blob de ~4,6 MB), comparando el nombre
       // EXACTO porque `prefix` casa por prefijo ("lbp_" pasaria), y falla cerrado
       // si el KV lanza. ANTES de llamar al briefing o al modelo.
-      let keyOk = false;
-      try {
-        const rk = await env.LBP_KV.list({ prefix: 'data:' + syncKey, limit: 1 });
-        keyOk = ((rk && rk.keys) || []).some(k => k && k.name === 'data:' + syncKey);
-      } catch (err) { keyOk = false; }
+      const keyOk = await _syncKeyValida(env, syncKey);
       if (!keyOk) return json({ error: 'Key no valida', emails: 0, byClient: [] }, 200);
       const briefUrl = env.BRIEFING_URL || 'https://briefing-diario-pepe.josechain.workers.dev';
       const briefKey = env.BRIEFING_KEY;
@@ -647,11 +643,7 @@ async function handleRequest(request, env) {
       // Se valida con list() (no baja el blob de ~4,6 MB), comparando el nombre
       // EXACTO porque `prefix` casa por prefijo ("lbp_" pasaria), y falla cerrado
       // si el KV lanza. ANTES de llamar al briefing o al modelo.
-      let keyOk = false;
-      try {
-        const rk = await env.LBP_KV.list({ prefix: 'data:' + syncKey, limit: 1 });
-        keyOk = ((rk && rk.keys) || []).some(k => k && k.name === 'data:' + syncKey);
-      } catch (err) { keyOk = false; }
+      const keyOk = await _syncKeyValida(env, syncKey);
       if (!keyOk) return json({ error: 'Key no valida', correos: 0, acciones: [] }, 200);
       const briefKey = env.BRIEFING_KEY;
       if (!briefKey) return json({ error: 'Falta el secreto BRIEFING_KEY en el worker', correos: 0, acciones: [] }, 200);
@@ -770,11 +762,7 @@ async function handleRequest(request, env) {
       const refresh = url.searchParams.get('refresh') === '1';
       // Solo una sync key real: nombre EXACTO de data:<key> (prefix casaria
       // "lbp_"), falla cerrado si el KV lanza, y ANTES del briefing o el modelo.
-      let keyOk = false;
-      try {
-        const rk = await env.LBP_KV.list({ prefix: 'data:' + syncKey, limit: 1 });
-        keyOk = ((rk && rk.keys) || []).some(k => k && k.name === 'data:' + syncKey);
-      } catch (err) { keyOk = false; }
+      const keyOk = await _syncKeyValida(env, syncKey);
       if (!keyOk) return falla('Key no valida');
       const cacheKey = 'tprop:' + syncKey + ':' + _hoyBolivia() + ':' + days;
       if (!refresh) {
@@ -796,7 +784,7 @@ async function handleRequest(request, env) {
           r = await fetch((env.BRIEFING_URL || 'https://briefing-diario-pepe.josechain.workers.dev') + briefPath);
         }
         if (!r.ok) return falla('Briefing respondio ' + r.status + (env.BRIEFING_SERVICE ? ' (binding)' : ' (http)'));
-        payload = await r.json();
+        payload = (await r.json()) || {};
       } catch (err) {
         return falla('No pude leer el briefing: ' + err.message);
       }
@@ -1246,6 +1234,17 @@ async function registerSyncKey(env, syncKey) {
     registry.push(syncKey);
     await env.LBP_KV.put('synckeys_registry', JSON.stringify(registry));
   }
+}
+
+// Una sync key es valida solo si existe data:<key>. Se valida con list() (no
+// baja el blob de ~4,6 MB) comparando el nombre EXACTO, porque `prefix` casa
+// por prefijo ("lbp_" pasaria). Falla cerrado si el KV lanza. Cada endpoint la
+// llama ANTES de tocar el briefing o el modelo y arma su propia respuesta vacia.
+async function _syncKeyValida(env, syncKey) {
+  try {
+    const rk = await env.LBP_KV.list({ prefix: 'data:' + syncKey, limit: 1 });
+    return ((rk && rk.keys) || []).some(k => k && k.name === 'data:' + syncKey);
+  } catch (err) { return false; }
 }
 
 // Prompt de propuesta de tareas desde el correo. Responde que le queda

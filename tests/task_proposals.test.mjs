@@ -67,6 +67,8 @@ test('el hiloId sale del asunto normalizado, no del modelo', async () => {
                                     ['RES:Pago Royalty Fogo', 'hilo:pago royalty fogo'],
                                     ['RV : Pago Royalty Fogo', 'hilo:pago royalty fogo'],
                                     // un solo prefijo, igual que normalize_subject del puente
+                                    // sin recorte previo: el espacio inicial impide quitar el prefijo, igual que en Python
+                                    ['  RV : Pago Royalty Fogo  ', 'hilo:rv : pago royalty fogo'],
                                     ['Re: Re: Pago Royalty Fogo', 'hilo:re: pago royalty fogo']]) {
     const env = entorno();
     env.BRIEFING_SERVICE.fetch = async () => new Response(JSON.stringify({ ts: TS, emails: [{ ...HILOS[0], subject: asunto }] }), { status: 200 });
@@ -92,6 +94,11 @@ test('el cuerpo del modelo incluye el mensaje mas viejo del hilo', async () => {
   assert.equal(llamadasModelo, 1);
   assert.match(cuerposModelo[0], /royalty de octubre/);
   assert.match(cuerposModelo[0], /Revisar contrato PF Changs/);
+  // orden: el mensaje viejo va antes que el nuevo (se busca la linea del mensaje, no la palabra,
+  // porque el prompt del sistema tambien la menciona)
+  const viejo = cuerposModelo[0].indexOf('Favor revisar el pago del royalty de octubre');
+  const nuevo = cuerposModelo[0].indexOf(': gracias');
+  assert.ok(viejo > -1 && nuevo > -1 && viejo < nuevo);
 });
 
 test('la segunda llamada del dia sale del cache y no llama al modelo', async () => {
@@ -139,4 +146,14 @@ test('otro days el mismo dia no sale del cache de otro days', async () => {
   assert.equal(b.cacheada, false);
   assert.equal(llamadasModelo, 2);
   assert.ok(kv.has('tprop:lbp_x:' + HOY + ':30'));
+});
+
+test('un briefing que responde null no rompe: 200 con la forma vacia', async () => {
+  const env = entorno();
+  env.BRIEFING_SERVICE.fetch = async () => new Response('null', { status: 200 });
+  const r = await (await cargar()).fetch(pedir(), env);
+  const b = await r.json();
+  assert.equal(r.status, 200);
+  assert.deepEqual(b.propuestas, []);
+  assert.equal(llamadasModelo, 0);
 });
