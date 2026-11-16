@@ -1,0 +1,98 @@
+// La tarjeta «Las tareas propuestas de la semana» del Home (v5.71).
+// React compilado no se monta en Node: se fijan por texto los invariantes que
+// ya se rompieron en este proyecto o que el diseno exige.
+import { test } from 'node:test';
+import assert from 'node:assert/strict';
+import fs from 'node:fs';
+import path from 'node:path';
+import { fileURLToPath } from 'node:url';
+
+const raiz = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
+const html = fs.readFileSync(path.join(raiz, 'LifeBusinessPlanner2026.html'), 'utf8');
+
+const ini = html.indexOf('var TareasPropuestas = function');
+const fin = html.indexOf('\nvar CampaignsScreen = function', ini);
+const bloque = ini >= 0 && fin > ini ? html.slice(ini, fin) : '';
+
+test('existe el componente TareasPropuestas', () => {
+  assert.ok(bloque.length > 500, 'no se encontro el bloque de TareasPropuestas');
+});
+
+test('la tarjeta se llama «las tareas propuestas de la semana»', () => {
+  assert.ok(bloque.includes('🗂 Las tareas propuestas de la semana'), 'falta el titulo exacto');
+});
+
+test('la tarjeta aparece todos los dias: no depende del dia de la semana', () => {
+  assert.ok(!/getDay\(/.test(bloque), 'el componente mira el dia de la semana');
+});
+
+test('no hay un boton Guardar ni casillas que decidan por las filas sin tocar', () => {
+  assert.ok(!/Guardar/.test(bloque), 'hay un Guardar: destildar significaria «nunca mas»');
+  assert.ok(!/checkbox/.test(bloque), 'hay casillas: una fila sin tocar no puede decidir nada');
+});
+
+test('cada fila tiene su propio ✓ y su propia ✗', () => {
+  assert.ok(/decidir\(p,\s*'ok'\)/.test(bloque), 'falta el onClick del ✓ por fila');
+  assert.ok(/decidir\(p,\s*'no'\)/.test(bloque), 'falta el onClick de la ✗ por fila');
+  assert.ok(bloque.includes("'✓'") && bloque.includes("'✗'"), 'faltan los simbolos ✓ y ✗');
+});
+
+test('una fila aplica sola: una sola decision por llamada y las alarmas ya puestas viajan como extra', () => {
+  assert.ok(/_tpAplicar\(\s*\w+,\s*\[\{propuesta:\s*p,\s*decision:\s*dec\}\],\s*\w+(\.current)?\s*\)/.test(bloque),
+    '_tpAplicar debe recibir UNA decision y el `extra` de alarmas ya asignadas');
+  assert.ok(/tareasDecididas:\s*r\.tareasDecididas/.test(bloque) && /tasks:\s*r\.tasks/.test(bloque),
+    'setData debe escribir tasks y tareasDecididas');
+});
+
+test('no poda por su cuenta: _tpAplicar ya lo hace', () => {
+  assert.ok(!bloque.includes('_tpPodarDecididas'), 'doble poda');
+});
+
+test('filtra lo ya decidido con _tpFiltrar sobre data.tareasDecididas', () => {
+  assert.ok(/_tpFiltrar\([^)]*tareasDecididas\)/.test(bloque));
+});
+
+test('no habla de campanas: ni el aviso equivocado ni el endpoint de campanas', () => {
+  assert.ok(!bloque.includes('Campanas en tu correo'), 'texto de campanas');
+  assert.ok(!bloque.includes('/campaign-actions'), 'endpoint de campanas');
+  assert.ok(bloque.includes('/task-proposals?key='), 'no llama a /task-proposals');
+});
+
+test('hay un boton para volver a leer que pasa refresh=1', () => {
+  assert.ok(bloque.includes('↻ volver a leer'), 'falta el boton');
+  assert.ok(bloque.includes('&refresh=1'), 'el boton no pide refresh=1');
+});
+
+test('hay una pantalla de lo descartado con deshacer', () => {
+  assert.ok(/decision\s*===\s*'no'/.test(bloque), 'no lista las descartadas');
+  assert.ok(/Deshacer/.test(bloque), 'falta el deshacer');
+  assert.ok(/\.id\s*!==\s*\w+/.test(bloque), 'deshacer debe sacar la entrada de tareasDecididas');
+});
+
+test('cuando el correo esta viejo la tarjeta lo dice con la fecha', () => {
+  assert.ok(/lote\.ts/.test(bloque), 'no mira el ts del lote');
+  assert.ok(/24\s*\*\s*3600\s*\*\s*1000/.test(bloque), 'no hay umbral de 24 h');
+  assert.ok(/sin leer desde/.test(bloque), 'el texto no nombra desde cuando');
+});
+
+test('fechas locales: nada de toISOString en el componente', () => {
+  assert.ok(!bloque.includes('toISOString'), 'toISOString corre el dia en Bolivia (UTC-4)');
+});
+
+test('React.createElement, sin JSX', () => {
+  assert.ok(bloque.includes('React.createElement('));
+  assert.ok(!/<\/?[A-Z][A-Za-z]*[ >]/.test(bloque.replace(/'[^'\n]*'/g, "''")), 'parece JSX');
+});
+
+test('se monta en el Home justo despues de la tarjeta del briefing', () => {
+  const brf = html.indexOf('Briefing del d\\u00eda');
+  const montaje = html.indexOf('React.createElement(TareasPropuestas,', brf);
+  assert.ok(brf > 0 && montaje > brf, 'no se monta despues del briefing');
+  const siguiente = html.indexOf('todayTasks.slice(0,5)', brf);
+  assert.ok(montaje > siguiente, 'se monto antes de que termine la tarjeta del briefing');
+  assert.ok(montaje - siguiente < 1200, 'se monto lejos de la tarjeta del briefing');
+});
+
+test('version 5.71', () => {
+  assert.ok(html.includes("window.LBP_VERSION = '5.71'"));
+});

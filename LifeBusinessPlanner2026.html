@@ -22,7 +22,7 @@
 <script>
 (function() {
   // ── Version ──────────────────────────────────────────────────────────────
-  window.LBP_VERSION = '5.70';
+  window.LBP_VERSION = '5.71';
 
   // ── PWA Install prompt ───────────────────────────────────────────────────
   window._installPrompt = null;
@@ -5818,6 +5818,7 @@ var HomeScreen = function HomeScreen(_ref14) {
       )
     )
   ),
+  /*#__PURE__*/React.createElement(TareasPropuestas, {data:data, setData:setData}),
   /*#__PURE__*/React.createElement("div", {
     className: "page-content",
     style: {
@@ -19553,6 +19554,134 @@ var CampanasCorreo = function CampanasCorreo(props) {
       React.createElement('button',{className:'btn btn-primary',style:{flex:2},disabled:!marcadas,onClick:guardar},
         marcadas ? ('Guardar '+marcadas) : 'Nada marcado'))
   );
+};
+
+// Tarjeta del Home con las tareas que el correo sugiere (v5.71).
+// Se diferencia a proposito de CampanasCorreo: alla una casilla sin tildar
+// quiere decir "esta vez no"; aca equivaldria a "nunca mas", y el primer dia
+// llegan decenas de propuestas que Pepe todavia no leyo. Por eso no hay casillas
+// ni un boton de confirmacion global: cada fila tiene su propio ✓ y su propia ✗
+// y aplica esa sola fila al toque. La fila que no se toca no graba nada y
+// vuelve manana. No manda ningun aviso push.
+var TareasPropuestas = function TareasPropuestas(props) {
+  var data = props.data, setData = props.setData;
+  var _a = useState(false), abierto = _a[0], setAbierto = _a[1];
+  var _b = useState('cargando'), fase = _b[0], setFase = _b[1];
+  var _c = useState(null), lote = _c[0], setLote = _c[1];
+  var _d = useState(''), err = _d[0], setErr = _d[1];
+  var _e = useState(false), verNo = _e[0], setVerNo = _e[1];
+  var _f = useState(''), aviso = _f[0], setAviso = _f[1];
+  // Alarmas ya asignadas en esta sesion de la tarjeta. Es una referencia y no un
+  // estado a proposito: dos clicks rapidos no esperan al re-render, y con un
+  // estado el segundo leeria la lista vieja y caeria a la misma hora (09:40).
+  var alarmas = useRef([]);
+  var tratadas = useRef({});
+  var traer = function(refrescar){
+    var key = localStorage.getItem('lbp_sync_key') || '';
+    if (!window.LBP_WORKER_URL || !key) { setFase(''); setErr('Configura el Worker URL en Cloud & Sync.'); return; }
+    setFase('cargando'); setErr('');
+    fetch(window.LBP_WORKER_URL+'/task-proposals?key='+encodeURIComponent(key)+'&days=10'+(refrescar?'&refresh=1':''))
+      .then(function(r){return r.json();})
+      .then(function(res){
+        setFase('');
+        if (!res || res.error) { setLote(null); setErr((res && res.error) || 'No pude leer el correo.'); return; }
+        setLote({propuestas:res.propuestas||[], correos:res.correos||0, descartes:res.descartes||[], ts:res.ts||null});
+      })
+      .catch(function(){ setFase(''); setLote(null); setErr('Error de red al leer el correo.'); });
+  };
+  useEffect(function(){ traer(false); }, []);
+  var pendientes = lote ? window._tpFiltrar(lote.propuestas, data.tareasDecididas) : [];
+  var descartadas = (data.tareasDecididas||[]).filter(function(x){return x && x.decision==='no';});
+  var decidir = function(p, dec){
+    if (tratadas.current[p.hiloId]) return;
+    tratadas.current[p.hiloId] = true;
+    var previas = alarmas.current.slice();
+    var previo = window._tpAplicar(data, [{propuesta:p, decision:dec}], previas);
+    if (previo.res.creadas) {
+      var t = previo.tasks[previo.tasks.length-1];
+      if (t && t.alarm) alarmas.current.push(t.alarm.datetime);
+    }
+    // Se recalcula sobre `prev`: si dos filas se tocan antes del re-render, la
+    // segunda no puede pisar la tarea que creo la primera.
+    setData(function(prev){
+      var r = window._tpAplicar(prev, [{propuesta:p, decision:dec}], previas);
+      return Object.assign({}, prev, {tasks: r.tasks, tareasDecididas: r.tareasDecididas});
+    });
+    setAviso(previo.res.detalle.join(' · '));
+  };
+  var deshacer = function(id){
+    delete tratadas.current[id];
+    // Con marca de borrado: sin ella el otro dispositivo, que todavia trae la
+    // entrada, la devolveria al sincronizar y el deshacer no valdria.
+    setData(function(prev){
+      return Object.assign({}, prev, {
+        tareasDecididas: (prev.tareasDecididas||[]).filter(function(x){return x.id!==id;}),
+        _deletedIds: _lbpRecordDel(prev, id)});
+    });
+  };
+  var cuando = function(f){ return f && f.length>=16 ? f.slice(8,10)+'/'+f.slice(5,7)+' '+f.slice(11,16) : (f||''); };
+  var dosd = function(n){ return n<10 ? '0'+n : ''+n; };
+  // Si el puente de Outlook no corre, el lote es viejo: eso no puede leerse
+  // como "no hay nada nuevo". Se compara con la hora del ultimo envio del puente.
+  var tsDate = lote && lote.ts ? new Date(lote.ts) : null;
+  var viejo = !!(tsDate && !isNaN(tsDate.getTime()) && (Date.now()-tsDate.getTime()) > 24*3600*1000);
+  var desde = viejo ? dosd(tsDate.getDate())+'/'+dosd(tsDate.getMonth()+1)+' a las '+dosd(tsDate.getHours())+':'+dosd(tsDate.getMinutes()) : '';
+  var btn = function(txt, color, onClick, extra){
+    return React.createElement('button',{onClick:onClick,style:Object.assign({minWidth:44,height:44,borderRadius:10,border:'1px solid '+color,background:color+'22',color:color,fontSize:18,fontWeight:800,cursor:'pointer',padding:'0 10px'},extra||{})},txt);
+  };
+  var chico = function(txt, onClick){
+    return React.createElement('button',{onClick:onClick,style:{fontSize:11,padding:'8px 12px',minHeight:36,borderRadius:8,border:'1px solid var(--border)',background:'rgba(255,255,255,.06)',color:'var(--text)',cursor:'pointer'}},txt);
+  };
+  var cuerpo;
+  if (fase==='cargando') {
+    cuerpo = React.createElement('div',{style:{fontSize:12,color:'var(--text-dim)',padding:'6px 0'}},'Leyendo tus correos…');
+  } else if (err) {
+    cuerpo = React.createElement('div',null,
+      React.createElement('div',{style:{fontSize:12,marginBottom:10}},err),
+      chico('Reintentar',function(){ traer(false); }));
+  } else if (verNo) {
+    cuerpo = React.createElement('div',null,
+      React.createElement('div',{style:{fontSize:12,color:'var(--text-dim)',marginBottom:8}},
+        descartadas.length ? 'Lo que descartaste. Deshacer lo devuelve a la lista.' : 'No descartaste ninguna.'),
+      descartadas.map(function(x){
+        var p = lote ? lote.propuestas.filter(function(q){return q.hiloId===x.id;})[0] : null;
+        var nombre = p ? p.titulo : String(x.id).replace(/^hilo:/,'');
+        return React.createElement('div',{key:x.id,style:{display:'flex',alignItems:'center',gap:8,padding:'6px 0',borderTop:'1px solid var(--border)'}},
+          React.createElement('div',{style:{flex:1,minWidth:0,fontSize:12}},nombre),
+          chico('Deshacer',function(){ deshacer(x.id); }));
+      }),
+      React.createElement('div',{style:{marginTop:10}}, chico('← Volver a las propuestas',function(){ setVerNo(false); })));
+  } else {
+    cuerpo = React.createElement('div',null,
+      viejo ? React.createElement('div',{style:{fontSize:11,padding:'7px 9px',borderRadius:8,background:'#F59E0B22',color:'#F59E0B',marginBottom:8}},
+        '⚠ Tu correo está sin leer desde el '+desde+'. Lo que ves puede estar atrasado: abrí Outlook para que el puente lo lea.') : null,
+      aviso ? React.createElement('div',{style:{fontSize:11,color:'var(--text-dim)',marginBottom:8}},aviso) : null,
+      pendientes.length===0 ? React.createElement('div',{style:{fontSize:12,color:'var(--text-dim)',padding:'4px 0 8px'}},
+        viejo ? 'No sé si hay propuestas nuevas: el correo no se lee desde hace más de un día.'
+              : 'Sin novedades: leí '+(lote?lote.correos:0)+' correo'+(lote&&lote.correos===1?'':'s')+' y no hay tareas por revisar.') : null,
+      pendientes.map(function(p){
+        return React.createElement('div',{key:p.hiloId,style:{display:'flex',alignItems:'flex-start',gap:8,padding:'8px 0',borderTop:'1px solid var(--border)'}},
+          React.createElement('div',{style:{flex:1,minWidth:0}},
+            React.createElement('div',{style:{fontSize:13,fontWeight:700,marginBottom:2}},p.titulo),
+            React.createElement('div',{style:{fontSize:11,color:'var(--text-dim)'}},p.remitente),
+            React.createElement('div',{style:{fontSize:11,color:'var(--text-dim)'}},p.asunto+' · '+cuando(p.fecha)),
+            p.cita ? React.createElement('div',{style:{fontSize:10,fontStyle:'italic',color:'var(--text-dim)',marginTop:4}},'“'+p.cita+'”') : null),
+          React.createElement('div',{style:{display:'flex',gap:6,flexShrink:0}},
+            btn('✓','#4ADE80',function(){ decidir(p,'ok'); }),
+            btn('✗','#F44336',function(){ decidir(p,'no'); })));
+      }),
+      React.createElement('div',{style:{display:'flex',gap:8,flexWrap:'wrap',marginTop:10}},
+        chico('↻ volver a leer',function(){ setAviso(''); traer(true); }),
+        chico('Descartadas ('+descartadas.length+')',function(){ setVerNo(true); })));
+  }
+  return React.createElement('div',{style:{margin:'12px 24px 0',background:'var(--surface)',border:'1px solid var(--border)',borderRadius:14,overflow:'hidden'}},
+    React.createElement('div',{onClick:function(){ setAbierto(function(v){return !v;}); },style:{display:'flex',alignItems:'center',justifyContent:'space-between',padding:'10px 14px',cursor:'pointer'}},
+      React.createElement('div',{style:{display:'flex',alignItems:'center',gap:8}},
+        React.createElement('span',{style:{fontSize:13,fontWeight:700,color:'var(--purple-light)'}},'🗂 Las tareas propuestas de la semana'),
+        pendientes.length>0 ? React.createElement('span',{style:{fontSize:10,fontWeight:700,background:'#F59E0B',color:'#000',borderRadius:10,padding:'1px 6px'}},pendientes.length) : null,
+        viejo ? React.createElement('span',{style:{fontSize:10,color:'#F59E0B'}},'⚠') : null),
+      React.createElement('span',{style:{fontSize:12,opacity:.6}},abierto?'▲':'▼')),
+    abierto ? React.createElement('div',{style:{padding:'0 14px 14px'}},cuerpo) : null);
 };
 
 var CampaignsScreen = function CampaignsScreen(_ref_camp) {
