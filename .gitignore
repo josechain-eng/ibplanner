@@ -2,3 +2,7 @@
 LBPlanner Backup/
 *.zip
 .DS_Store
+
+# Scratch de los skills de superpowers (ledger, briefs, paquetes de revision)
+.superpowers/
+.worktrees/
