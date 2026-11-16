@@ -776,7 +776,7 @@ async function handleRequest(request, env) {
         keyOk = ((rk && rk.keys) || []).some(k => k && k.name === 'data:' + syncKey);
       } catch (err) { keyOk = false; }
       if (!keyOk) return falla('Key no valida');
-      const cacheKey = 'tprop:' + syncKey + ':' + _hoyBolivia();
+      const cacheKey = 'tprop:' + syncKey + ':' + _hoyBolivia() + ':' + days;
       if (!refresh) {
         try {
           const c = await env.LBP_KV.get(cacheKey);
@@ -1271,10 +1271,10 @@ const TP_SP = 'Eres el asistente de LB Planner, la app de Pepe (gerente de Ventu
   'Si no hay nada: {"propuestas":[]}.';
 
 // Espejo de normalize_subject del puente (ventura_bridge.py): minusculas,
-// UN solo prefijo re|res|fwd|rv con espacios opcionales alrededor de los dos
-// puntos, y trim. No quitar prefijos repetidos: los dos lados tienen que coincidir.
+// UN solo prefijo re|res|fwd|rv con espacios opcionales despues de los dos
+// puntos (y antes), sin recortar nada antes del prefijo; trim al final. No quitar prefijos repetidos: los dos lados tienen que coincidir.
 function _tpHiloId(subject, threadId) {
-  const s = String(subject || '').toLowerCase().replace(/^\s*(re|res|fwd|rv)\s*:\s*/i, '').trim();
+  const s = String(subject || '').toLowerCase().replace(/^(re|res|fwd|rv)\s*:\s*/i, '').trim();
   if (!s || s === '(sin asunto)') return 'msg:' + threadId;
   return 'hilo:' + s;
 }

@@ -64,7 +64,10 @@ test('el hiloId sale del asunto normalizado, no del modelo', async () => {
   for (const [asunto, esperado] of [['Pago Royalty Fogo', 'hilo:pago royalty fogo'],
                                     ['RE: Pago Royalty Fogo', 'hilo:pago royalty fogo'],
                                     ['Fwd: Pago Royalty Fogo', 'hilo:pago royalty fogo'],
-                                    ['  RV : Pago Royalty Fogo  ', 'hilo:pago royalty fogo']]) {
+                                    ['RES:Pago Royalty Fogo', 'hilo:pago royalty fogo'],
+                                    ['RV : Pago Royalty Fogo', 'hilo:pago royalty fogo'],
+                                    // un solo prefijo, igual que normalize_subject del puente
+                                    ['Re: Re: Pago Royalty Fogo', 'hilo:re: pago royalty fogo']]) {
     const env = entorno();
     env.BRIEFING_SERVICE.fetch = async () => new Response(JSON.stringify({ ts: TS, emails: [{ ...HILOS[0], subject: asunto }] }), { status: 200 });
     const r = await llamar(env);
@@ -99,7 +102,7 @@ test('la segunda llamada del dia sale del cache y no llama al modelo', async () 
   assert.equal(b.cacheada, true);
   assert.equal(llamadasModelo, 1);
   assert.deepEqual(b.propuestas, a.propuestas);
-  assert.ok(kv.has('tprop:lbp_x:' + HOY));
+  assert.ok(kv.has('tprop:lbp_x:' + HOY + ':10'));
 });
 
 test('refresh=1 vuelve a llamar al modelo', async () => {
@@ -126,4 +129,14 @@ test('sin key valida no llama ni al briefing ni al modelo', async () => {
 test('el ts del briefing viaja al cliente', async () => {
   const b = await llamar(entorno());
   assert.equal(b.ts, TS);
+});
+
+test('otro days el mismo dia no sale del cache de otro days', async () => {
+  const env = entorno();
+  await llamar(env);
+  const r = await (await cargar()).fetch(new Request('https://x/task-proposals?key=lbp_x&days=30'), env);
+  const b = await r.json();
+  assert.equal(b.cacheada, false);
+  assert.equal(llamadasModelo, 2);
+  assert.ok(kv.has('tprop:lbp_x:' + HOY + ':30'));
 });
