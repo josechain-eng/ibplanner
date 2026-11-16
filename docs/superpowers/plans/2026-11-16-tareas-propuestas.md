@@ -355,7 +355,7 @@ Expected: una captura de cada ancho y el listado de la consola limpio. Si el she
 
 ## Autorrevisión
 
-**Cobertura del diseño:** punto 1 → Tarea 1. Punto 2 → Tarea 2 (pasos 3 y 6). Punto 3 (cache del día) → Tarea 2 (paso 3) con su prueba. Punto 4 (tres estados) → Tarea 4 (paso 3) con dos pruebas. Punto 5 (memoria por hilo, las dos decisiones, filtra la app) → Tarea 3. Punto 6 (forma de la tarea, día hábil, dominio manda) → Tarea 3. Punto 7 (escalera sin escalada) → Tarea 3. «No tocar el informe de actividades» se cumple por omisión: ninguna tarea toca `/email-actions` ni `_buildWeeklyReport`.
+**Cobertura del diseño:** punto 1 → Tarea 1. Punto 2 → Tarea 2 (pasos 3 y 6). Punto 3 (cache del día) → Tarea 2 (paso 3) con su prueba. Punto 4 (tres estados) → Tarea 4 (paso 3) con dos pruebas. Punto 5 (memoria por hilo, las dos decisiones, filtra la app) → Tarea 3. Punto 6 (forma de la tarea, día hábil, dominio manda) → Tarea 3. Punto 7 (escalera sin escalada) → Tarea 3. «No tocar el informe de actividades» se cumple en lo que importa —su instrucción, su forma y su destinatario no cambian, y ninguna tarea toca `_buildWeeklyReport`— pero **no por omisión**: la Tarea 1 sube `SNIPPET_CHARS` a 1.200 y `/email-actions` ya recortaba a `slice(0, 1200)`, así que el informe pasa a recibir hasta 1.200 caracteres por correo en vez de ~290. Es la mejora que el diseño pedía, no una rotura, pero quien lea esto después no debe razonar como si el informe quedara intacto.
 
 **Review Focus:** las cinco líneas tienen prueba — 1 y 2 en la Tarea 2 (paso 1), 3 y 4 en la Tarea 3 (paso 1), 5 en la Tarea 2 (`ts` viaja) y en la Tarea 4 (el texto).
 
