@@ -22,7 +22,7 @@
 <script>
 (function() {
   // ── Version ──────────────────────────────────────────────────────────────
-  window.LBP_VERSION = '5.72';
+  window.LBP_VERSION = '5.73';
 
   // ── PWA Install prompt ───────────────────────────────────────────────────
   window._installPrompt = null;
@@ -1022,7 +1022,9 @@
     // (5-nov-2026).
     'imports',
     // tareasDecididas: lista de objetos con `id` (el hiloId), la condicion que el merge exige.
-    'tareasDecididas'];
+    'tareasDecididas',
+    // mktDecididas: decisiones de la tarjeta de propuestas de marketing (v5.73), lista con `id`.
+    'mktDecididas'];
 
   // Prune deletion tombstones older than 30 days to keep the blob lean
   // Exposed on window so the React component script (separate <script> tag) can call it
@@ -3589,6 +3591,22 @@ window._tpFiltrar = function(propuestas, decididas) {
   (decididas || []).forEach(function(x) { if (x && x.id && x.decision !== 'revocada') ya[x.id] = true; });
   return (propuestas || []).filter(function(p) { return !ya[p.hiloId]; });
 };
+// Propuestas de marketing (v5.73): una decision por id. Sin marcas de borrado:
+// deshacer reescribe la entrada como 'revocada' (igual que tareasDecididas).
+window._mktAplicar = function(decididas, id, decision, nota, ts) {
+  var out = (decididas || []).filter(function(x) { return x && x.id !== id; });
+  out.push({ id: id, decision: decision, nota: nota || '', ts: ts || Date.now() });
+  return out;
+};
+// Semana ISO 'AAAA-Sxx' de una fecha (la misma que usa el motor de la Mac).
+window._mktSemana = function(d) {
+  var t = new Date(Date.UTC(d.getFullYear(), d.getMonth(), d.getDate()));
+  var dia = t.getUTCDay() || 7;
+  t.setUTCDate(t.getUTCDate() + 4 - dia);
+  var ini = new Date(Date.UTC(t.getUTCFullYear(), 0, 1));
+  var n = Math.ceil(((t - ini) / 86400000 + 1) / 7);
+  return t.getUTCFullYear() + '-S' + (n < 10 ? '0' + n : '' + n);
+};
 // Una sola decision por id (gana el ts mas nuevo) y nada de mas de 180 dias.
 window._tpPodarDecididas = function(decididas) {
   var corte = Date.now() - 180 * 24 * 3600 * 1000;
@@ -5859,6 +5877,7 @@ var HomeScreen = function HomeScreen(_ref14) {
     )
   ),
   /*#__PURE__*/React.createElement(TareasPropuestas, {data:data, setData:setData}),
+  /*#__PURE__*/React.createElement(PropuestasMarketing, {data:data, setData:setData}),
   /*#__PURE__*/React.createElement("div", {
     className: "page-content",
     style: {
@@ -19603,6 +19622,125 @@ var CampanasCorreo = function CampanasCorreo(props) {
 // ni un boton de confirmacion global: cada fila tiene su propio ✓ y su propia ✗
 // y aplica esa sola fila al toque. La fila que no se toca no graba nada y
 // vuelve manana. No manda ningun aviso push.
+var PropuestasMarketing = function PropuestasMarketing(props) {
+  var data = props.data, setData = props.setData;
+  var _a = useState(false), abierto = _a[0], setAbierto = _a[1];
+  var _b = useState('cargando'), fase = _b[0], setFase = _b[1];
+  var _c = useState(null), lote = _c[0], setLote = _c[1];
+  var _d = useState(''), err = _d[0], setErr = _d[1];
+  var _e = useState(false), verDecididas = _e[0], setVerDecididas = _e[1];
+  var traer = function(){
+    var key = localStorage.getItem('lbp_sync_key') || '';
+    if (!window.LBP_WORKER_URL || !key) { setFase(''); setErr('Configura el Worker URL en Cloud & Sync.'); return; }
+    setFase('cargando'); setErr('');
+    fetch(window.LBP_WORKER_URL+'/mkt-proposals?key='+encodeURIComponent(key))
+      .then(function(r){return r.json();})
+      .then(function(res){
+        setFase('');
+        if (!res || res.error) { setLote(null); setErr(res && res.error==='sin semana' ? 'Todavía no llegó ninguna semana de propuestas (las arma la Mac los lunes a las 07:30).' : ((res && res.error) || 'No pude leer las propuestas.')); return; }
+        setLote(res);
+      })
+      .catch(function(){ setFase(''); setLote(null); setErr('Error de red al leer las propuestas.'); });
+  };
+  useEffect(function(){ traer(); }, []);
+  var dec = {};
+  (data.mktDecididas||[]).forEach(function(x){ if (x && x.id && x.decision!=='revocada') dec[x.id]=x.decision; });
+  var decidir = function(id, decision){
+    setData(function(prev){
+      return Object.assign({}, prev, {mktDecididas: window._mktAplicar(prev.mktDecididas, id, decision, '', Date.now())});
+    });
+  };
+  var deshacer = function(id){ decidir(id, 'revocada'); };
+  var semanaHoy = window._mktSemana(new Date());
+  var otraSemana = !!(lote && lote.semana && lote.semana !== semanaHoy);
+  var faltan = lote ? (lote.ofertas_faltantes||[]).filter(function(f){ return !dec[f.id]; }) : [];
+  var pendientes = lote ? (lote.propuestas||[]).filter(function(p){ return !dec[p.id]; }) : [];
+  var decididas = lote ? (lote.propuestas||[]).filter(function(p){ return !!dec[p.id]; }) : [];
+  var btn = function(txt, color, onClick){
+    return React.createElement('button',{onClick:onClick,style:{minWidth:44,height:44,borderRadius:10,border:'1px solid '+color,background:color+'22',color:color,fontSize:18,fontWeight:800,cursor:'pointer',padding:'0 10px'}},txt);
+  };
+  var chico = function(txt, onClick){
+    return React.createElement('button',{onClick:onClick,style:{fontSize:11,padding:'8px 12px',minHeight:36,borderRadius:8,border:'1px solid var(--border)',background:'rgba(255,255,255,.06)',color:'var(--text)',cursor:'pointer'}},txt);
+  };
+  var nota = function(txt, color){
+    return React.createElement('div',{style:{fontSize:11,padding:'7px 9px',borderRadius:8,background:(color||'#F59E0B')+'22',color:color||'#F59E0B',marginBottom:8}},txt);
+  };
+  var textoOferta = function(o){
+    if (!o) return '';
+    if (o.estado==='ok') return (o.pct ? '-'+o.pct+'%' : 'sin descuento')+(o.vence ? ' · vence el '+o.vence.slice(8,10)+'/'+o.vence.slice(5,7) : '');
+    if (o.estado==='precio_lleno') return 'precio lleno';
+    if (o.estado==='sin_campana') return 'sin campaña cargada';
+    if (o.estado==='no_mapeable') return 'la campaña no aclara esta categoría';
+    return o.estado;
+  };
+  var CANAL = {ig_ventura:'IG de Ventura', whatsapp_tienda:'WhatsApp de la tienda'};
+  var cuerpo;
+  if (fase==='cargando') {
+    cuerpo = React.createElement('div',{style:{fontSize:12,color:'var(--text-dim)',padding:'6px 0'}},'Leyendo las propuestas…');
+  } else if (err) {
+    cuerpo = React.createElement('div',null,
+      React.createElement('div',{style:{fontSize:12,marginBottom:10}},err),
+      chico('Reintentar',traer));
+  } else if (verDecididas) {
+    cuerpo = React.createElement('div',null,
+      decididas.length ? null : React.createElement('div',{style:{fontSize:12,color:'var(--text-dim)'}},'Todavía no decidiste ninguna.'),
+      decididas.map(function(p){
+        return React.createElement('div',{key:p.id,style:{display:'flex',alignItems:'center',gap:8,padding:'6px 0',borderTop:'1px solid var(--border)'}},
+          React.createElement('div',{style:{flex:1,minWidth:0,fontSize:12}},(dec[p.id]==='ok'?'✓ ':'✗ ')+p.tienda+' · '+p.descripcion+' ('+p.color+')'),
+          chico('Deshacer',function(){ deshacer(p.id); }));
+      }),
+      React.createElement('div',{style:{marginTop:10}}, chico('← Volver a las propuestas',function(){ setVerDecididas(false); })));
+  } else {
+    cuerpo = React.createElement('div',null,
+      otraSemana ? nota('⚠ Estas propuestas son de la semana '+lote.semana+' (hoy es '+semanaHoy+'). La de esta semana todavía no llegó.') : null,
+      (lote.resumen_anterior||[]).length ? React.createElement('div',{style:{fontSize:11,color:'var(--text-dim)',marginBottom:8}},
+        React.createElement('div',{style:{fontWeight:700,marginBottom:2}},'La semana pasada'),
+        lote.resumen_anterior.map(function(l,i){ return React.createElement('div',{key:i},'· '+l); })) : null,
+      faltan.map(function(f){
+        return React.createElement('div',{key:f.id,style:{padding:'8px 0',borderTop:'1px solid var(--border)'}},
+          nota('Sin campaña cargada en '+f.tienda+': sus propuestas no se producen hasta que confirmes.'),
+          React.createElement('div',{style:{display:'flex',gap:8,flexWrap:'wrap'}},
+            chico('Precio lleno esta semana',function(){ decidir(f.id,'precio_lleno'); }),
+            chico('Falta cargar la campaña',function(){ decidir(f.id,'falta'); })));
+      }),
+      pendientes.length===0 ? React.createElement('div',{style:{fontSize:12,color:'var(--text-dim)',padding:'4px 0 8px'}},
+        (lote.propuestas||[]).length ? 'Ya decidiste todas las propuestas de esta semana.' : 'No hay propuestas esta semana.') : null,
+      (lote.propuestas||[]).filter(function(p){ return !dec[p.id]; }).map(function(p){
+        return React.createElement('div',{key:p.id,style:{display:'flex',alignItems:'flex-start',gap:8,padding:'8px 0',borderTop:'1px solid var(--border)'}},
+          React.createElement('div',{style:{flex:1,minWidth:0}},
+            React.createElement('div',{style:{fontSize:11,fontWeight:700,color:'var(--purple-light)'}},p.tienda+(p.linea?' · '+p.linea:'')),
+            React.createElement('div',{style:{fontSize:13,fontWeight:700,margin:'2px 0'}},p.descripcion),
+            React.createElement('div',{style:{fontSize:11,color:'var(--text-dim)'}},p.estilo+' · '+p.color+(p.tallas&&p.tallas.length?' · '+p.tallas.join(' '):'')),
+            React.createElement('div',{style:{fontSize:11,marginTop:3}},p.porque),
+            React.createElement('div',{style:{fontSize:11,color:'var(--text-dim)',marginTop:3}},
+              p.formato+' · '+(CANAL[p.canal]||p.canal)+' · '+(p.foto?'📷 hay foto':'📸 pedir fotos')+' · '+textoOferta(p.oferta))),
+          React.createElement('div',{style:{display:'flex',gap:6,flexShrink:0}},
+            btn('✓','#4ADE80',function(){ decidir(p.id,'ok'); }),
+            btn('✗','#F44336',function(){ decidir(p.id,'no'); })));
+      }),
+      (lote.sin_propuestas||[]).length ? React.createElement('div',{style:{fontSize:11,color:'var(--text-dim)',marginTop:8}},
+        lote.sin_propuestas.map(function(t,i){ return React.createElement('div',{key:i},'· '+t+': sin propuestas esta semana'); })) : null,
+      (lote.competencia||[]).length ? React.createElement('details',{style:{marginTop:8}},
+        React.createElement('summary',{style:{fontSize:11,color:'var(--text-dim)',cursor:'pointer'}},'Lo que anunció la competencia en Meta ('+lote.competencia.length+')'),
+        lote.competencia.map(function(c,i){
+          return React.createElement('div',{key:i,style:{fontSize:11,padding:'3px 0 3px 10px'}},
+            '· '+c.marca+': '+c.anuncios_activos+' anuncio'+(c.anuncios_activos===1?'':'s')+' activo'+(c.anuncios_activos===1?'':'s')+((c.titulos||[]).length?' — '+c.titulos.slice(0,2).join(' / '):''));
+        })) : null,
+      React.createElement('div',{style:{display:'flex',gap:8,flexWrap:'wrap',marginTop:10}},
+        chico('↻ volver a leer',traer),
+        chico('Decididas ('+decididas.length+')',function(){ setVerDecididas(true); })));
+  }
+  var cuenta = pendientes.length + faltan.length;
+  return React.createElement('div',{style:{margin:'12px 24px 0',background:'var(--surface)',border:'1px solid var(--border)',borderRadius:14,overflow:'hidden'}},
+    React.createElement('div',{onClick:function(){ setAbierto(function(v){return !v;}); },style:{display:'flex',alignItems:'center',justifyContent:'space-between',padding:'10px 14px',cursor:'pointer'}},
+      React.createElement('div',{style:{display:'flex',alignItems:'center',gap:8}},
+        React.createElement('span',{style:{fontSize:13,fontWeight:700,color:'var(--purple-light)'}},'📣 Propuestas de marketing de la semana'),
+        cuenta>0 ? React.createElement('span',{style:{fontSize:10,fontWeight:700,background:'#F59E0B',color:'#000',borderRadius:10,padding:'1px 6px'}},cuenta) : null,
+        otraSemana ? React.createElement('span',{style:{fontSize:10,color:'#F59E0B'}},'⚠') : null),
+      React.createElement('span',{style:{fontSize:12,opacity:.6}},abierto?'▲':'▼')),
+    abierto ? React.createElement('div',{style:{padding:'0 14px 14px'}},cuerpo) : null);
+};
+
 var TareasPropuestas = function TareasPropuestas(props) {
   var data = props.data, setData = props.setData;
   var _a = useState(false), abierto = _a[0], setAbierto = _a[1];
