@@ -745,6 +745,83 @@ async function handleRequest(request, env) {
                     acciones: out.acciones, descartes: out.descartes.concat(fallos) }, 200);
     }
 
+    // ---- Propuestas de marketing (v5.73) ----
+    // La Mac (motor en ~/ventura-contenido/propuestas) lee las campanas vigentes,
+    // sube la semana de propuestas y lee las decisiones que Pepe toma en la tarjeta.
+    // Todas validan la sync key ANTES de tocar nada y fallan cerrado con 200 {error}.
+
+    // GET /active-campaigns?key=<syncKey>&fecha=YYYY-MM-DD
+    if (p === '/active-campaigns' && request.method === 'GET') {
+      const syncKey = url.searchParams.get('key') || '';
+      const falla = function (msg) { return json({ error: msg, campanas: [], clientes: [] }, 200); };
+      if (!syncKey) return falla('Falta key');
+      if (!(await _syncKeyValida(env, syncKey))) return falla('Key no valida');
+      const fecha = url.searchParams.get('fecha') || _hoyBolivia();
+      if (!/^\d{4}-\d{2}-\d{2}$/.test(fecha)) return falla('fecha invalida');
+      let d;
+      try { d = JSON.parse((await env.LBP_KV.get('data:' + syncKey)) || '{}'); }
+      catch (err) { return falla('No pude leer tus datos: ' + err.message); }
+      const clientes = (d.clients || []).filter(function (c) { return c && c.id; })
+        .map(function (c) { return { id: c.id, name: c.businessName || c.name || c.id }; });
+      const nombre = {}; clientes.forEach(function (c) { nombre[c.id] = c.name; });
+      const hoyMs = new Date(fecha + 'T12:00:00').getTime();
+      const campanas = (d.campaigns || []).filter(function (c) { return c && c.id; }).map(function (c) {
+        return { id: c.id, name: c.name || '', dateStart: c.dateStart || '', dateEnd: c.dateEnd || c.endDate || '',
+          vigencia: _mktVigencia(c, hoyMs),
+          tiendas: (c.franchises || []).filter(function (f) { return f && f.clientId; }).map(function (f) {
+            return { clientId: f.clientId, clientName: nombre[f.clientId] || '', lines: (f.lines || []).slice(),
+              sublines: (f.sublines || []).map(function (sl) { return { name: (sl && sl.name) || '', discount: (sl && sl.discount) || '' }; }) };
+          }) };
+      });
+      return json({ fecha: fecha, campanas: campanas, clientes: clientes }, 200);
+    }
+
+    // POST /mkt-proposals  body {key, semana, generado, propuestas, ofertas_faltantes, competencia, resumen_anterior}
+    // GET  /mkt-proposals?key=<syncKey>  -> la ultima semana subida
+    if (p === '/mkt-proposals' && request.method === 'POST') {
+      let b;
+      try { b = await request.json(); } catch (err) { return json({ error: 'JSON invalido' }, 200); }
+      const syncKey = (b && b.key) || '';
+      if (!syncKey) return json({ error: 'Falta key' }, 200);
+      if (!(await _syncKeyValida(env, syncKey))) return json({ error: 'Key no valida' }, 200);
+      if (!/^\d{4}-S\d{2}$/.test(b.semana || '')) return json({ error: 'semana invalida (AAAA-Sxx)' }, 200);
+      if (!Array.isArray(b.propuestas)) return json({ error: 'propuestas tiene que ser una lista' }, 200);
+      if (b.propuestas.length > 40) return json({ error: 'demasiadas propuestas (max 40)' }, 200);
+      const semana = { semana: b.semana, generado: b.generado || new Date().toISOString(), subido: new Date().toISOString(),
+        propuestas: b.propuestas, ofertas_faltantes: Array.isArray(b.ofertas_faltantes) ? b.ofertas_faltantes : [],
+        sin_propuestas: Array.isArray(b.sin_propuestas) ? b.sin_propuestas : [],
+        competencia: Array.isArray(b.competencia) ? b.competencia : [],
+        resumen_anterior: Array.isArray(b.resumen_anterior) ? b.resumen_anterior : [] };
+      const cuerpo = JSON.stringify(semana);
+      await env.LBP_KV.put('mktprop:' + syncKey + ':' + b.semana, cuerpo);
+      await env.LBP_KV.put('mktprop:' + syncKey + ':ultima', cuerpo);
+      return json({ ok: true, semana: b.semana }, 200);
+    }
+    if (p === '/mkt-proposals' && request.method === 'GET') {
+      const syncKey = url.searchParams.get('key') || '';
+      if (!syncKey) return json({ error: 'Falta key', propuestas: [] }, 200);
+      if (!(await _syncKeyValida(env, syncKey))) return json({ error: 'Key no valida', propuestas: [] }, 200);
+      const c = await env.LBP_KV.get('mktprop:' + syncKey + ':ultima');
+      if (!c) return json({ error: 'sin semana', propuestas: [] }, 200);
+      try { return json(JSON.parse(c), 200); } catch (err) { return json({ error: 'semana ilegible', propuestas: [] }, 200); }
+    }
+
+    // GET /mkt-decisions?key=<syncKey>&semana=AAAA-Sxx  -> lista mktDecididas de esa semana
+    if (p === '/mkt-decisions' && request.method === 'GET') {
+      const syncKey = url.searchParams.get('key') || '';
+      const semana = url.searchParams.get('semana') || '';
+      if (!syncKey) return json({ error: 'Falta key', decisiones: [] }, 200);
+      if (!(await _syncKeyValida(env, syncKey))) return json({ error: 'Key no valida', decisiones: [] }, 200);
+      if (!/^\d{4}-S\d{2}$/.test(semana)) return json({ error: 'semana invalida (AAAA-Sxx)', decisiones: [] }, 200);
+      let d;
+      try { d = JSON.parse((await env.LBP_KV.get('data:' + syncKey)) || '{}'); }
+      catch (err) { return json({ error: 'No pude leer tus datos: ' + err.message, decisiones: [] }, 200); }
+      const decisiones = (d.mktDecididas || []).filter(function (x) {
+        return x && typeof x.id === 'string' && (x.id.indexOf(semana + ':') === 0 || x.id.indexOf('oferta:' + semana + ':') === 0);
+      }).map(function (x) { return { id: x.id, decision: x.decision, nota: x.nota || '', ts: x.ts || 0 }; });
+      return json({ semana: semana, decisiones: decisiones }, 200);
+    }
+
     // GET /task-proposals?key=<syncKey>&days=10&refresh=1
     // Lee los hilos de correo que publica el puente y le pide a Claude que
     // diga que le queda pendiente A PEPE. NO escribe tareas: devuelve
@@ -1249,6 +1326,19 @@ async function registerSyncKey(env, syncKey) {
 // baja el blob de ~4,6 MB) comparando el nombre EXACTO, porque `prefix` casa
 // por prefijo ("lbp_" pasaria). Falla cerrado si el KV lanza. Cada endpoint la
 // llama ANTES de tocar el briefing o el modelo y arma su propia respuesta vacia.
+// Vigencia de una campana por FECHAS (misma regla que window._campVigencia de la app):
+// el campo status se guarda una vez y queda viejo.
+function _mktVigencia(c, hoyMs) {
+  if (!c) return 'ACTIVA';
+  if (c.status === 'CANCELADA') return 'CANCELADA';
+  const ms = function (d) { return d ? new Date(d + 'T12:00:00').getTime() : null; };
+  const ini = ms(c.dateStart), fin = ms(c.dateEnd || c.endDate);
+  if (fin !== null && !isNaN(fin) && fin < hoyMs) return 'FINALIZADA';
+  if (ini !== null && !isNaN(ini) && ini > hoyMs) return 'PLANIFICADA';
+  if (ini === null && fin === null) return c.status || 'ACTIVA';
+  return 'ACTIVA';
+}
+
 async function _syncKeyValida(env, syncKey) {
   try {
     const rk = await env.LBP_KV.list({ prefix: 'data:' + syncKey, limit: 1 });
