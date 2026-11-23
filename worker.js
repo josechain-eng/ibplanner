@@ -934,6 +934,71 @@ async function handleRequest(request, env) {
       return json({ ready: true, briefing: stored, date });
     }
 
+    // GET /asistente?key=&date=  ->  la entrada del asistente proactivo de ese dia (la app la lee).
+    // La key se valida ANTES de cualquier lectura: una key inventada no toca el KV de entradas.
+    if (p === '/asistente' && request.method === 'GET') {
+      const syncKey = url.searchParams.get('key');
+      const date = url.searchParams.get('date') || _hoyBolivia();
+      if (!syncKey) return json({ error: 'missing key' }, 400);
+      if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) return json({ error: 'bad date' }, 400);
+      if (!(await _syncKeyValida(env, syncKey))) return json({ error: 'invalid key', ready: false });
+      const stored = await env.LBP_KV.get('asis:' + syncKey + ':' + date);
+      if (!stored) return json({ ready: false });
+      let entrada = null;
+      try { entrada = JSON.parse(stored); } catch (e) { return json({ ready: false }); }
+      return json({ ready: true, entrada });
+    }
+
+    // GET /force-asistente?key=&pasada=manana|tarde  ->  borra la marca del dia y corre la pasada
+    // a demanda (espejo de /force-smart). Gasta una llamada al modelo y puede mandar push.
+    if (p === '/force-asistente' && request.method === 'GET') {
+      const syncKey = url.searchParams.get('key');
+      const pasada = url.searchParams.get('pasada') || 'manana';
+      if (!syncKey) return json({ error: 'missing key' }, 400);
+      if (pasada !== 'manana' && pasada !== 'tarde') return json({ error: 'pasada must be manana or tarde' }, 400);
+      if (!(await _syncKeyValida(env, syncKey))) return json({ error: 'invalid key', ok: false });
+      const now = Date.now();
+      await env.LBP_KV.delete('asis_mark:' + syncKey + ':' + _hoyBolivia(now) + ':' + pasada).catch(() => {});
+      try {
+        return json(await correrAsistente(env, pasada, now));
+      } catch (e) {
+        return json({ ok: false, threw: String(e && e.message || e) });
+      }
+    }
+
+    // POST /asistente/senal  ->  el vigilante de las esperas deposita hallazgos para el asistente.
+    // Cabecera X-Asis-Key = secreto ASIS_KEY (sin sync key: hay un solo usuario). Cuerpo
+    // {hallazgos:[{que, detalle, desde}]}. Se guarda en la forma {hallazgos:[...]} que lee
+    // correrAsistente, con un "texto" por hallazgo (el lector solo muestra h.texto o un string).
+    if (p === '/asistente/senal' && request.method === 'POST') {
+      const esperado = env.ASIS_KEY;
+      const dado = request.headers.get('X-Asis-Key') || '';
+      if (!esperado || !_igualConstante(dado, String(esperado))) return json({ error: 'unauthorized' }, 401);
+      const declarado = parseInt(request.headers.get('content-length') || '0', 10);
+      if (declarado > ASIS_SENAL_MAX) return json({ error: 'senal demasiado grande' }, 413);
+      const crudo = await request.text();
+      if (crudo.length > ASIS_SENAL_MAX) return json({ error: 'senal demasiado grande' }, 413);
+      let cuerpo = null;
+      try { cuerpo = JSON.parse(crudo); } catch (e) { return json({ error: 'json invalido' }, 400); }
+      const lista = cuerpo && !Array.isArray(cuerpo) && Array.isArray(cuerpo.hallazgos) ? cuerpo.hallazgos : null;
+      if (!lista || !lista.length) return json({ error: 'hallazgos debe ser una lista no vacia' }, 400);
+      const hallazgos = [];
+      for (const h of lista) {
+        const que = h && typeof h.que === 'string' ? h.que.trim() : '';
+        if (!que) return json({ error: 'cada hallazgo necesita "que"' }, 400);
+        const detalle = typeof h.detalle === 'string' ? h.detalle.trim() : '';
+        const desde = typeof h.desde === 'string' ? h.desde.trim() : '';
+        hallazgos.push({ que, detalle, desde,
+          texto: que + (detalle ? ': ' + detalle : '') + (desde ? ' (desde ' + desde + ')' : '') });
+      }
+      // El tope se mide sobre lo GUARDADO (lleva "texto" de mas): el lector ignora todo
+      // asis_senal de mas de ASIS_SENAL_MAX bytes y el vigilante se veria sano sin aportar nada.
+      const guardado = JSON.stringify({ hallazgos });
+      if (guardado.length > ASIS_SENAL_MAX) return json({ error: 'senal demasiado grande' }, 413);
+      await env.LBP_KV.put('asis_senal', guardado, { expirationTtl: ASIS_SENAL_TTL });
+      return json({ ok: true, hallazgos: hallazgos.length });
+    }
+
     // POST /analyze-doc  \u2192  send a stored file to Claude for intelligent analysis
     if (p === '/analyze-doc' && request.method === 'POST') {
       const apiKey = env.ANTHROPIC_API_KEY;
@@ -1243,6 +1308,14 @@ async function registerSyncKey(env, syncKey) {
     registry.push(syncKey);
     await env.LBP_KV.put('synckeys_registry', JSON.stringify(registry));
   }
+}
+
+// Comparacion de secretos sin cortar en el primer byte distinto.
+function _igualConstante(a, b) {
+  if (a.length !== b.length) return false;
+  let d = 0;
+  for (let i = 0; i < a.length; i++) d |= a.charCodeAt(i) ^ b.charCodeAt(i);
+  return d === 0;
 }
 
 // Una sync key es valida solo si existe data:<key>. Se valida con list() (no

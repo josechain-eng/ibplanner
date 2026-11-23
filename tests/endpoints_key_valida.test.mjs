@@ -53,7 +53,9 @@ async function con(fn) {
 const CASOS = [
   ['/email-actions', (b) => { assert.equal(b.emails, 0); assert.deepEqual(b.byClient, []); }],
   ['/campaign-actions', (b) => { assert.equal(b.correos, 0); assert.deepEqual(b.acciones, []); }],
-  ['/task-proposals', (b) => { assert.deepEqual(b.propuestas, []); }]
+  ['/task-proposals', (b) => { assert.deepEqual(b.propuestas, []); }],
+  ['/asistente', (b) => { assert.equal(b.ready, false); assert.equal(b.entrada, undefined); }],
+  ['/force-asistente', (b) => { assert.equal(b.ok, false); }]
 ];
 
 for (const [ruta, forma] of CASOS) {
@@ -86,7 +88,9 @@ for (const [ruta, forma] of CASOS) {
     });
   });
 
-  test(ruta + ' con la key real sigue al camino normal (llama al briefing)', async () => {
+  // Las dos rutas del asistente no llaman al briefing con la key real: su camino
+  // feliz lo prueba tests/asistente_endpoints.test.mjs.
+  if (ruta.indexOf('asistente') < 0) test(ruta + ' con la key real sigue al camino normal (llama al briefing)', async () => {
     const env = entorno();
     await con(async () => {
       await (await cargar()).fetch(pedir('lbp_x'), env);
