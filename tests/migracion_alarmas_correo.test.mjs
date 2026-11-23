@@ -18,7 +18,9 @@ function cuerpo(i) {
 }
 const i = html.indexOf('window._lbpMigrarAlarmasCorreo = function');
 assert.ok(i > 0, 'no encuentro window._lbpMigrarAlarmasCorreo');
-const win = new Function('var window = {};\n' + cuerpo(i) + ';\nreturn window;')();
+const corte = html.match(/var LBP_CORTE_V574 = \d+;/);
+assert.ok(corte, 'no encuentro la constante LBP_CORTE_V574');
+const win = new Function('var window = {};\n' + corte[0] + '\n' + cuerpo(i) + ';\nreturn window;')();
 
 const base = (over) => Object.assign({
   id: 't1', title: 'Pagar royalty', status: 'INBOX', tags: ['Correo'],
@@ -81,4 +83,27 @@ test('el efecto migra una sola vez por dispositivo y espera a la nube', () => {
   assert.match(ef, /try \{ localStorage\.setItem\('lbp_migr_alarmas_correo', '1'\); \} catch/);
   // la senal que espera existe y se pone al terminar el pull
   assert.ok(html.includes('window._lbpCloudPullDone = true'));
+});
+
+test('no convierte una tarea que el usuario toco despues del corte de v5.74', () => {
+  // Medianoche del 23-nov-2026 en Bolivia (UTC-4) = 04:00 UTC.
+  const corteMs = Date.UTC(2026, 10, 23, 4, 0, 0);
+  assert.equal(Number(corte[0].match(/= (\d+)/)[1]), corteMs, 'el corte no es la medianoche boliviana del 23-nov');
+  const despues = base({ updatedAt: corteMs + 1 });
+  const r = win._lbpMigrarAlarmasCorreo([despues]);
+  assert.equal(r.cambiadas, 0, 'una decision posterior al lanzamiento no se deshace');
+  assert.equal(r.tasks[0].alarm.recurrence, 'once');
+});
+
+test('convierte una tarea tocada antes del corte, y una sin updatedAt', () => {
+  const corteMs = Date.UTC(2026, 10, 23, 4, 0, 0);
+  const antes = win._lbpMigrarAlarmasCorreo([base({ updatedAt: corteMs - 1 })]);
+  assert.equal(antes.cambiadas, 1);
+  assert.equal(antes.tasks[0].alarm.recurrence, 'weekdays2');
+  const sin = win._lbpMigrarAlarmasCorreo([base()]);
+  assert.equal('updatedAt' in base(), false);
+  assert.equal(sin.cambiadas, 1);
+  // mezcladas en la misma lista: cada una por su cuenta
+  const mix = win._lbpMigrarAlarmasCorreo([base({ id: 'a', updatedAt: corteMs + 5 }), base({ id: 'b', updatedAt: corteMs - 5 })]);
+  assert.deepEqual(mix.tasks.map(t => t.alarm.recurrence), ['once', 'weekdays2']);
 });

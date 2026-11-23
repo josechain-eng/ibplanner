@@ -74,11 +74,17 @@ test('ninguna ocurrencia cae en dia no habil', () => {
   for (const ms of occ) assert.equal(win._lbpEsDiaHabil(new Date(ms)), true, fmt(ms));
 });
 
-test('una base de hace un ano no cuelga y da un dia habil pasado', () => {
+test('una base de hace un ano no cuelga y cae en la ocurrencia exacta de la serie', () => {
   const ahora = new Date(2026, 10, 23, 12).getTime();
   const t = win._recentOccurrence('2025-11-24T09:40:00', 'weekdays2', {}, ahora);
   assert.ok(t <= ahora);
   assert.equal(win._lbpEsDiaHabil(new Date(t)), true);
+  // Medido corriendo la funcion real: la serie de esa base cae hoy lunes 23 a las 09:40.
+  assert.equal(fmt(t), '2026-11-23');
+  assert.equal(new Date(t).getHours() * 60 + new Date(t).getMinutes(), 9 * 60 + 40);
+  // La proxima de la serie esta dos habiles despues (el martes 24 se salta).
+  const f = win._futureOccurrences('2025-11-24T09:40:00', 'weekdays2', {}, ahora);
+  assert.equal(fmt(f[0]), '2026-11-25');
 });
 
 test('sin la funcion de feriados moviles el dia habil sigue funcionando', () => {
@@ -106,6 +112,61 @@ test('una base de dias atras no queda dentro de la ventana de repesca', () => {
   const ahora = new Date(2026, 10, 23, 12).getTime();
   const t = win._recentOccurrence('2026-11-16T09:40:00', 'weekdays2', {}, ahora);
   assert.ok(ahora - t > 15 * 60 * 1000, 'caeria dentro de la repesca y avisaria de golpe');
+});
+
+test('_recentOccurrence weekdays2 da el valor exacto, no solo la forma', () => {
+  // Base lunes 16-nov; serie: 16, 18, 20, 24 (el lunes 23 se salta: 20 +2 habiles = 24).
+  // Hoy lunes 23 a las 12:00 la ultima ocurrencia es el viernes 20 a las 09:40.
+  const ahora = new Date(2026, 10, 23, 12, 0).getTime();
+  const t = win._recentOccurrence('2026-11-16T09:40:00', 'weekdays2', {}, ahora);
+  assert.equal(fmt(t), '2026-11-20');
+  assert.equal(t, new Date(2026, 10, 20, 9, 40).getTime());
+});
+
+test('_recentOccurrence y _futureOccurrences recorren la MISMA serie', () => {
+  // Es la propiedad de la que cuelgan los cuatro caminos de alarma (nube, check
+  // local, repesca, cancelar al completar): la ultima ocurrencia y la proxima
+  // tienen que estar a exactamente dos dias habiles una de otra.
+  const habilesEntre = (a, b) => { // cuantos dias habiles hay en (a, b]
+    let n = 0; const d = new Date(a);
+    d.setHours(12, 0, 0, 0);
+    while (d.getTime() < new Date(b).setHours(12, 0, 0, 0)) {
+      d.setDate(d.getDate() + 1);
+      if (win._lbpEsDiaHabil(d)) n++;
+    }
+    return n;
+  };
+  const casos = [
+    ['2026-11-16T09:40:00', new Date(2026, 10, 23, 12, 0)],
+    ['2025-11-24T09:40:00', new Date(2026, 10, 23, 12, 0)],
+    ['2026-11-18T09:40:00', new Date(2026, 11, 24, 12, 0)],  // cruza Navidad
+    ['2027-02-03T09:40:00', new Date(2027, 1, 10, 12, 0)],   // cruza Carnaval
+  ];
+  for (const [base, ahora] of casos) {
+    const rec = win._recentOccurrence(base, 'weekdays2', {}, ahora.getTime());
+    const fut = win._futureOccurrences(base, 'weekdays2', {}, ahora.getTime())[0];
+    assert.ok(rec <= ahora.getTime() && fut > ahora.getTime(), base);
+    assert.equal(habilesEntre(rec, fut), 2, base + ': ' + fmt(rec) + ' -> ' + fmt(fut));
+    assert.equal(new Date(rec).getHours(), new Date(fut).getHours(), 'misma hora ' + base);
+  }
+});
+
+test('una base en sabado se normaliza al siguiente dia habil (futuras y reciente)', () => {
+  // El editor de alarma es un datetime-local: el usuario puede arrastrar una
+  // alarma migrada a un sabado. Sin normalizar, sonaria un sabado.
+  const base = '2026-11-28T09:40:00'; // sabado
+  const fut = win._futureOccurrences(base, 'weekdays2', {}, new Date(2026, 10, 28, 8, 0).getTime());
+  assert.deepEqual(fut.slice(0, 3).map(fmt), ['2026-11-30', '2026-12-02', '2026-12-04']);
+  const rec = win._recentOccurrence(base, 'weekdays2', {}, new Date(2026, 10, 30, 12, 0).getTime());
+  assert.equal(fmt(rec), '2026-11-30');
+});
+
+test('una base en feriado se normaliza al siguiente dia habil (futuras y reciente)', () => {
+  const base = '2026-12-25T09:40:00'; // Navidad, viernes: sabado y domingo tambien son no habiles
+  const fut = win._futureOccurrences(base, 'weekdays2', {}, new Date(2026, 11, 25, 8, 0).getTime());
+  assert.deepEqual(fut.slice(0, 3).map(fmt), ['2026-12-28', '2026-12-30', '2027-01-04']);
+  const rec = win._recentOccurrence(base, 'weekdays2', {}, new Date(2026, 11, 28, 12, 0).getTime());
+  assert.equal(fmt(rec), '2026-12-28');
 });
 
 test('el tipo nuevo esta en el editor y en la lista blanca', () => {

@@ -45,12 +45,18 @@ test('el encabezado de Alertas abre la ventana', () => {
 });
 test('la ventana lista TODAS, no un recorte', () => {
   assert.ok(ventana.length > 200, 'no se encontro la ventana');
-  assert.ok(!/slice\(0, *5\)/.test(ventana), 'la ventana no puede recortar');
+  assert.ok(!/\.slice\(/.test(ventana), 'la ventana no puede recortar con slice, sea cual sea el limite');
+  assert.match(ventana, /todas\.map\(/, 'la ventana debe mapear la lista completa');
   assert.match(ventana, /overflowY: *'auto'/);
 });
 test('las alertas de tarea llevan el tilde y usan completeTask', () => {
   assert.match(ventana, /completeTask\(/);
   assert.match(ventana, /taskId/);
+});
+test('el tilde es tocable con el dedo y tiene nombre accesible', () => {
+  assert.match(ventana, /'aria-label': *'Marcar como hecha'/);
+  assert.match(ventana, /minWidth: *44/);
+  assert.match(ventana, /minHeight: *44/);
 });
 test('las que no son tarea siguen navegando', () => {
   assert.match(ventana, /navigate\(/);
@@ -69,7 +75,4 @@ test('el tilde saca la alerta: abierta da 1, hecha da 0', () => {
   const hecha = { ...tarea, status: 'DONE', completedAt: ahora.getTime() };
   assert.equal(win._lbpAlertas({ tasks: [hecha] }, ahora.getTime()).length, 0,
     'completeTask pone DONE: la alerta debe desaparecer');
-});
-test('la version subio', () => {
-  assert.match(html, /window\.LBP_VERSION = '5\.74'/);
 });

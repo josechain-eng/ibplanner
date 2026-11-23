@@ -176,6 +176,9 @@
   // array (convencion de _mergeCloudData). NO toca updatedAt: _stampUpdatedAt lo
   // sella al ver que alarm.recurrence difiere de la nube. Quien la llama decide
   // CUANDO correr (ver el efecto de App: una sola vez por dispositivo).
+  // Medianoche del 23-nov-2026 en Bolivia (UTC-4), el dia que salio v5.74. Toda
+  // tarea tocada despues de este instante se considera decidida por el usuario.
+  var LBP_CORTE_V574 = 1795406400000;
   window._lbpMigrarAlarmasCorreo = function(tasks) {
     if (!Array.isArray(tasks)) return { tasks: tasks, cambiadas: 0 };
     var cambiadas = 0;
@@ -185,6 +188,11 @@
       var al = t.alarm;
       if (!al || !al.enabled || !al.datetime) return t;
       if ((al.recurrence || 'once') !== 'once') return t;
+      // Nunca convertir una tarea que el usuario toco DESPUES de que salio esta version:
+      // si la puso en 'once' a proposito en otro equipo, este no puede deshacerselo.
+      // El marcador es por dispositivo, asi que sin esto el segundo equipo que migra
+      // revierte la decision del primero y la empuja.
+      if (t.updatedAt && t.updatedAt > LBP_CORTE_V574) return t;
       cambiadas++;
       return Object.assign({}, t, { alarm: Object.assign({}, al, { recurrence: 'weekdays2' }) });
     });
@@ -5099,7 +5107,7 @@ function _futureOccurrences(baseIso, rec, alarm, nowMs) {
     } else { d.setTime(horizon + 1); }
   }
   if (rec === 'weekdays') { while (d.getDay() === 0 || d.getDay() === 6) d.setDate(d.getDate() + 1); }
-  if (rec === 'weekdays2') { while (!window._lbpEsDiaHabil(d)) d.setDate(d.getDate() + 1); }
+  if (rec === 'weekdays2') { var gh = 0; while (!window._lbpEsDiaHabil(d) && gh++ < 400) d.setDate(d.getDate() + 1); }
   while (d.getTime() < nowMs && guard < 6000) { step(); guard++; }
   while (d.getTime() <= horizon && out.length < maxN && guard < 6000) { out.push(d.getTime()); step(); guard++; }
   return out;
@@ -5129,7 +5137,7 @@ function _recentOccurrence(baseIso, rec, alarm, nowMs) {
   // monthly / weekdays / custom-months → stepping (pocas iteraciones)
   var d = new Date(baseMs), prev = baseMs, guard = 0;
   if (rec === 'weekdays') { while (d.getDay() === 0 || d.getDay() === 6) d.setDate(d.getDate() + 1); prev = d.getTime(); }
-  if (rec === 'weekdays2') { while (!window._lbpEsDiaHabil(d)) d.setDate(d.getDate() + 1); prev = d.getTime(); }
+  if (rec === 'weekdays2') { var gh = 0; while (!window._lbpEsDiaHabil(d) && gh++ < 400) d.setDate(d.getDate() + 1); prev = d.getTime(); }
   while (d.getTime() <= nowMs && guard < 20000) {
     prev = d.getTime();
     if (rec === 'monthly') d.setMonth(d.getMonth() + 1);
@@ -6447,9 +6455,12 @@ alertasTodas && /*VENTANA_ALERTAS*/ (function(){
             style:{display:'flex',alignItems:'center',gap:8,padding:'8px 0',borderBottom:'1px solid rgba(239,68,68,0.15)'}},
             a.taskId && /*#__PURE__*/React.createElement("button", {
               title:'Marcar como hecha',
+              'aria-label':'Marcar como hecha',
               onClick: function() { completeTask(a.taskId); },
-              style:{flexShrink:0,width:30,height:30,borderRadius:'50%',border:'1px solid #22c55e',background:'rgba(34,197,94,0.12)',color:'#22c55e',fontSize:15,cursor:'pointer'}
-            }, "✓"),
+              style:{flexShrink:0,minWidth:44,minHeight:44,padding:0,display:'flex',alignItems:'center',justifyContent:'center',background:'transparent',border:'none',cursor:'pointer'}
+            }, /*#__PURE__*/React.createElement("span", {
+              style:{width:30,height:30,borderRadius:'50%',border:'1px solid #22c55e',background:'rgba(34,197,94,0.12)',color:'#22c55e',fontSize:15,display:'flex',alignItems:'center',justifyContent:'center'}
+            }, "✓")),
             /*#__PURE__*/React.createElement("div", {
               style:{display:'flex',alignItems:'center',gap:8,flex:1,minWidth:0,cursor:'pointer'},
               onClick: function() {
