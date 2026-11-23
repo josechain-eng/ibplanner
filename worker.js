@@ -2904,6 +2904,23 @@ async function correrAsistente(env, pasada, nowMs, forzar) {
       + (recortados.length > top.length ? '\n+' + (recortados.length - top.length) + ' mas en la app' : '');
     enviados = await _asisEnviarPush(env, syncKey, now, 'Asistente de LB Planner', cuerpo,
       'asis_' + fecha + '_' + pasada, pasada);
+    // La MISMA marca que lee _asisLineasDuras, con el mismo formato
+    // (asis_dicho:<itemId>:<fecha>:<pasada>). Sin esto las dos superficies se
+    // anunciaban por separado: un solo despacho daba cuatro push en un dia, dos
+    // de ellos a minutos uno del otro diciendo lo mismo con otras palabras. Se
+    // marcan TODOS los items de la entrada, no solo los tres que el cuerpo
+    // nombra: el push dice "+N mas en la app", asi que los senalo a todos.
+    // Solo si al menos un device recibio: si el envio fallo entero, que el
+    // chequeo horario pueda decirlo es recuperacion, no repeticion.
+    if (enviados) {
+      for (const x of recortados) {
+        const id = String((x && x.id) || '');
+        if (!id) continue;
+        try { await env.LBP_KV.put('asis_dicho:' + id + ':' + fecha + ':' + pasada,
+          String(now), { expirationTtl: ASIS_MARK_TTL }); }
+        catch (e) { /* sin marca el chequeo horario repite una vez: no vale tumbar la pasada */ }
+      }
+    }
   }
 
   // 11. La senal usada queda consumida: el vigilante solo avisa cuando hay algo
@@ -3162,11 +3179,19 @@ async function scheduledHandler(event, env) {
       catch (e) { /* la pasada no puede tumbar el resto del cron */ }
     }
 
-    // Lineas duras: minutos 15 y 16 de cada hora (la hora de Bolivia la acota
-    // _asisLineasDuras a 7-21). Sin modelo. Ninguna otra puerta del cron usa mm 15-16
-    // (el TC es mm<5 y 30-35; las demas, mm<5, 20-22, 10-12, 45-47), asi que no
-    // comparte invocacion con nada pesado.
-    if (utcM >= 15 && utcM < 17) {
+    // Lineas duras: minutos 40 y 41 de cada hora (la hora de Bolivia la acota
+    // _asisLineasDuras a 7-21). Sin modelo.
+    // Los minutos 40-41 no los usa NINGUNA otra puerta del cron: el TC es mm < 5 y
+    // mm 30-35, el respaldo 09:00-09:03, el briefing (apagado) era 12:03-12:05,
+    // las pasadas son 12:20-12:22 y 22:10-22:12, y las demas compuertas
+    // (01:00, 13:00, lunes 13:45, 14:00, 21:00 y sabado 15:00) caen en mm < 2 o
+    // mm 45-47. Asi no comparte invocacion con nada pesado.
+    // Y van DESPUES de las dos ventanas de pasada a proposito: estaban en mm 15,
+    // cinco minutos ANTES de cada una, asi que el chequeo hablaba primero --sin
+    // marca que leer-- y la pasada repetia lo mismo cinco minutos despues. Con la
+    // compuerta aca, dentro de cualquier hora la pasada corre primero y el chequeo
+    // encuentra las marcas asis_dicho que ella dejo.
+    if (utcM >= 40 && utcM < 42) {
       try { await _asisLineasDuras(env, now); }
       catch (e) { /* el chequeo no puede tumbar el resto del cron */ }
     }
