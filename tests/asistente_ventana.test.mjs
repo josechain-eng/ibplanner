@@ -85,6 +85,59 @@ const e0 = html.indexOf("background:'rgba(156,104,214,.12)'");
 const e1 = html.indexOf("brfOpen&&/*#__PURE__*/React.createElement(\"div\",{style:{padding:'0 14px 14px'}}", e0);
 const encabezado = e0 > 0 && e1 > e0 ? html.slice(e0, e1) : '';
 
+// ── La FILA de la ventana, renderizada de verdad ───────────────────────────
+// React compilado no se monta en Node, pero `React.createElement` es una funcion
+// como cualquier otra: la fila se extrae por sus marcas y se ejecuta con un
+// createElement de mentira que devuelve el arbol como datos. Asi "un refId
+// muerto no dibuja el tilde" se prueba por COMPORTAMIENTO y no por un regex
+// sobre el JSX, que es exactamente el modo de falla que nombra el plan: el
+// regex sigue verde aunque el tilde se dibuje siempre.
+const f0 = html.indexOf('/*FILA_ASIS*/');
+const f1 = html.indexOf('/*FIN_FILA_ASIS*/', f0);
+assert.ok(f0 > 0 && f1 > f0, 'no encuentro la fila del asistente (/*FILA_ASIS*/)');
+const fuenteFila = html.slice(f0 + '/*FILA_ASIS*/'.length, f1);
+
+function pintarFila(item, data) {
+  const log = { completadas: [], decididas: [], vistas: [], navegadas: [], cerrada: 0 };
+  const React = {
+    createElement: function (tipo, props) {
+      return { tipo: tipo, props: props || {}, hijos: Array.prototype.slice.call(arguments, 2) };
+    },
+  };
+  const fila = new Function('window', 'React', 'data', 'completeTask', '_asisDecidir',
+    'setViewTask', 'setAlertasTodas', 'navigate', 'return (' + fuenteFila + ');')(
+    win, React, data || {},
+    (id) => log.completadas.push(id),
+    (id, d) => log.decididas.push([id, d]),
+    (t) => log.vistas.push(t && t.id),
+    (v) => { if (v === false) log.cerrada++; },
+    (r) => log.navegadas.push(r));
+  return { nodo: fila(item), log };
+}
+function recorrer(n, fn) {
+  if (!n) return;
+  if (Array.isArray(n)) { n.forEach((c) => recorrer(c, fn)); return; }
+  if (typeof n !== 'object') return;
+  fn(n);
+  (n.hijos || []).forEach((c) => recorrer(c, fn));
+}
+const tilde = (nodo) => {
+  let out = null;
+  recorrer(nodo, (n) => { if (!out && n.props && n.props['aria-label']) out = n; });
+  return out;
+};
+const botonConTexto = (nodo, texto) => {
+  let out = null;
+  recorrer(nodo, (n) => { if (!out && n.tipo === 'button' && n.hijos.indexOf(texto) >= 0) out = n; });
+  return out;
+};
+const filaClicable = (nodo) => {
+  // La zona de texto: el div con onClick que NO es un boton.
+  let out = null;
+  recorrer(nodo, (n) => { if (!out && n.tipo === 'div' && typeof n.props.onClick === 'function') out = n; });
+  return out;
+};
+
 // ── Datos de prueba ────────────────────────────────────────────────────────
 const AHORA = new Date(2026, 10, 23, 20, 0, 0).getTime();   // 23-nov 20:00 local
 const GENERADO = new Date(2026, 10, 23, 18, 10, 0).getTime(); // pasada de la tarde
@@ -107,9 +160,17 @@ test('con entrada fresca el bloque dice Asistente; sin ella, Alertas', () => {
   assert.equal(win._lbpAsisFrescos(ENTRADA({ items: [] }), AHORA, []).fresca, false,
     'una entrada sin items no tiene nada que decir');
   assert.match(bloque, /_lbpAsisFrescos/, 'el bloque tiene que preguntar por la entrada del asistente');
-  assert.match(bloque, /Asistente \(/, 'falta el titulo del asistente');
-  assert.match(bloque, /Alertas \(/, 'falta el titulo de Alertas, que es la red');
   assert.match(bloque, /window\._lbpAlertas/, 'el bloque cae a _lbpAlertas cuando no hay entrada fresca');
+  // El encabezado del bloque se EVALUA, no se mira con un regex: son tres
+  // estados y el texto de cada uno tiene que salir del estado que le toca.
+  const mt = bloque.match(/var _tit=([\s\S]*?);\n/);
+  assert.ok(mt, 'no encuentro el titulo del bloque');
+  const tit = new Function('fr', '_alDia', 'filas', 'return (' + mt[1] + ');');
+  assert.match(tit({ deHoy: true }, false, { length: 3 }), /Asistente \(3\)/, 'falta el titulo del asistente');
+  assert.match(tit({ deHoy: true }, true, { length: 0 }), /Asistente/, 'el estado "al dia" sigue siendo del asistente');
+  assert.ok(!/Alertas/.test(tit({ deHoy: true }, true, { length: 0 })),
+    'con la entrada de hoy decidida entera el bloque NO puede decir Alertas');
+  assert.match(tit({ deHoy: false }, false, { length: 7 }), /Alertas \(7\)/, 'falta el titulo de Alertas, que es la red');
 });
 
 test('la ✕ del bloque sigue siendo la misma (no se arregla ni se empeora aca)', () => {
@@ -207,9 +268,65 @@ test('sin ruta, o con una ruta fuera de la lista blanca, no se navega', () => {
   assert.equal(win._lbpAsisDestino(null, null).ruta, '');
 });
 
-test('la ventana pide el destino antes de pintar el tilde y el clic', () => {
+// ── La fila, por comportamiento (no por regex) ─────────────────────────────
+const DATA_FILA = { tasks: [{ id: 't1', title: 'Llamar a aduana', status: 'TODO' }] };
+
+test('la fila NO dibuja el tilde cuando el refId no resuelve una tarea', () => {
   assert.ok(ventana.length > 200, 'no se encontro la ventana');
-  assert.match(ventana, /_lbpAsisDestino/);
+  const viva = pintarFila(ITEM({ id: 'a', ruta: 'tasks', refId: 't1' }), DATA_FILA);
+  assert.ok(tilde(viva.nodo), 'con la tarea viva el tilde tiene que estar');
+  const muerta = pintarFila(ITEM({ id: 'b', ruta: 'tasks', refId: 'borrada_ayer' }), DATA_FILA);
+  assert.equal(tilde(muerta.nodo), null, 'un tilde que no cierra nada no se dibuja');
+  const sinRuta = pintarFila(ITEM({ id: 'c', ruta: '', refId: 't1' }), DATA_FILA);
+  assert.equal(tilde(sinRuta.nodo), null);
+  const otraRuta = pintarFila(ITEM({ id: 'd', ruta: 'imports', refId: 'i1' }), DATA_FILA);
+  assert.equal(tilde(otraRuta.nodo), null, 'un despacho no se cierra con completeTask');
+});
+
+test('el tilde de la fila cierra la tarea, graba listo y no cierra la ventana', () => {
+  const r = pintarFila(ITEM({ id: 'a', ruta: 'tasks', refId: 't1' }), DATA_FILA);
+  tilde(r.nodo).props.onClick();
+  assert.deepEqual(r.log.completadas, ['t1']);
+  assert.deepEqual(r.log.decididas, [['a', 'listo']]);
+  assert.equal(r.log.cerrada, 0, 'el tilde no puede cerrar la ventana');
+});
+
+test('la fila con tarea no repite el boton de Listo', () => {
+  const conTarea = pintarFila(ITEM({ id: 'a', ruta: 'tasks', refId: 't1' }), DATA_FILA);
+  assert.equal(botonConTexto(conTarea.nodo, '✓ Listo'), null,
+    'el tilde YA es el listo: el boton seria el mismo gesto dos veces');
+  const sinTarea = pintarFila(ITEM({ id: 'b', ruta: '', refId: '' }), DATA_FILA);
+  assert.ok(botonConTexto(sinTarea.nodo, '✓ Listo'), 'sin tilde tiene que haber boton de Listo');
+});
+
+test('los botones de la fila deciden sin cerrar la ventana', () => {
+  const a = pintarFila(ITEM({ id: 'x', ruta: '', refId: '' }), DATA_FILA);
+  botonConTexto(a.nodo, '✓ Listo').props.onClick();
+  assert.deepEqual(a.log.decididas, [['x', 'listo']]);
+  assert.equal(a.log.cerrada, 0);
+  const b = pintarFila(ITEM({ id: 'y', ruta: '', refId: '' }), DATA_FILA);
+  botonConTexto(b.nodo, 'No me interesa').props.onClick();
+  assert.deepEqual(b.log.decididas, [['y', 'no']]);
+  assert.equal(b.log.cerrada, 0);
+});
+
+test('el clic en el texto abre la tarea, navega, o no hace nada', () => {
+  const conTarea = pintarFila(ITEM({ id: 'a', ruta: 'tasks', refId: 't1' }), DATA_FILA);
+  filaClicable(conTarea.nodo).props.onClick();
+  assert.deepEqual(conTarea.log.vistas, ['t1']);
+  assert.deepEqual(conTarea.log.navegadas, []);
+  assert.equal(conTarea.log.cerrada, 0, 'abrir la tarea no cierra la ventana');
+
+  const conRuta = pintarFila(ITEM({ id: 'b', ruta: 'imports', refId: 'i1' }), DATA_FILA);
+  filaClicable(conRuta.nodo).props.onClick();
+  assert.deepEqual(conRuta.log.navegadas, ['imports']);
+  assert.equal(conRuta.log.cerrada, 1, 'al navegar si se cierra');
+
+  const muerta = pintarFila(ITEM({ id: 'c', ruta: '', refId: 'lo_que_sea' }), DATA_FILA);
+  filaClicable(muerta.nodo).props.onClick();
+  assert.deepEqual(muerta.log.navegadas, [], 'sin ruta no se navega a la nada');
+  assert.deepEqual(muerta.log.vistas, []);
+  assert.equal(muerta.log.cerrada, 0);
 });
 
 // ── 4 y 5. Las decisiones ──────────────────────────────────────────────────
@@ -343,8 +460,96 @@ test('el equipo viejo tampoco revive una decision revocada', () => {
 test('la ventana dice de cuando es la entrada', () => {
   const fr = win._lbpAsisFrescos(ENTRADA(), AHORA, []);
   assert.equal(fr.de, '18:10', 'la hora de generado, para que no parezca recien hecha');
-  assert.match(ventana, /fr\.de/, 'la ventana tiene que pintar la hora');
-  assert.match(ventana, /pasada/, 'y de que pasada viene: una de la manana no se presenta a las 20:00 como fresca');
+  // El subtitulo de la ventana se arma y se EVALUA, no se mira con un regex.
+  const mp = ventana.match(/var _pas=([\s\S]*?);\n/);
+  const ms = ventana.match(/var _subt=([\s\S]*?);\n/);
+  assert.ok(mp && ms, 'no encuentro el subtitulo de la ventana');
+  const subt = new Function('fr', 'asisEntrada', 'var _pas=' + mp[1] + '; return (' + ms[1] + ');');
+  assert.equal(subt({ de: '18:10' }, { pasada: 'tarde', tc: 11.8 }),
+    'Pasada de la tarde · 18:10 · TC Bs 11.80');
+  assert.equal(subt({ de: '06:12' }, { pasada: 'manana', tc: null }),
+    'Pasada de la mañana · 06:12',
+    'una entrada de la manana no se puede leer a las 20:00 como recien hecha');
+  assert.ok(!/18:10/.test(subt({ de: '' }, { pasada: 'tarde', tc: 11.8 })));
+});
+
+// ── El tercer estado: la entrada de hoy, ya decidida entera ────────────────
+test('decidir el ULTIMO item deja el estado "al dia", no la lista vieja', () => {
+  // Con dos estados, `fresca` caia a falso al decidir el ultimo y el bloque y la
+  // ventana volvian a _lbpAlertas: la lista cruda de treinta, justo cuando Pepe
+  // termino de despejar el asistente. `deHoy` es el tercer estado.
+  const e = ENTRADA();
+  let d = {};
+  e.items.forEach(function (it) { d = win._lbpAsisDecidir(d, it.id, 'listo'); });
+  const fr = win._lbpAsisFrescos(e, AHORA, d.asisDecididos);
+  assert.deepEqual(fr.items, [], 'no queda nada pendiente');
+  assert.equal(fr.fresca, false);
+  assert.equal(fr.deHoy, true, 'la entrada SIGUE siendo la de hoy: no se cae a Alertas');
+  assert.equal(fr.de, '18:10', 'y sigue sabiendo de cuando es');
+});
+
+test('sin entrada de hoy, deHoy es falso y recien ahi manda _lbpAlertas', () => {
+  const ayer = new Date(2026, 10, 22, 18, 10, 0).getTime();
+  assert.equal(win._lbpAsisFrescos(null, AHORA, []).deHoy, false);
+  assert.equal(win._lbpAsisFrescos({ ready: false }, AHORA, []).deHoy, false);
+  assert.equal(win._lbpAsisFrescos(ENTRADA({ generado: ayer }), AHORA, []).deHoy, false);
+  assert.equal(win._lbpAsisFrescos(ENTRADA({ generado: 'manana' }), AHORA, []).deHoy, false);
+  // Una entrada de hoy que el asistente guardo SIN items tampoco es Alertas:
+  // significa que no encontro nada, no que no haya entrada.
+  assert.equal(win._lbpAsisFrescos(ENTRADA({ items: [] }), AHORA, []).deHoy, true);
+});
+
+test('el bloque "al dia" ni siquiera consulta _lbpAlertas', () => {
+  // La cabeza del bloque (de que lista salen las filas y si hay que esconderlo)
+  // se extrae y se EJECUTA: asi "con todo decidido no se cae a la lista cruda"
+  // es una medicion, no un regex. Si _lbpAlertas se llegara a llamar, se nota.
+  const m = bloque.match(/var filas=([\s\S]*?)\n      var _bg=/);
+  assert.ok(m, 'no encuentro la cabeza del bloque');
+  const alertasCrudas = [{ id: 'a1', icon: '!', msg: 'una de treinta', color: '#f00', route: 'tasks' }];
+  let consultada = 0;
+  const ventanilla = {
+    _lbpAsisUrg: win._lbpAsisUrg,
+    _lbpAlertas: function () { consultada++; return alertasCrudas; },
+  };
+  const cabeza = new Function('window', 'fr', 'data', '_ahora',
+    'var filas=' + m[1] + '\nreturn {filas:filas, alDia:_alDia};');
+  const correr = (fr) => { consultada = 0; return { r: cabeza(ventanilla, fr, {}, AHORA), consultada }; };
+
+  const conItems = correr({ deHoy: true, items: [ITEM(), ITEM({ id: 'b' })] });
+  assert.equal(conItems.r.filas.length, 2);
+  assert.equal(conItems.r.alDia, false);
+  assert.equal(conItems.consultada, 0, 'con items del asistente no se mira _lbpAlertas');
+
+  const alDia = correr({ deHoy: true, items: [] });
+  assert.notEqual(alDia.r, null, 'el estado "al dia" NO esconde el bloque');
+  assert.deepEqual(alDia.r.filas, []);
+  assert.equal(alDia.r.alDia, true);
+  assert.equal(alDia.consultada, 0,
+    'con la entrada de hoy decidida entera NO se puede volver a la lista cruda de treinta');
+
+  const red = correr({ deHoy: false, items: [] });
+  assert.equal(red.consultada, 1, 'sin entrada de hoy si manda _lbpAlertas');
+  assert.deepEqual(red.r.filas.map((f) => f.texto), ['una de treinta']);
+  assert.equal(red.r.alDia, false);
+
+  alertasCrudas.length = 0;
+  assert.equal(cabeza(ventanilla, { deHoy: false, items: [] }, {}, AHORA), null,
+    'sin entrada y sin alertas el bloque no se pinta');
+});
+
+test('el bloque y la ventana se ramifican por deHoy, no por fresca', () => {
+  assert.match(bloque, /if\(!fr\.deHoy&&!filas\.length\)return null;/,
+    'con la entrada de hoy decidida entera el bloque no puede caer a _lbpAlertas');
+  assert.match(bloque, /var filas=fr\.deHoy/);
+  assert.match(bloque, /al d[ií]a/, 'falta el estado "al dia" en el bloque');
+  assert.match(ventana, /if\(fr\.deHoy\)\{/,
+    'la ventana tiene que entrar en la rama del asistente aunque no queden items');
+  assert.match(ventana, /var _alDia=!fr\.items\.length;/);
+  assert.match(ventana, /Nada pendiente/, 'falta el mensaje de "al dia" en la ventana');
+  // El subtitulo (con el TC) se pinta ANTES de la bifurcacion lista/al dia, asi
+  // que el tipo de cambio --lo unico que Pepe valora de aca-- no se pierde.
+  assert.ok(ventana.indexOf('_subt)') < ventana.indexOf('_alDia?'),
+    'la linea del TC tiene que seguir estando en el estado "al dia"');
 });
 
 // ── 10 y 11. La red ────────────────────────────────────────────────────────

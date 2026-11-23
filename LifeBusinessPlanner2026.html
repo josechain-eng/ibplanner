@@ -3737,6 +3737,11 @@ window._lbpAsisUrg = function(u) {
 // a las 20:00 como recien hecha.
 // `decididas` es opcional (data.asisDecididos): 'revocada' cuenta como sin
 // decidir, la misma regla que usa el worker.
+// `deHoy` y `fresca` son DOS cosas distintas y hacen falta las dos: `deHoy` dice
+// que la entrada es de hoy, haya o no items, y `fresca` que ademas queda algo
+// pendiente. Con un solo estado, decidir el ultimo item devolvia la pantalla a
+// `_lbpAlertas` --la lista cruda de treinta-- en el momento exacto en que Pepe
+// termino de despejar el asistente. Quien manda la superficie es `deHoy`.
 window._lbpAsisFrescos = function(entrada, nowMs, decididas) {
   var e = entrada || {};
   var ya = {};
@@ -3750,8 +3755,9 @@ window._lbpAsisFrescos = function(entrada, nowMs, decididas) {
   var g = new Date(e.generado);
   var valida = e.generado != null && !isNaN(g.getTime());
   var de = valida ? ('0' + g.getHours()).slice(-2) + ':' + ('0' + g.getMinutes()).slice(-2) : '';
-  var fresca = valida && items.length > 0 && _fechaLocal(g) === _fechaLocal(new Date(nowMs));
-  return { items: items, fresca: fresca, de: de };
+  var deHoy = valida && _fechaLocal(g) === _fechaLocal(new Date(nowMs));
+  var fresca = deHoy && items.length > 0;
+  return { items: items, fresca: fresca, deHoy: deHoy, de: de };
 };
 // A que puede llevar un item. El worker acota `ruta` a esta lista blanca, pero
 // una entrada vieja de KV puede traer otra cosa; y `refId` NO lo valida nadie:
@@ -6145,16 +6151,19 @@ var HomeScreen = function HomeScreen(_ref14) {
       // que el encabezado y la lista sean los mismos. Solo las filas de Alertas
       // llevan `route`: la fila del asistente abre la ventana, donde esta el porque.
       var _ahora=Date.now();
-      var fr=window._lbpAsisFrescos?window._lbpAsisFrescos(asisEntrada,_ahora,data.asisDecididos):{items:[],fresca:false,de:''};
-      var filas=fr.fresca
+      var fr=window._lbpAsisFrescos?window._lbpAsisFrescos(asisEntrada,_ahora,data.asisDecididos):{items:[],fresca:false,deHoy:false,de:''};
+      // Manda `deHoy`, no `fresca`: con la entrada de hoy ya decidida entera el
+      // bloque dice "al dia" y NO vuelve a la lista cruda de _lbpAlertas.
+      var filas=fr.deHoy
         ? fr.items.map(function(x){var u=window._lbpAsisUrg(x.urgencia);return {id:x.id,icon:u.ic,texto:x.titulo,color:u.c,route:''};})
         : (window._lbpAlertas?window._lbpAlertas(data,_ahora):[]).map(function(a){return {id:a.id,icon:a.icon,texto:a.msg,color:a.color,route:a.route};});
-      if(!filas.length)return null;
-      var _tit=(fr.fresca?'🤖 Asistente (':'🚨 Alertas (')+filas.length+') ›';
-      var _bg=fr.fresca?'rgba(156,104,214,0.06)':'rgba(239,68,68,0.06)';
-      var _bd=fr.fresca?'rgba(156,104,214,0.25)':'rgba(239,68,68,0.2)';
-      var _fil=fr.fresca?'rgba(156,104,214,0.12)':'rgba(239,68,68,0.1)';
-      var _col=fr.fresca?'var(--purple-light)':'#ef4444';
+      if(!fr.deHoy&&!filas.length)return null;
+      var _alDia=fr.deHoy&&!filas.length;
+      var _tit=fr.deHoy?('🤖 Asistente '+(_alDia?'— al día ›':'('+filas.length+') ›')):('🚨 Alertas ('+filas.length+') ›');
+      var _bg=fr.deHoy?'rgba(156,104,214,0.06)':'rgba(239,68,68,0.06)';
+      var _bd=fr.deHoy?'rgba(156,104,214,0.25)':'rgba(239,68,68,0.2)';
+      var _fil=fr.deHoy?'rgba(156,104,214,0.12)':'rgba(239,68,68,0.1)';
+      var _col=fr.deHoy?'var(--purple-light)':'#ef4444';
       return /*#__PURE__*/React.createElement('div',{style:{background:_bg,border:'1px solid '+_bd,borderRadius:12,padding:'10px 12px'}},
         /*#__PURE__*/React.createElement('div',{style:{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:8}},
           /*#__PURE__*/React.createElement('span',{onClick:function(){setAlertasTodas(true);},style:{fontSize:12,fontWeight:700,color:_col,cursor:'pointer',flex:1}},_tit),
@@ -6575,8 +6584,11 @@ fhVisible&&(data.clients||[]).filter(function(c){var hasFr=(data.clients||[]).so
   )),
 alertasTodas && /*VENTANA_ALERTAS*/ (function(){
     var _ahora=Date.now();
-    var fr=window._lbpAsisFrescos?window._lbpAsisFrescos(asisEntrada,_ahora,data.asisDecididos):{items:[],fresca:false,de:''};
-    if(fr.fresca){
+    var fr=window._lbpAsisFrescos?window._lbpAsisFrescos(asisEntrada,_ahora,data.asisDecididos):{items:[],fresca:false,deHoy:false,de:''};
+    // `deHoy`, no `fresca`: con todo decidido la ventana muestra el estado "al
+    // dia" --que conserva la linea del TC, lo unico que Pepe valora de aca-- y
+    // no la lista cruda de _lbpAlertas, que es lo contrario de lo que gano.
+    if(fr.deHoy){
       // De CUANDO es la entrada, arriba y siempre: la pasada y la hora local de
       // `generado`. Una entrada de la pasada de la maniana no se puede leer a las
       // 20:00 como si fuera recien hecha.
@@ -6586,14 +6598,17 @@ alertasTodas && /*VENTANA_ALERTAS*/ (function(){
       var _avisos=[];
       if(asisEntrada&&asisEntrada.cegado)_avisos.push('Sin correo de hoy \u2014 abr\u00ED Outlook');
       if(asisEntrada&&asisEntrada.sinModelo)_avisos.push('La IA no respondi\u00F3: va la lista del detector');
+      var _alDia=!fr.items.length;
       return /*#__PURE__*/React.createElement(Modal, {
-        title: "\uD83E\uDD16 Asistente (" + fr.items.length + ")",
+        title: "\uD83E\uDD16 Asistente " + (_alDia ? "\u2014 al d\u00EDa" : "(" + fr.items.length + ")"),
         onClose: function() { setAlertasTodas(false); }
       },
         /*#__PURE__*/React.createElement("div", {style:{fontSize:11,color:'var(--text-dim)',marginBottom:_avisos.length?4:8}}, _subt),
         _avisos.length?/*#__PURE__*/React.createElement("div", {style:{fontSize:11,color:'#F59E0B',marginBottom:8}}, _avisos.join(' \u00B7 ')):null,
+        _alDia?/*#__PURE__*/React.createElement("div", {style:{fontSize:13,color:'var(--text-dim)',padding:'18px 0',textAlign:'center',lineHeight:1.5}},
+          "\u2713 Nada pendiente: ya decidiste todo lo de hoy."):
         /*#__PURE__*/React.createElement("div", {style:{maxHeight:'60vh',overflowY:'auto',WebkitOverflowScrolling:'touch'}},
-          fr.items.map(function(x){
+          fr.items.map(/*FILA_ASIS*/function(x){
             var u=window._lbpAsisUrg(x.urgencia);
             // refId no lo valida el worker: si no resuelve una tarea NO hay tilde
             // (cerraria nada) y sin ruta no hay a donde navegar.
@@ -6635,7 +6650,7 @@ alertasTodas && /*VENTANA_ALERTAS*/ (function(){
                 )
               )
             );
-          })
+          }/*FIN_FILA_ASIS*/)
         )
       );
     }
