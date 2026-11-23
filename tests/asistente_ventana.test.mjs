@@ -609,3 +609,61 @@ test('un item sin id no se pinta: no habria con que decidirlo', () => {
   const e = ENTRADA({ items: [{ urgencia: 'ya', titulo: 'sin id', porque: 'p' }, ITEM()] });
   assert.deepEqual(win._lbpAsisFrescos(e, AHORA, []).items.map((x) => x.id), ['aduana_i1']);
 });
+
+// ── C1: la entrada de datos viejos no gobierna la superficie ───────────────
+test('una entrada marcada datosViejos NO es "de hoy": manda _lbpAlertas', () => {
+  // El dia del blob viejo el worker escribe una entrada cuyo unico aviso vive
+  // en `summary`. Si esa entrada vale como "de hoy", el bloque dice "al dia",
+  // la ventana afirma que decidio todo y _lbpAlertas --que corre sobre el blob
+  // LOCAL, fresco-- queda tapado: parece sano y habla desde datos viejos.
+  assert.equal(win._lbpAsisFrescos(ENTRADA({ items: [], datosViejos: true }), AHORA, []).deHoy, false,
+    'la entrada de datos viejos no puede gobernar la superficie');
+  assert.equal(win._lbpAsisFrescos(ENTRADA({ datosViejos: true }), AHORA, []).deHoy, false,
+    'ni siquiera con items conservados de la pasada anterior');
+  assert.equal(win._lbpAsisFrescos(ENTRADA({ items: [], datosViejos: true }), AHORA, []).fresca, false);
+  // La regla se ESTRECHA, no se invierte: en sinModelo los items son los del
+  // detector, con urgencia y exclusiones aplicadas, y siguen siendo de hoy.
+  assert.equal(win._lbpAsisFrescos(ENTRADA({ sinModelo: true }), AHORA, []).deHoy, true,
+    'sinModelo sigue gobernando: sus items son reales');
+  assert.equal(win._lbpAsisFrescos(ENTRADA({ cegado: true }), AHORA, []).deHoy, true);
+});
+
+test('el aviso de datos viejos se ve en la ventana', () => {
+  // Si por cualquier otro motivo la entrada se llegara a mostrar, el motivo
+  // tiene que estar a la vista y no escondido en el summary.
+  const ma = ventana.match(/var _avisos=\[\];([\s\S]*?)var _alDia=/);
+  assert.ok(ma, 'no encuentro los avisos de la ventana');
+  const avisos = new Function('asisEntrada', 'var _avisos=[];' + ma[1] + 'return _avisos;');
+  assert.deepEqual(avisos({ cegado: false, sinModelo: false }), [], 'un dia sano no tiene avisos');
+  const v = avisos({ datosViejos: true });
+  assert.equal(v.length, 1, 'datosViejos no aparece entre los avisos de la ventana');
+  assert.match(v[0], /viejos|sincroniz/i, 'el aviso no dice que los datos son viejos');
+  assert.equal(avisos({ cegado: true }).length, 1, 'el aviso de correo sigue estando');
+  assert.equal(avisos({ sinModelo: true }).length, 1, 'el aviso de sinModelo sigue estando');
+});
+
+// ── I2: "ya decidiste todo lo de hoy" solo cuando de verdad decidio todo ───
+test('la lista vacia no afirma que decidio todo', () => {
+  // items:[] pasa en tres dias distintos: el dia tranquilo que el diseno espera
+  // comun (el modelo no devolvio nada), el del blob viejo, y el dia en que de
+  // verdad decidio todo. Solo el tercero hace verdadera la frase.
+  const e = ENTRADA();
+  let d = {};
+  e.items.forEach(function (it) { d = win._lbpAsisDecidir(d, it.id, 'listo'); });
+  assert.equal(win._lbpAsisFrescos(e, AHORA, d.asisDecididos).todoDecidido, true,
+    'decidir todos los items del dia es el unico caso en que la frase es cierta');
+  assert.equal(win._lbpAsisFrescos(ENTRADA({ items: [] }), AHORA, []).todoDecidido, false,
+    'el dia tranquilo no es un dia en que el decidio algo');
+  assert.equal(win._lbpAsisFrescos(ENTRADA({ items: [ITEM()] }), AHORA, []).todoDecidido, false,
+    'con un item pendiente no hay estado vacio');
+
+  const mc = ventana.match(/\/\*COPIA_VACIA\*\/([\s\S]*?)\/\*FIN_COPIA_VACIA\*\//);
+  assert.ok(mc, 'no encuentro la copia del estado vacio de la ventana');
+  const copia = new Function('fr', 'return (' + mc[1] + ');');
+  assert.match(copia({ todoDecidido: true }), /ya decidiste todo/,
+    'cuando de verdad decidio todo, la frase se queda');
+  assert.ok(!/decidiste/.test(copia({ todoDecidido: false })),
+    'el dia tranquilo no puede afirmar que decidio nada');
+  assert.match(copia({ todoDecidido: false }), /valga la pena/,
+    'el estado vacio por defecto tiene que decir la verdad: no habia nada que valga la pena');
+});

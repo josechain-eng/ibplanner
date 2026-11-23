@@ -2698,8 +2698,17 @@ async function correrAsistente(env, pasada, nowMs, forzar) {
       if (yaHay) previos = JSON.parse(yaHay);
     } catch (e) { previos = null; }
     const items = (previos && Array.isArray(previos.items)) ? previos.items : [];
+    // datosViejos es una BANDERA, no una linea de texto: la app decide con ella
+    // que superficie pintar y cae a _lbpAlertas, que corre sobre el blob LOCAL
+    // --el que si esta fresco--. Con el aviso solo dentro de `summary` el dia del
+    // blob viejo se veia sano: el bloque decia "al dia", la ventana afirmaba que
+    // Pepe habia decidido todo y la red no se consultaba. Los items de la pasada
+    // anterior se CONSERVAN en la entrada (la regla 2 del chequeo horario los lee
+    // para no perder un 'ya' de la manana), pero ya no se presentan como la lista
+    // de hoy.
     await guardar({ generado: now, pasada: pasada, items: items,
       cegado: !!(previos && previos.cegado), sinModelo: !!(previos && previos.sinModelo),
+      datosViejos: true,
       tc: tc, summary: armarSummary(items, [aviso]) });
     salida.ok = true;
     salida.items = items;

@@ -425,3 +425,28 @@ test('el push deja constancia en push_log y poda la suscripcion vencida', async 
   const subs = leer(kv, 'subs:k_uno');
   assert.deepEqual(subs.map((s) => s.endpoint), [SUB.sub.endpoint], 'la suscripcion vencida no se podo');
 });
+
+// ── C1: el dia del blob viejo no puede parecer un dia sano ─────────────────
+test('la entrada del camino de datos viejos lleva la bandera datosViejos', async () => {
+  // El aviso vivia SOLO dentro del texto de `summary`, que la app no mira para
+  // decidir que superficie pintar: con el blob de hace 3 dias el bloque decia
+  // "al dia", la ventana "ya decidiste todo lo de hoy" y _lbpAlertas --que corre
+  // sobre el blob LOCAL, que si esta fresco-- no se consultaba. Un dato en el
+  // texto no es una bandera; la app necesita el campo.
+  const kv = mundo({ blobs: { k_uno: { saveTime: MANANA - 72 * H, sub: SUB.sub,
+    data: { tasks: [{ id: 't1', title: 'Pagar Mango', status: 'INBOX',
+      alarm: { enabled: true, datetime: '2026-11-18T08:00' } }] } } } });
+  const r = await correr(kv, MANANA, []);
+  assert.equal(r.llamadas.length, 0);
+  const e = entradaDe(kv);
+  assert.equal(e.datosViejos, true, 'la entrada del camino de datos viejos no se marca');
+  assert.match(e.summary, /DATOS VIEJOS/);
+});
+
+test('una pasada normal NO marca datosViejos', async () => {
+  const kv = mundo({ data: { tasks: [{ id: 't1', title: 'Pagar Mango', status: 'INBOX',
+    alarm: { enabled: true, datetime: '2026-11-24T08:00' } }] } });
+  await correr(kv, MANANA, [JSON_OK([])]);
+  assert.ok(!entradaDe(kv).datosViejos,
+    'sin la distincion, marcar datosViejos apagaria el asistente todos los dias');
+});

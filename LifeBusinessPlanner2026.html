@@ -3749,15 +3749,27 @@ window._lbpAsisFrescos = function(entrada, nowMs, decididas) {
     if (d && d.id && d.decision !== 'revocada') ya[String(d.id)] = true;
   });
   // Sin id no hay con que decidirlo y sin titulo no hay nada que leer.
-  var items = (Array.isArray(e.items) ? e.items : []).filter(function(x) {
-    return x && String(x.id || '') && String(x.titulo || '').trim() && !ya[String(x.id)];
+  var pintables = (Array.isArray(e.items) ? e.items : []).filter(function(x) {
+    return x && String(x.id || '') && String(x.titulo || '').trim();
   });
+  var items = pintables.filter(function(x) { return !ya[String(x.id)]; });
   var g = new Date(e.generado);
   var valida = e.generado != null && !isNaN(g.getTime());
   var de = valida ? ('0' + g.getHours()).slice(-2) + ':' + ('0' + g.getMinutes()).slice(-2) : '';
-  var deHoy = valida && _fechaLocal(g) === _fechaLocal(new Date(nowMs));
+  // `datosViejos` (la pasada se nego a llamar al modelo porque el blob de la nube
+  // tiene mas de 18 h) NO puede gobernar la superficie: si gobernara, el bloque
+  // diria "al dia", la ventana afirmaria que Pepe decidio todo y _lbpAlertas
+  // --que corre sobre el blob LOCAL, que si esta fresco-- quedaria tapado. Es el
+  // unico estado que se excluye: en `sinModelo` y en `cegado` los items son
+  // reales (los del detector, con urgencia y exclusiones aplicadas) y mandan.
+  var deHoy = valida && !e.datosViejos && _fechaLocal(g) === _fechaLocal(new Date(nowMs));
   var fresca = deHoy && items.length > 0;
-  return { items: items, fresca: fresca, deHoy: deHoy, de: de };
+  // `todoDecidido` separa los dos motivos por los que la lista queda vacia: que
+  // el los decidio todos (y entonces se le puede decir), o que no habia nada que
+  // valga la pena --el dia tranquilo que el diseno espera comun-- y entonces
+  // afirmarle que decidio todo es afirmar lo que no paso.
+  var todoDecidido = pintables.length > 0 && items.length === 0;
+  return { items: items, fresca: fresca, deHoy: deHoy, de: de, todoDecidido: todoDecidido };
 };
 // A que puede llevar un item. El worker acota `ruta` a esta lista blanca, pero
 // una entrada vieja de KV puede traer otra cosa; y `refId` NO lo valida nadie:
@@ -6598,7 +6610,15 @@ alertasTodas && /*VENTANA_ALERTAS*/ (function(){
       var _avisos=[];
       if(asisEntrada&&asisEntrada.cegado)_avisos.push('Sin correo de hoy \u2014 abr\u00ED Outlook');
       if(asisEntrada&&asisEntrada.sinModelo)_avisos.push('La IA no respondi\u00F3: va la lista del detector');
+      // Con `datosViejos` la ventana ya cae a _lbpAlertas (fr.deHoy es falso),
+      // pero si la entrada se mostrara por cualquier otro motivo el motivo tiene
+      // que estar A LA VISTA y no escondido dentro de `summary`.
+      if(asisEntrada&&asisEntrada.datosViejos)_avisos.push('Datos de la app viejos \u2014 abr\u00ED la app para sincronizar');
       var _alDia=!fr.items.length;
+      // "ya decidiste todo lo de hoy" es verdad SOLO cuando de verdad los decidio
+      // todos. Con la lista vacia por un dia tranquilo, la frase afirma lo que no
+      // paso, que es el anti-objetivo del diseno.
+      var _vacio=/*COPIA_VACIA*/(fr.todoDecidido?"\u2713 Nada pendiente: ya decidiste todo lo de hoy.":"Nada que valga la pena ahora.")/*FIN_COPIA_VACIA*/;
       return /*#__PURE__*/React.createElement(Modal, {
         title: "\uD83E\uDD16 Asistente " + (_alDia ? "\u2014 al d\u00EDa" : "(" + fr.items.length + ")"),
         onClose: function() { setAlertasTodas(false); }
@@ -6606,7 +6626,7 @@ alertasTodas && /*VENTANA_ALERTAS*/ (function(){
         /*#__PURE__*/React.createElement("div", {style:{fontSize:11,color:'var(--text-dim)',marginBottom:_avisos.length?4:8}}, _subt),
         _avisos.length?/*#__PURE__*/React.createElement("div", {style:{fontSize:11,color:'#F59E0B',marginBottom:8}}, _avisos.join(' \u00B7 ')):null,
         _alDia?/*#__PURE__*/React.createElement("div", {style:{fontSize:13,color:'var(--text-dim)',padding:'18px 0',textAlign:'center',lineHeight:1.5}},
-          "\u2713 Nada pendiente: ya decidiste todo lo de hoy."):
+          _vacio):
         /*#__PURE__*/React.createElement("div", {style:{maxHeight:'60vh',overflowY:'auto',WebkitOverflowScrolling:'touch'}},
           fr.items.map(/*FILA_ASIS*/function(x){
             var u=window._lbpAsisUrg(x.urgencia);
