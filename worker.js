@@ -2302,6 +2302,9 @@ function _asisDetectar(data, nowMs) {
     }
   });
   // 2. Reunion de ayer sin tareas de seguimiento
+  // El toISOString() de aca es correcto a pesar de la regla del repo: el offset de
+  // Bolivia (BO) ya esta restado ANTES de derivar la fecha, letra por letra lo que
+  // hace _hoyBolivia; lo prohibido es tomar la fecha UTC de un instante sin restarlo.
   var ayer = new Date(nowMs - DIA - BO).toISOString().slice(0, 10);
   (data.meetings || []).forEach(function (m) {
     if (!m || m.date !== ayer) return;
@@ -2386,6 +2389,322 @@ function _asisRecortar(items) {
     })
     .slice(0, 5)
     .map(function (e) { return e.x; });
+}
+
+// ---------------------------------------------------------------------------
+// Asistente proactivo: la pasada completa.
+// Junta contexto (blob de la app, correo, senal del vigilante, lo ya decidido),
+// hace UNA llamada al modelo pidiendo solo JSON, guarda la entrada del dia en KV
+// y manda push SOLO si la lista pasa la vara. Callarse es un resultado valido.
+// ---------------------------------------------------------------------------
+const ASIS_TTL = 48 * 3600;            // la entrada del dia vive 2 dias
+const ASIS_MARK_TTL = 3 * 86400;       // la marca de pasada, 3 dias
+const ASIS_SENAL_TTL = 72 * 3600;      // el mismo TTL con que la escribe el vigilante
+const ASIS_MAX_HILOS = 25;             // hilos de correo que entran en UNA llamada
+const ASIS_CORTE_MSG = 400;            // caracteres del mensaje mas nuevo de cada hilo
+const ASIS_SENAL_MAX = 4096;           // tope de asis_senal: mas que eso se ignora
+const ASIS_BLOB_VIEJO_MS = 18 * 3600 * 1000;
+const ASIS_CORREO_VIEJO_MS = 36 * 3600 * 1000;
+const ASIS_PUSH_ITEMS = 3;             // items que se nombran en el cuerpo del push
+const ASIS_RUTAS = ['tasks', 'projects', 'meetings', 'clients', 'imports'];
+
+const ASIS_SP = 'Eres el asistente proactivo de LB Planner, la app de Pepe (gerente de Ventura Mall, ' +
+  'Bolivia). Dos veces al dia recibis: las SENALES que un detector ya calculo sobre los datos de su app, ' +
+  'el CORREO corporativo de los ultimos 7 dias (el mensaje mas nuevo de cada hilo, recortado), las ESPERAS ' +
+  'que un vigilante encontro, y la lista de lo que Pepe YA DECIDIO.\n\n' +
+  'TU TRABAJO: elegir las POCAS cosas que valen su atencion ahora y decir por que. No es un listado: una ' +
+  'lista de 20 pendientes no la mira. Es normal devolver dos o tres items, uno, o ninguno. Callarse cuando ' +
+  'no hay nada que valga la pena es la respuesta correcta, no una falla.\n\n' +
+  'LO QUE TE HACE UTIL: cruzar las fuentes. "Vencida hace tres dias" no dice nada solo; "vencida hace tres ' +
+  'dias Y el cliente escribio ayer preguntando" si. Priorizar lo que tiene dos fuentes encima.\n\n' +
+  'REGLAS DURAS:\n' +
+  '- USA SOLO datos reales, NO inventes. Nada de suponer, estimar ni completar lo que no esta en el contexto.\n' +
+  '- Cada item lleva un "porque" con un dato VERIFICABLE del contexto: una fecha, un numero o el nombre de ' +
+  'quien escribio. Un "porque" vacio o generico ("es importante", "conviene revisar") DESCALIFICA el item: ' +
+  'omitilo.\n' +
+  '- "urgencia": "ya" = no puede esperar a la proxima pasada (una fecha de aduana hoy o manana, algo que se ' +
+  'pierde hoy). "hoy" = tiene que pasar hoy. "puede_esperar" = el resto. Si dudas, es "puede_esperar": un ' +
+  '"ya" hace sonar el telefono.\n' +
+  '- PROHIBIDO hablar de cualquier id que figure en YA DECIDIDO.\n' +
+  '- No repitas el tipo de cambio: ya va en la primera linea, fuera de tu respuesta.\n' +
+  '- Si el contexto dice que no se pudo leer el correo, no afirmes nada sobre correo.\n' +
+  '- Maximo 5 items. "titulo", "porque" y "accion" son UNA linea cada uno, cortos, en la taquigrafia de Pepe.\n' +
+  '- "ruta" es una de: tasks, projects, meetings, clients, imports. "refId" es el id de la entidad si la hay, ' +
+  'o vacio. Si el item viene de una senal, usa el id de la senal tal cual.\n\n' +
+  'Responde SOLO con JSON, sin texto antes ni despues:\n' +
+  '{"items":[{"id":"...","urgencia":"ya|hoy|puede_esperar","titulo":"...","porque":"...","accion":"...",' +
+  '"ruta":"tasks|projects|meetings|clients|imports","refId":"..."}]}\n' +
+  'Si no hay nada que valga la pena: {"items":[]}.';
+
+async function correrAsistente(env, pasada, nowMs) {
+  const now = nowMs || Date.now();
+  const fecha = _hoyBolivia(now);
+  const salida = { ok: false, items: [], cegado: false, sinModelo: false, motivo: '' };
+
+  // 1. UNA sola sync key: la del blob con _cloudSaveTime mas nuevo. Misma logica
+  // que /briefing (worker.js:1035-1062). El registro tiene cuatro llaves: sin
+  // este filtro serian cuatro llamadas al modelo por pasada y push a equipos que
+  // ya no son los de Pepe.
+  let registro = [];
+  try { registro = JSON.parse(await env.LBP_KV.get('synckeys_registry') || '[]'); } catch (e) { registro = []; }
+  let syncKey = null, data = null, blobMs = 0;
+  for (const k of registro) {
+    try {
+      const raw = await env.LBP_KV.get('data:' + k);
+      if (!raw) continue;
+      const parsed = JSON.parse(raw);
+      const t = parsed._cloudSaveTime || 0;
+      if (t > blobMs) { blobMs = t; syncKey = k; data = parsed; }
+    } catch (e) { /* un blob ilegible no puede tumbar la pasada de los demas */ }
+  }
+  if (!data) { salida.motivo = 'sin blob sincronizado en el registro'; return salida; }
+
+  // El tipo de cambio es la PRIMERA linea y no pasa por el modelo: es lo unico
+  // del briefing que Pepe valora, asi que una llamada caida no puede hacerselo
+  // perder. Mismo formato que la primera linea del briefing (worker.js:1722).
+  let tc = null, tcLinea = '';
+  try {
+    const di = JSON.parse(await env.LBP_KV.get('dailyinfo_v2') || 'null');
+    if (di && di.bcb && di.bcb.venta != null) {
+      tc = Number(di.bcb.venta);
+      const viejo = di.bcbFecha && di.bcbFecha !== _ultHabilBolivia(now);
+      tcLinea = 'TC oficial: Bs ' + tc.toFixed(2)
+        + (viejo ? ' (al ' + di.bcbFecha.slice(8, 10) + '/' + di.bcbFecha.slice(5, 7) + ')' : '');
+    }
+  } catch (e) { /* sin TC la pasada sigue */ }
+
+  // El summary es lo que la tarjeta de la app ya sabe pintar: primera linea el
+  // TC, los avisos como seccion y despues una vineta por item.
+  const armarSummary = function (items, avisos) {
+    const lineas = [];
+    if (tcLinea) lineas.push(tcLinea);
+    (avisos || []).forEach(function (a) { lineas.push(a); });
+    (items || []).forEach(function (x) {
+      lineas.push('\u2022 ' + x.titulo + (x.porque ? ' - ' + x.porque : '') + (x.accion ? ' | ' + x.accion : ''));
+    });
+    return lineas.join('\n');
+  };
+  const clave = 'asis:' + syncKey + ':' + fecha;
+  const guardar = async function (entrada) {
+    try { await env.LBP_KV.put(clave, JSON.stringify(entrada), { expirationTtl: ASIS_TTL }); }
+    catch (e) { /* sin entrada la app cae a _lbpAlertas; no vale tumbar la pasada */ }
+  };
+
+  // 2. Blob viejo: NO llama al modelo y NO manda push. En este repo el blob
+  // estuvo congelado seis dias sin que nadie lo notara (v5.06, sendBeacon de
+  // 64 KB contra un blob de 4 MB); con datos de hace tres dias el asistente
+  // afirmaria "vencida hace tres dias" sobre tareas ya cerradas.
+  if (now - blobMs > ASIS_BLOB_VIEJO_MS) {
+    const aviso = 'DATOS VIEJOS: los datos de la app son del ' + _hoyBolivia(blobMs)
+      + '; abri la app para sincronizar';
+    await guardar({ generado: now, pasada: pasada, items: [], cegado: false, sinModelo: false,
+      tc: tc, summary: armarSummary([], [aviso]) });
+    salida.ok = true;
+    salida.motivo = 'blob de la app del ' + _hoyBolivia(blobMs) + ': sin modelo y sin push';
+    return salida;
+  }
+
+  // 3. La marca se escribe ANTES de llamar al modelo. La ventana del cron es de
+  // dos minutos porque Cloudflare pierde ~20% de los disparos; si la marca fuera
+  // despues, los dos disparos de la misma ventana harian dos llamadas al modelo y
+  // dos push. El put va SIN try/catch a proposito: si el KV no deja marcar, que
+  // la pasada se caiga antes de gastar una llamada es el lado seguro.
+  const marca = 'asis_mark:' + syncKey + ':' + fecha + ':' + pasada;
+  try {
+    if (await env.LBP_KV.get(marca)) {
+      salida.ok = true;
+      salida.motivo = 'la pasada ' + pasada + ' ya corrio hoy';
+      return salida;
+    }
+  } catch (e) { /* si no se puede leer la marca, mejor correr que callarse */ }
+  await env.LBP_KV.put(marca, String(now), { expirationTtl: ASIS_MARK_TTL });
+
+  // 4. Las senales del blob.
+  const senales = _asisDetectar(data, now);
+
+  // 7. Lo que Pepe ya decidio. Va antes del correo porque tambien FILTRA los
+  // hilos: levantar un correo que el descarto a mano es peor que repetirse.
+  const excluidos = {};
+  const marcar = function (d) {
+    if (d && d.id && d.decision !== 'revocada') excluidos[String(d.id)] = true;
+  };
+  (data.tareasDecididas || []).forEach(marcar);
+  (data.asisDecididos || []).forEach(marcar);
+
+  // 5. El correo, por el mismo camino que /task-proposals (service binding: entre
+  // Workers de la misma cuenta, workers.dev da 404). Tope de 25 hilos y solo el
+  // mensaje mas nuevo de cada uno a 400 caracteres: asi entra en UNA llamada y no
+  // hace falta partir en tandas (una llamada grande a este worker ya dio un 524).
+  let cegado = false, hilos = [];
+  const briefKey = env.BRIEFING_KEY;
+  if (!briefKey) cegado = true;
+  else {
+    try {
+      const ruta = '/ventura-emails?key=' + encodeURIComponent(briefKey);
+      let r;
+      if (env.BRIEFING_SERVICE) r = await env.BRIEFING_SERVICE.fetch(new Request('https://briefing.internal' + ruta));
+      else r = await fetch((env.BRIEFING_URL || 'https://briefing-diario-pepe.josechain.workers.dev') + ruta);
+      if (!r.ok) cegado = true;
+      else {
+        const payload = (await r.json()) || {};
+        // El ts del puente: con mas de 36 h, Outlook no corrio y lo que hay es viejo.
+        const pts = typeof payload.ts === 'number' ? payload.ts : Date.parse(payload.ts || '');
+        if (!isFinite(pts) || now - pts > ASIS_CORREO_VIEJO_MS) cegado = true;
+        else {
+          const corte = now - 7 * 86400000;
+          const todos = Array.isArray(payload.emails) ? payload.emails
+            : (Array.isArray(payload.correos) ? payload.correos : []);
+          hilos = todos.filter(function (e) {
+            const t = e && e.date ? Date.parse(e.date) : NaN;
+            if (!isFinite(t) || t < corte) return false;
+            return !excluidos[_tpHiloId(e.subject, e.threadId)];
+          }).slice(0, ASIS_MAX_HILOS);   // el puente publica del mas nuevo al mas viejo
+        }
+      }
+    } catch (e) { cegado = true; }
+  }
+
+  // 6. La senal del vigilante de las esperas. Tope de 4 KB: lo que no parsea o lo
+  // pasa se ignora EN SILENCIO (se anota en la entrada) y nunca tumba la pasada.
+  let senalTxt = '', senalIgnorada = '', senalCruda = null;
+  try {
+    const raw = await env.LBP_KV.get('asis_senal');
+    if (raw && raw.length > ASIS_SENAL_MAX) {
+      senalIgnorada = 'asis_senal pasa los 4 KB (' + raw.length + ' bytes)';
+    } else if (raw) {
+      const s = JSON.parse(raw);
+      let hall = [];
+      if (Array.isArray(s)) hall = s;
+      else if (s && Array.isArray(s.hallazgos)) hall = s.hallazgos;
+      else if (s && s.texto) hall = [s.texto];
+      // Una senal ya consumida por otra pasada no se repite (TTL de 72 h).
+      if (s && s.consumidaEn) hall = [];
+      else senalCruda = s;
+      senalTxt = hall.map(function (h) {
+        return '- ' + String((h && h.texto) || h || '').slice(0, 300);
+      }).filter(function (l) { return l.length > 2; }).join('\n');
+    }
+  } catch (e) { senalIgnorada = 'asis_senal no parsea'; senalCruda = null; senalTxt = ''; }
+  const senalUsada = !!senalTxt;
+
+  // 8. UNA llamada al modelo, pidiendo solo JSON.
+  const idsExcluidos = Object.keys(excluidos);
+  const partes = [
+    'PASADA: ' + (pasada === 'manana' ? 'manana (8:20 de Bolivia)' : 'tarde (18:10 de Bolivia)') + ' del ' + fecha + '.',
+    '\nSENALES DEL DETECTOR (ya calculadas sobre los datos de la app):\n' + (senales.length
+      ? senales.map(function (s) {
+          return '[' + s.id + '] ' + s.texto + ' (detector: ' + s.urgencia + ', ruta ' + s.ruta + ', refId ' + (s.refId || '') + ')';
+        }).join('\n')
+      : '(ninguna)'),
+    '\nCORREO DE LOS ULTIMOS 7 DIAS (' + hilos.length + ' hilos, el mensaje mas nuevo de cada uno):\n' + (cegado
+      ? '(NO SE PUDO LEER EL CORREO: no afirmes nada sobre correo)'
+      : (hilos.length
+        ? hilos.map(function (h, i) {
+            // El puente publica los mensajes del mas nuevo al mas viejo; [0] es el
+            // mas nuevo. Un hilo publicado antes de la Tarea 1 no trae mensajes.
+            const m = Array.isArray(h.mensajes) && h.mensajes.length ? h.mensajes[0]
+              : { from: h.from, date: h.date, snippet: h.snippet };
+            return '[' + (i + 1) + '] ' + (m.date || h.date || '?')
+              + ' | DE: ' + String(m.from || h.from || '').slice(0, 120)
+              + ' | ASUNTO: ' + String(h.subject || '').slice(0, 160) + '\n'
+              + String(m.snippet || '').slice(0, ASIS_CORTE_MSG);
+          }).join('\n\n')
+        : '(ningun correo en la ventana)')),
+    '\nESPERAS (lo que el vigilante encontro):\n' + (senalTxt || '(nada nuevo)'),
+    '\nYA DECIDIDO POR PEPE, PROHIBIDO HABLAR DE ESTO:\n' + (idsExcluidos.length
+      ? idsExcluidos.map(function (i) { return '- ' + i; }).join('\n') : '(nada)'),
+  ];
+  const diag = {};
+  const texto = await callClaude(env, [{ role: 'user', content: partes.join('\n') }], ASIS_SP, 2048, diag);
+
+  // 9. Parsear. Si no parsea no se inventa NADA: se guardan las senales del
+  // detector, que ya traen urgencia (sin ella la vara no podria pasar nunca y el
+  // asistente quedaria mudo justo el dia que el modelo falla).
+  let crudos = null;
+  if (texto) {
+    try {
+      const m = String(texto).match(/\{[\s\S]*\}/);
+      const p2 = m ? JSON.parse(m[0]) : null;
+      if (p2 && Array.isArray(p2.items)) crudos = p2.items;
+    } catch (e) { crudos = null; }
+  }
+  let sinModelo = false, items = [];
+  if (!crudos) {
+    sinModelo = true;
+    items = senales.map(function (s) {
+      return { id: s.id, urgencia: s.urgencia, titulo: s.texto, porque: '', accion: '',
+               ruta: s.ruta, refId: s.refId || '', tipo: s.tipo, dias: s.dias };
+    });
+  } else {
+    items = crudos.filter(function (x) {
+      // Un "porque" vacio descalifica el item: sin dato verificable no se dice.
+      // Lo "generico" lo pide el prompt; aca solo se mide lo que se puede medir.
+      return x && String(x.titulo || '').trim() && String(x.porque || '').trim()
+        && !excluidos[String(x.id || '')];
+    }).map(function (x, i) {
+      const u = String(x.urgencia || '');
+      return {
+        id: String(x.id || '').trim().slice(0, 80) || ('mod_' + pasada + '_' + i),
+        // Urgencia desconocida cae a puede_esperar: nunca hace sonar el telefono
+        // por un valor que el modelo se invento. hasOwnProperty, no `in`: `in`
+        // casa con las claves heredadas del prototipo ("constructor" pasaria).
+        urgencia: Object.prototype.hasOwnProperty.call({ ya: 1, hoy: 1, puede_esperar: 1 }, u) ? u : 'puede_esperar',
+        titulo: String(x.titulo).trim().slice(0, 160),
+        porque: String(x.porque).trim().slice(0, 240),
+        accion: String(x.accion || '').trim().slice(0, 160),
+        ruta: ASIS_RUTAS.indexOf(String(x.ruta)) >= 0 ? String(x.ruta) : '',
+        refId: String(x.refId || '').trim().slice(0, 80),
+      };
+    });
+  }
+
+  // 10. Vara, recorte, escritura en KV, y push solo si la vara lo permite.
+  const recortados = _asisRecortar(items);
+  const vara = _asisPasaLaVara(recortados, now);
+  const avisos = [];
+  if (cegado) avisos.push('SIN CORREO: sin correo de hoy - abri Outlook');
+  if (sinModelo) avisos.push('SIN MODELO: la IA no devolvio JSON; va la lista del detector');
+  const entrada = { generado: now, pasada: pasada, items: recortados, cegado: cegado,
+    sinModelo: sinModelo, tc: tc, summary: armarSummary(recortados, avisos), vara: vara.motivo };
+  if (senalIgnorada) entrada.senalIgnorada = senalIgnorada;
+  if (sinModelo && diag.motivo) entrada.diag = diag.motivo;
+  await guardar(entrada);
+
+  let enviados = 0;
+  if (vara.manda && recortados.length) {
+    const top = recortados.slice(0, ASIS_PUSH_ITEMS);
+    const cuerpo = top.map(function (x) { return '- ' + x.titulo; }).join('\n')
+      + (recortados.length > top.length ? '\n+' + (recortados.length - top.length) + ' mas en la app' : '');
+    try {
+      const subs = JSON.parse(await env.LBP_KV.get('subs:' + syncKey) || '[]');
+      for (const sub of subs) {
+        try {
+          await sendPush(sub, { title: 'Asistente de LB Planner', body: cuerpo,
+            alarmId: 'asis_' + fecha + '_' + pasada, vibration: 'long' });
+          enviados++;
+        } catch (e) { /* un device caido no puede tumbar a los demas */ }
+      }
+    } catch (e) { /* sin subs legibles queda la entrada en KV */ }
+  }
+
+  // 11. La senal usada queda consumida: el vigilante solo avisa cuando hay algo
+  // nuevo y su TTL es de 72 h, asi que sin esto el asistente repetiria el mismo
+  // hallazgo tres dias seguidos.
+  if (senalUsada && senalCruda) {
+    try {
+      const marcada = Array.isArray(senalCruda) ? { hallazgos: senalCruda } : Object.assign({}, senalCruda);
+      marcada.consumidaEn = now;
+      marcada.consumidaPor = pasada;
+      await env.LBP_KV.put('asis_senal', JSON.stringify(marcada), { expirationTtl: ASIS_SENAL_TTL });
+    } catch (e) { /* si no se puede marcar, se repite una vez: no vale tumbar la pasada */ }
+  }
+
+  salida.ok = true;
+  salida.items = recortados;
+  salida.cegado = cegado;
+  salida.sinModelo = sinModelo;
+  salida.motivo = vara.motivo + (enviados ? ' - push a ' + enviados : ' - sin push');
+  return salida;
 }
 
 async function scheduledHandler(event, env) {
@@ -2595,6 +2914,23 @@ async function scheduledHandler(event, env) {
     if (utcDow === 1 && utcH === 13 && utcM >= 45 && utcM < 47) {
       await sendSmartNotif(env, syncKeys, 'project_health', todayUTC, tomorrowUTC);
       await sendSmartNotif(env, syncKeys, 'client_health', todayUTC, tomorrowUTC);
+    }
+
+    // === ASISTENTE PROACTIVO ====================================================
+    // Dos pasadas al dia, cada una en su propia invocacion: 12:20-12:22 UTC
+    // (8:20 Bolivia) y 22:10-22:12 UTC (18:10 Bolivia). Las ventanas estan lejos
+    // del refresco del tipo de cambio (mm < 5 y mm 30-35 de cada hora) y del
+    // briefing (12:03-12:05) porque juntar dos cosas pesadas en un tick ya mato
+    // el envio del briefing una vez (04-sep-2026).
+    // Son de DOS minutos porque Cloudflare pierde ~20% de los disparos del cron;
+    // que dos disparos de la misma ventana no hagan dos llamadas al modelo ni dos
+    // push lo garantiza la marca asis_mark, que correrAsistente escribe ANTES de
+    // llamar al modelo.
+    const _asisPasada = (utcH === 12 && utcM >= 20 && utcM < 22) ? 'manana'
+      : ((utcH === 22 && utcM >= 10 && utcM < 12) ? 'tarde' : null);
+    if (_asisPasada) {
+      try { await correrAsistente(env, _asisPasada, now); }
+      catch (e) { /* la pasada no puede tumbar el resto del cron */ }
     }
 }
 
