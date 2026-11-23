@@ -157,7 +157,9 @@ Expected: PASS, 3 pruebas.
 - [ ] **Step 5: Correr la suite entera**
 
 Run: `node --test "tests/*.test.mjs"`
-Expected: 443 pasan, 0 fallan.
+Expected: 0 fallan, y el total no baja de 440. (El conteo total es guardarrail,
+nunca objetivo: un numero como meta invita a rellenar con pruebas que no prueban
+nada.)
 
 - [ ] **Step 6: Commit**
 
@@ -295,7 +297,11 @@ git commit -m "Detector de senales y vara del silencio del asistente"
   - `correrAsistente(env, pasada, nowMs) -> Promise<{ok, items, cegado, sinModelo, motivo}>`
     `pasada` es `'manana'` o `'tarde'`.
   - KV `asis:<syncKey>:<fecha>` = `{ generado, pasada, items, cegado, sinModelo,
-    tc, summary }`, TTL 48 h. `summary` es texto: primera línea el TC, después una
+    tc, summary }`, TTL 48 h. **Cada ítem lleva siempre `urgencia`**, incluso en
+    el camino `sinModelo`, donde la asigna el detector: aduana a ≤1 día → `'ya'`;
+    aduana a ≤7 días → `'hoy'`; el resto → `'puede_esperar'`. Sin esto, el día que
+    el modelo falla los ítems no tienen `urgencia`, la vara no puede pasar nunca
+    —quedaría mudo justo ese día— y la regla (b) de la Tarea 5 no tiene qué leer. `summary` es texto: primera línea el TC, después una
     línea por ítem — es lo que la tarjeta de la app ya sabe pintar
     (`LifeBusinessPlanner2026.html:5837-5854`).
   - KV `asis_mark:<syncKey>:<fecha>:<pasada>`, TTL 3 días.
@@ -344,6 +350,10 @@ test('JSON que no parsea: sinModelo y la lista del detector', async () => {
   // El modelo devuelve "lo siento, no puedo". Expected: sinModelo === true,
   // items.length === señales del detector, y NO se inventa texto.
 });
+test('en sinModelo los items igual llevan urgencia y la vara puede pasar', async () => {
+  // Aduana a 1 dia + JSON roto. Expected: items[0].urgencia === 'ya' y SALE push.
+  // Sin esto, el dia que falla el modelo el asistente queda mudo.
+});
 test('si no se puede leer el correo queda cegado y lo dice', async () => {
   // BRIEFING_SERVICE devuelve 500.
 });
@@ -384,7 +394,7 @@ Expected: FAIL — `correrAsistente` no existe.
 - [ ] **Step 4: Correr y verificar que pasa**
 
 Run: `node --test "tests/asistente_pasada.test.mjs"`
-Expected: PASS, 13 pruebas.
+Expected: PASS, 15 pruebas.
 
 - [ ] **Step 5: Prueba por mutación de los dos puntos que más cuestan**
 
@@ -396,7 +406,7 @@ Expected: FALLA «con el blob de hace 3 dias NO llama al modelo». Restaurar.
 - [ ] **Step 6: `node --check worker.js` y la suite entera**
 
 Run: `node --check worker.js && node --test "tests/*.test.mjs"`
-Expected: sin salida del check; 456 pasan, 0 fallan.
+Expected: sin salida del check; 0 fallan, y el total no baja de 440.
 
 - [ ] **Step 7: Commit**
 
@@ -441,6 +451,10 @@ test('la respuesta de /asistente nunca contiene la sync key', async () => {
   // Afirmacion directa sobre el cuerpo serializado.
 });
 test('GET /force-asistente borra la marca del dia y corre', async () => {});
+
+Y **agregar `/asistente` a la tabla de `tests/endpoints_key_valida.test.mjs:54-56`**,
+que es la prueba que ya vigila que los otros cuatro endpoints fallen cerrado con
+una key invalida. Dejar el nuevo afuera es un hueco de seguridad silencioso.
 ```
 
 - [ ] **Step 2: Correr y verificar que falla**
@@ -659,9 +673,10 @@ Run: `node --test "tests/asistente_apagado.test.mjs"`
 Expected: FAIL — las cinco siguen encendidas.
 
 - [ ] **Step 3: Comentar las cinco compuertas**, cada una con el motivo y la
-  fecha. Ajustar las pruebas existentes que afirmen su horario; una prueba que
-  afirmaba una compuerta apagada se cambia para afirmar que está apagada, no se
-  borra.
+  fecha. **Ninguna prueba del repo afirma el horario de estas cinco** (verificado
+  por grep el 23-nov), así que no hay pruebas existentes que ajustar: no salgas a
+  buscarlas. Si aparece una, se cambia para afirmar que la compuerta está
+  apagada, no se borra.
 
 - [ ] **Step 4: Correr y verificar que pasa**
 
@@ -676,7 +691,7 @@ Expected: 0 fallan, y el total **no baja de 440**.
 - [ ] **Step 6: Commit**
 
 ```bash
-git add worker.js tests/asistente_apagado.test.mjs tests/
+git add worker.js tests/asistente_apagado.test.mjs
 git commit -m "Apagar el briefing y las 4 notificaciones que repiten al asistente"
 ```
 
