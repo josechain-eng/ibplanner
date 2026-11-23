@@ -65,3 +65,11 @@ test('se monta en el Home despues de las tareas propuestas', () => {
 test('version 5.73', () => {
   assert.ok(html.includes("window.LBP_VERSION = '5.73'"));
 });
+
+test('muestra el nombre del color si viene (Mango guarda codigos)', () => {
+  assert.ok(bloque.includes('p.color_nombre||p.color'));
+});
+
+test('lo que quedo sin cupo se muestra tal cual', () => {
+  assert.ok(bloque.includes("t.indexOf(':')>=0 ? t : t+': sin propuestas esta semana'"));
+});

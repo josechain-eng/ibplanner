@@ -19686,7 +19686,7 @@ var PropuestasMarketing = function PropuestasMarketing(props) {
       decididas.length ? null : React.createElement('div',{style:{fontSize:12,color:'var(--text-dim)'}},'Todavía no decidiste ninguna.'),
       decididas.map(function(p){
         return React.createElement('div',{key:p.id,style:{display:'flex',alignItems:'center',gap:8,padding:'6px 0',borderTop:'1px solid var(--border)'}},
-          React.createElement('div',{style:{flex:1,minWidth:0,fontSize:12}},(dec[p.id]==='ok'?'✓ ':'✗ ')+p.tienda+' · '+p.descripcion+' ('+p.color+')'),
+          React.createElement('div',{style:{flex:1,minWidth:0,fontSize:12}},(dec[p.id]==='ok'?'✓ ':'✗ ')+p.tienda+' · '+p.descripcion+' ('+(p.color_nombre||p.color)+')'),
           chico('Deshacer',function(){ deshacer(p.id); }));
       }),
       React.createElement('div',{style:{marginTop:10}}, chico('← Volver a las propuestas',function(){ setVerDecididas(false); })));
@@ -19710,7 +19710,7 @@ var PropuestasMarketing = function PropuestasMarketing(props) {
           React.createElement('div',{style:{flex:1,minWidth:0}},
             React.createElement('div',{style:{fontSize:11,fontWeight:700,color:'var(--purple-light)'}},p.tienda+(p.linea?' · '+p.linea:'')),
             React.createElement('div',{style:{fontSize:13,fontWeight:700,margin:'2px 0'}},p.descripcion),
-            React.createElement('div',{style:{fontSize:11,color:'var(--text-dim)'}},p.estilo+' · '+p.color+(p.tallas&&p.tallas.length?' · '+p.tallas.join(' '):'')),
+            React.createElement('div',{style:{fontSize:11,color:'var(--text-dim)'}},p.estilo+' · '+(p.color_nombre||p.color)+(p.tallas&&p.tallas.length?' · '+p.tallas.join(' '):'')),
             React.createElement('div',{style:{fontSize:11,marginTop:3}},p.porque),
             React.createElement('div',{style:{fontSize:11,color:'var(--text-dim)',marginTop:3}},
               p.formato+' · '+(CANAL[p.canal]||p.canal)+' · '+(p.foto?'📷 hay foto':'📸 pedir fotos')+' · '+textoOferta(p.oferta))),
@@ -19719,7 +19719,7 @@ var PropuestasMarketing = function PropuestasMarketing(props) {
             btn('✗','#F44336',function(){ decidir(p.id,'no'); })));
       }),
       (lote.sin_propuestas||[]).length ? React.createElement('div',{style:{fontSize:11,color:'var(--text-dim)',marginTop:8}},
-        lote.sin_propuestas.map(function(t,i){ return React.createElement('div',{key:i},'· '+t+': sin propuestas esta semana'); })) : null,
+        lote.sin_propuestas.map(function(t,i){ return React.createElement('div',{key:i},'· '+(t.indexOf(':')>=0 ? t : t+': sin propuestas esta semana')); })) : null,
       (lote.competencia||[]).length ? React.createElement('details',{style:{marginTop:8}},
         React.createElement('summary',{style:{fontSize:11,color:'var(--text-dim)',cursor:'pointer'}},'Lo que anunció la competencia en Meta ('+lote.competencia.length+')'),
         lote.competencia.map(function(c,i){
