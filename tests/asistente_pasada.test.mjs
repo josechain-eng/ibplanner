@@ -526,3 +526,37 @@ test('tambien la escribe el camino del blob viejo', async () => {
   await correr(kv, MANANA, []);
   assert.equal(kv._map.get('asis_llave'), 'k_uno');
 });
+
+// ── #10: una senal que parsea pero no aporta nada no puede pasar en silencio ─
+test('una senal con una forma desconocida queda anotada en senalIgnorada', async () => {
+  // El vigilante se veria sano --deposito, 200, sin error-- y no aportaria nada.
+  const kv = mundo({ data: { tasks: [] }, extra: { asis_senal: JSON.stringify({ cosas: ['CJ no contesto'] }) } });
+  await correr(kv, MANANA, [JSON_OK([])]);
+  const e = entradaDe(kv);
+  assert.ok(e.senalIgnorada, 'una senal que no aporta nada tiene que quedar anotada');
+  assert.match(e.senalIgnorada, /hallazgo|forma/i, 'el motivo tiene que decir que le paso');
+});
+
+test('una senal ya consumida NO se anota como ignorada', async () => {
+  // Consumida no es ignorada: esa senal ya se dijo en otra pasada.
+  const kv = mundo({ data: { tasks: [] }, extra: { asis_senal: JSON.stringify({
+    hallazgos: [{ que: 'CJ no contesto' }], consumidaEn: MANANA - 10 * H }) } });
+  await correr(kv, MANANA, [JSON_OK([])]);
+  assert.equal(entradaDe(kv).senalIgnorada, undefined,
+    'marcar como ignorada una senal consumida seria una alarma falsa todos los dias');
+});
+
+// ── #21: una lista decidida que no es array no puede tumbar la pasada ──────
+test('tareasDecididas o asisDecididos que no son array no tumban la pasada', async () => {
+  // El .forEach iba protegido solo con `|| []`: con un objeto o un texto tira, y
+  // el catch del cron se traga la pasada entera DESPUES de escribir asis_mark,
+  // asi que ese medio dia se pierde sin dejar rastro.
+  for (const mal of ['x', 7, { a: 1 }, true]) {
+    const kv = mundo({ data: { tasks: [], tareasDecididas: mal, asisDecididos: mal } });
+    const r = await correr(kv, MANANA, [JSON_OK([{ id: 'u1', urgencia: 'ya', titulo: 'Aduana CK',
+      porque: 'limite el 2026-11-25', accion: '', ruta: 'imports', refId: '' }])]);
+    assert.equal(r.llamadas.length, 1, 'con ' + JSON.stringify(mal) + ' la pasada no llego al modelo');
+    assert.deepEqual(entradaDe(kv).items.map((x) => x.id), ['u1'],
+      'con ' + JSON.stringify(mal) + ' la pasada se cayo en silencio');
+  }
+});

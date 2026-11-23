@@ -2398,8 +2398,14 @@ function _asisDetectar(data, nowMs) {
     var ms = aMs(t.alarm.datetime);
     var dias = Math.floor((nowMs - ms) / DIA);
     if (ms < nowMs && dias === 0) {
+      // "(hace Nh)" es lo que distingue una alarma que sono recien de una que
+      // lleva medio dia sin tildar, y es parte del dato verificable del item.
+      // _lbpAlertas lo trae desde siempre; este detector lo habia perdido.
+      var horas = Math.floor((nowMs - ms) / 3600000);
       out.push({ id: 'today_' + t.id, tipo: 'alarma_hoy', ruta: 'tasks', refId: t.id,
-        texto: '"' + cortar(t.title, 35) + '" - alarma de hoy sin completar', dias: 0, urgencia: 'hoy' });
+        texto: '"' + cortar(t.title, 35) + '" - alarma de hoy'
+          + (horas > 0 ? ' (hace ' + horas + 'h)' : '') + ' sin completar',
+        dias: 0, urgencia: 'hoy' });
     }
   });
   // 1b. Alarma de hace 1 a 60 dias sin completar
@@ -2452,6 +2458,21 @@ function _asisDetectar(data, nowMs) {
   // 5. Despachos con limite de aduana a 7 dias o menos (o ya vencido). Van
   // adelante, por dias ascendente. Dia calendario de Bolivia contra dia
   // calendario (como _impDiasLimite): restar timestamps corre un dia entero.
+  // El monto de tributos como lo escribe el archivo de Pepe: "14.341" es catorce
+  // mil trescientos cuarenta y uno (punto o coma seguidos de tres digitos son
+  // separador de miles). Misma regla que _impNum del HTML.
+  var aNumero = function (v) {
+    if (v === null || v === undefined) return 0;
+    var t = String(v).trim().replace(/\s/g, '');
+    if (!t) return 0;
+    t = t.replace(/[.,](?=\d{3}(?:[.,]|$))/g, '').replace(',', '.');
+    var n = parseFloat(t);
+    return isFinite(n) ? n : 0;
+  };
+  // Separador de miles explicito: el HTML delega en toLocaleString (y el
+  // navegador de Pepe, en espanol, pone el punto), pero el Worker no tiene
+  // locale del usuario y "14,341" se leeria como catorce con 341.
+  var miles = function (n) { return String(n).replace(/\B(?=(\d{3})+(?!\d))/g, '.'); };
   var hoyBo = new Date(nowMs - BO);
   var hoyDia = Date.UTC(hoyBo.getUTCFullYear(), hoyBo.getUTCMonth(), hoyBo.getUTCDate());
   var adu = [];
@@ -2467,8 +2488,13 @@ function _asisDetectar(data, nowMs) {
     var cli = (data.clients || []).find(function (x) { return x && x.id === imp.clientId; });
     var marca = cli ? (cli.businessName || cli.name) : 'Sin asignar';
     var cuando = d < 0 ? 'VENCIDO hace ' + (-d) + ' dia' + (d < -1 ? 's' : '') : (d === 0 ? 'vence HOY' : 'vence en ' + d + ' dia' + (d > 1 ? 's' : ''));
+    // La cifra de tributos es lo que le da un dato verificable al item de aduana
+    // (y viaja en el cuerpo del push de la regla dura). _lbpAlertas la pone; este
+    // detector la habia perdido.
+    var trib = Math.round(aNumero(imp.tributos));
     adu.push({ id: 'aduana_' + imp.id, tipo: 'aduana', ruta: 'imports', refId: imp.id,
-      texto: marca + ' ' + (imp.season || 'despacho') + ' - aduana ' + cuando, dias: d,
+      texto: marca + ' ' + (imp.season || 'despacho') + ' - aduana ' + cuando
+        + (trib ? ' \u00b7 Bs ' + miles(trib) : ''), dias: d,
       urgencia: d <= 1 ? 'ya' : 'hoy' });
   });
   adu.sort(function (a, b) { return a.dias - b.dias; });
@@ -2690,8 +2716,10 @@ async function _asisLineasDuras(env, nowMs) {
   const marcar = function (d) {
     if (d && d.id && d.decision !== 'revocada') excluidos[String(d.id)] = true;
   };
-  (data.tareasDecididas || []).forEach(marcar);
-  (data.asisDecididos || []).forEach(marcar);
+  // Array.isArray y no `|| []`: con un objeto o un texto ahi, .forEach tira y el
+  // try/catch del cron se traga el chequeo entero EN SILENCIO.
+  (Array.isArray(data.tareasDecididas) ? data.tareasDecididas : []).forEach(marcar);
+  (Array.isArray(data.asisDecididos) ? data.asisDecididos : []).forEach(marcar);
 
   const candidatos = [];
   const vistos = {};
@@ -2895,7 +2923,8 @@ async function correrAsistente(env, pasada, nowMs, forzar) {
       else if (s && Array.isArray(s.hallazgos)) hall = s.hallazgos;
       else if (s && s.texto) hall = [s.texto];
       // Una senal ya consumida por otra pasada no se repite (TTL de 72 h).
-      if (s && s.consumidaEn) hall = [];
+      const consumida = !!(s && s.consumidaEn);
+      if (consumida) hall = [];
       else senalCruda = s;
       senalTxt = hall.map(function (h) {
         // Un hallazgo es un string, {texto} o {que, detalle, desde}: nunca "[object Object]".
@@ -2907,6 +2936,10 @@ async function correrAsistente(env, pasada, nowMs, forzar) {
         }
         return '- ' + t.slice(0, 300);
       }).filter(function (l) { return l.length > 2; }).join('\n');
+      // Parsea, no esta consumida y no rinde NINGUN hallazgo: el vigilante se
+      // veria sano (deposito, 200, sin error) sin aportar nada. Queda anotado.
+      // Consumida no es ignorada: esa senal ya se dijo en otra pasada.
+      if (!consumida && !senalTxt) senalIgnorada = 'asis_senal parsea pero no trae hallazgos en una forma conocida';
     }
   } catch (e) { senalIgnorada = 'asis_senal no parsea'; senalCruda = null; senalTxt = ''; }
   const senalUsada = !!senalTxt;

@@ -347,3 +347,12 @@ test('con la llave apuntando a un blob que ya no existe, cae a la regla completa
   assert.equal(r.push.length, 1,
     'una llave rancia no puede dejar al chequeo horario sin datos');
 });
+
+// ── #21: lo mismo del lado del chequeo horario ────────────────────────────
+test('tareasDecididas o asisDecididos que no son array no tumban el chequeo', async () => {
+  for (const mal of ['x', 7, { a: 1 }, true]) {
+    const kv = mundo({ data: { imports: [imp('i1', '2026-11-25')], tareasDecididas: mal, asisDecididos: mal } });
+    assert.equal((await correr(kv, bo(10, 40))).push.length, 1,
+      'con ' + JSON.stringify(mal) + ' en el blob el chequeo horario se cayo EN SILENCIO');
+  }
+});

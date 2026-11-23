@@ -178,3 +178,33 @@ test('la alarma de hoy sin completar es "hoy": una sola no manda, dos si', () =>
   const dos = _asisDetectar({ tasks: [t('a'), t('b')] }, MARTES);
   assert.equal(_asisPasaLaVara(dos, MARTES).manda, true);
 });
+
+// --- #9: los dos datos que el detector del worker perdio contra _lbpAlertas ---
+test('la linea de aduana lleva los tributos en Bs, como _lbpAlertas', () => {
+  // El numero es lo que le da un "porque" verificable a un item de aduana, y
+  // viaja ademas en el cuerpo del push de la regla dura. _lbpAlertas lo pone
+  // (' · Bs ' + tributos) y el detector del worker lo habia perdido.
+  const s = _asisDetectar({ imports: [{ id: 'i1', limiteAduana: '2026-11-25', tributos: '14.341' }] }, MARTES);
+  assert.ok(s[0].texto.includes('Bs 14.341'), 'falta la cifra de tributos: ' + s[0].texto);
+  assert.ok(s[0].texto.indexOf('aduana') < s[0].texto.indexOf('Bs'), 'la cifra va al final de la linea');
+  // 14.341 es catorce mil trescientos cuarenta y uno, no catorce con 341: el
+  // punto seguido de tres digitos es separador de miles (la misma regla de _impNum).
+  const n = _asisDetectar({ imports: [{ id: 'i1', limiteAduana: '2026-11-25', tributos: 2500 }] }, MARTES);
+  assert.ok(n[0].texto.includes('Bs 2.500'), 'un numero suelto tambien se agrupa: ' + n[0].texto);
+  // Sin tributos (o en cero) no se escribe un "Bs" vacio.
+  [undefined, '', 0, 'nada'].forEach(function (t) {
+    const v = _asisDetectar({ imports: [{ id: 'i1', limiteAduana: '2026-11-25', tributos: t }] }, MARTES);
+    assert.ok(!/Bs/.test(v[0].texto), 'con tributos ' + JSON.stringify(t) + ' no va ningun Bs');
+  });
+});
+
+test('la alarma de hoy dice hace cuantas horas sono, como _lbpAlertas', () => {
+  // MARTES = 12:00 de Bolivia. Una alarma de las 8:00 sono hace 4 horas.
+  const t = (dt) => ({ id: 'a', title: 'Pagar Mango', status: 'INBOX', alarm: { enabled: true, datetime: dt } });
+  const s = _asisDetectar({ tasks: [t('2026-11-24T08:00')] }, MARTES);
+  assert.ok(s[0].texto.includes('(hace 4h)'), 'falta el "(hace Nh)": ' + s[0].texto);
+  assert.ok(s[0].texto.includes('sin completar'), 'y el resto de la linea sigue igual');
+  // Menos de una hora: no se inventa un "(hace 0h)".
+  const r = _asisDetectar({ tasks: [t('2026-11-24T11:30')] }, MARTES);
+  assert.ok(!/hace/.test(r[0].texto), 'con media hora no se escribe "(hace 0h)": ' + r[0].texto);
+});
