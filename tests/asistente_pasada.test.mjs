@@ -450,3 +450,31 @@ test('una pasada normal NO marca datosViejos', async () => {
   assert.ok(!entradaDe(kv).datosViejos,
     'sin la distincion, marcar datosViejos apagaria el asistente todos los dias');
 });
+
+// ── I4: el tipo de cambio tiene que seguir llegando como push ──────────────
+test('el cuerpo del push empieza por la linea del tipo de cambio', async () => {
+  // El push del briefing de las 8:03 llevaba el TC en su cuerpo y se apago. Es
+  // "lo que mas me ayuda de todo" segun Pepe, y el cuerpo del asistente era solo
+  // los titulos: el TC dejaba de llegar al telefono. Va de primera linea en
+  // TODOS los push del asistente; lo que NO se hace es mandar push a diario solo
+  // para entregarlo, porque callarse es la funcion.
+  const kv = mundo({ data: { tasks: [] } });
+  const r = await correr(kv, MANANA, [JSON_OK([{ id: 'u1', urgencia: 'ya', titulo: 'Aduana CK',
+    porque: 'limite el 2026-11-25', accion: '', ruta: 'imports', refId: 'i1' }])]);
+  assert.equal(r.push.length, 1);
+  const aviso = await descifrar(r.push[0].body, SUB);
+  assert.equal(aviso.body.split('\n')[0], 'TC oficial: Bs 11.80',
+    'el cuerpo del push no empieza por el tipo de cambio');
+  assert.match(aviso.body, /- Aduana CK/, 'y los items siguen estando debajo');
+});
+
+test('sin tipo de cambio en KV el push sale igual, sin linea en blanco', async () => {
+  const kv = mundo({ data: { tasks: [] } });
+  kv._map.set('dailyinfo_v2', JSON.stringify({ updatedAt: Date.UTC(2100, 0, 1) }));
+  const r = await correr(kv, MANANA, [JSON_OK([{ id: 'u1', urgencia: 'ya', titulo: 'Aduana CK',
+    porque: 'limite el 2026-11-25', accion: '', ruta: 'imports', refId: 'i1' }])]);
+  assert.equal(r.push.length, 1);
+  const aviso = await descifrar(r.push[0].body, SUB);
+  assert.equal(aviso.body.split('\n')[0], '- Aduana CK',
+    'sin TC el cuerpo no puede empezar con una linea vacia');
+});

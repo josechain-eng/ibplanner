@@ -55,7 +55,8 @@ function mundo(o) {
   const ms = op.ms || bo(10, 40);
   const claves = {
     synckeys_registry: JSON.stringify(op.registro || [KEY]),
-    dailyinfo_v2: JSON.stringify({ updatedAt: Date.UTC(2100, 0, 1) }),
+    // bcb realista: el cuerpo del push lleva el tipo de cambio de primera linea.
+    dailyinfo_v2: JSON.stringify({ updatedAt: Date.UTC(2100, 0, 1), bcb: { venta: 11.8 }, bcbFecha: HOY }),
     ['subs:' + KEY]: JSON.stringify([SUB.sub]),
   };
   const blobs = op.blobs || { [KEY]: { saveTime: ms - 2 * H, data: op.data || { imports: [imp('i1', '2026-11-25')] } } };
@@ -285,4 +286,15 @@ test('lo que el usuario decidio en tareasDecididas tampoco se repite', async () 
   const kv = mundo({ data: { imports: [imp('i1', '2026-11-25')],
     tareasDecididas: [{ id: 'aduana_i1', decision: 'hecha' }] } });
   assert.equal((await correr(kv, bo(10, 40))).push.length, 0);
+});
+
+// ── I4: el chequeo horario tambien lleva el tipo de cambio ─────────────────
+test('el cuerpo del push del chequeo horario empieza por el tipo de cambio', async () => {
+  const kv = mundo();
+  const r = await correr(kv, bo(10, 40));
+  assert.equal(r.push.length, 1);
+  const cuerpo = await descifrar(r.push[0].body, SUB);
+  assert.equal(cuerpo.body.split('\n')[0], 'TC oficial: Bs 11.80',
+    'el push de las lineas duras no lleva el tipo de cambio');
+  assert.match(cuerpo.body, /aduana vence en 1 dia/, 'y la linea dura sigue estando debajo');
 });

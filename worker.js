@@ -2522,11 +2522,39 @@ async function _asisBlobMasNuevo(env) {
   return { syncKey: syncKey, data: data, blobMs: blobMs };
 }
 
+// La linea del tipo de cambio. Es lo UNICO que Pepe valoraba del briefing de las
+// 8:03, que esta apagado, asi que va de primera linea del summary Y de todos los
+// push del asistente. Mismo formato que la primera linea del briefing
+// (worker.js:1722). Sin TC en KV devuelve linea vacia y nadie agrega un renglon
+// en blanco.
+async function _asisTcLinea(env, nowMs) {
+  try {
+    const di = JSON.parse(await env.LBP_KV.get('dailyinfo_v2') || 'null');
+    if (di && di.bcb && di.bcb.venta != null) {
+      const tc = Number(di.bcb.venta);
+      if (isFinite(tc)) {
+        const viejo = di.bcbFecha && di.bcbFecha !== _ultHabilBolivia(nowMs);
+        return { tc: tc, linea: 'TC oficial: Bs ' + tc.toFixed(2)
+          + (viejo ? ' (al ' + di.bcbFecha.slice(8, 10) + '/' + di.bcbFecha.slice(5, 7) + ')' : '') };
+      }
+    }
+  } catch (e) { /* sin TC la pasada y el chequeo horario siguen igual */ }
+  return { tc: null, linea: '' };
+}
+
 // El envio del asistente (pasada y chequeo horario): manda a las suscripciones de
 // la sync key, anota cada envio en push_log y poda las muertas. UN solo bloque
 // para los dos caminos. Devuelve cuantos se entregaron.
 async function _asisEnviarPush(env, syncKey, now, titulo, cuerpo, alarmId, pasadaLog) {
   let enviados = 0;
+  // El TC se antepone ACA y no en cada llamador a proposito: asi ningun camino de
+  // push del asistente puede olvidarlo. Lo que NO se hace es mandar un push
+  // diario solo para entregarlo: callarse cuando no hay nada que valga la pena es
+  // la funcion del asistente, no un efecto secundario.
+  try {
+    const tcl = (await _asisTcLinea(env, now)).linea;
+    if (tcl) cuerpo = tcl + '\n' + cuerpo;
+  } catch (e) { /* el TC nunca puede impedir que el aviso salga */ }
   try {
     const subs = JSON.parse(await env.LBP_KV.get('subs:' + syncKey) || '[]');
     // Constancia de cada envio y poda de las suscripciones muertas, igual que
@@ -2651,16 +2679,8 @@ async function correrAsistente(env, pasada, nowMs, forzar) {
   // El tipo de cambio es la PRIMERA linea y no pasa por el modelo: es lo unico
   // del briefing que Pepe valora, asi que una llamada caida no puede hacerselo
   // perder. Mismo formato que la primera linea del briefing (worker.js:1722).
-  let tc = null, tcLinea = '';
-  try {
-    const di = JSON.parse(await env.LBP_KV.get('dailyinfo_v2') || 'null');
-    if (di && di.bcb && di.bcb.venta != null) {
-      tc = Number(di.bcb.venta);
-      const viejo = di.bcbFecha && di.bcbFecha !== _ultHabilBolivia(now);
-      tcLinea = 'TC oficial: Bs ' + tc.toFixed(2)
-        + (viejo ? ' (al ' + di.bcbFecha.slice(8, 10) + '/' + di.bcbFecha.slice(5, 7) + ')' : '');
-    }
-  } catch (e) { /* sin TC la pasada sigue */ }
+  const _tcl = await _asisTcLinea(env, now);
+  const tc = _tcl.tc, tcLinea = _tcl.linea;
 
   // El summary es lo que la tarjeta de la app ya sabe pintar: primera linea el
   // TC, los avisos como seccion y despues una vineta por item.
