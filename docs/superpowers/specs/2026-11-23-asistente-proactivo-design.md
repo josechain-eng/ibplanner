@@ -320,6 +320,31 @@ se inventa. El push sale sólo a las suscripciones de esa llave.
      cuando hay algo nuevo y el TTL es de 72 h: sin consumo explícito, el
      asistente repetiría el mismo hallazgo tres días seguidos.
 
+### Las cuatro notificaciones que se apagan además
+
+En el mismo cron hay **ocho** tipos de push programado. Cuatro dicen lo que va a
+decir el asistente, y se apagan en esta misma versión (decisión de Pepe,
+23-nov):
+
+| Qué | Cuándo (Bolivia) | Qué dice hoy |
+|---|---|---|
+| `meeting_followup` | todos los días 9:00 | un push **por cada** reunión de los últimos 14 días sin seguimiento |
+| `stale_alarms` | L-V 10:00 | la regla 1b de `_lbpAlertas` |
+| `project_health` | lunes 9:45 | la regla 3 de `_lbpAlertas` |
+| `client_health` | lunes 9:45 | la regla 4 de `_lbpAlertas` |
+
+La primera es la lista larga que el anti-objetivo prohíbe, repartida en pushes
+separados, 40 minutos después de que hable el asistente.
+
+**Se quedan tres a propósito:** `deadlines` (17:00) porque mira hacia adelante
+—lo que vence mañana— y no es un recordatorio de algo viejo: es lo único de las
+cinco candidatas que da algo que el asistente todavía no da; y `habits` (21:00)
+y `weekly` (sábado 11:00), que son de otro tema.
+
+Igual que con el briefing, los generadores quedan en el archivo con la compuerta
+comentada y el motivo escrito, para poder volver atrás con una línea. Hay que
+revisar qué pruebas existentes dejan de aplicar.
+
 ### Costo
 
 Dos llamadas a Opus 5 por día **para una sola sync key** (la del blob más
@@ -381,3 +406,4 @@ también del lado del HTML.
 | Corre sólo para la sync key del blob más fresco | si usa un equipo que no sincronizó, el asistente mira los datos del otro |
 | Secret nuevo `ASIS_KEY` para la señal | un secreto más que configurar a mano |
 | Editar el SKILL.md del vigilante entra en la fase 1 | la fase 1 se hace un poco más larga |
+| Se apagan 4 de las 8 notificaciones del cron, y `deadlines` se queda | si el asistente no cubre bien el seguimiento de reuniones, se pierde ese aviso hasta volver la compuerta |
