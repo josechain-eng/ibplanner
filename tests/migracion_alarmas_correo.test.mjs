@@ -58,3 +58,27 @@ test('una lista vacia o ausente no rompe', () => {
   assert.equal(win._lbpMigrarAlarmasCorreo([]).cambiadas, 0);
   assert.equal(win._lbpMigrarAlarmasCorreo(undefined).cambiadas, 0);
 });
+
+// El efecto de App esta compilado dentro del HTML y no se puede ejecutar aislado:
+// estas pruebas son ESTRUCTURALES sobre el fuente y fijan el orden de las decisiones.
+test('el efecto migra una sola vez por dispositivo y espera a la nube', () => {
+  const ini = html.indexOf('Migracion UNICA POR DISPOSITIVO');
+  assert.ok(ini > 0, 'no encuentro el efecto de migracion');
+  const fin = html.indexOf('_migN]);', ini);
+  assert.ok(fin > ini, 'no encuentro el cierre del efecto');
+  const ef = html.slice(ini, fin);
+  const iLee = ef.indexOf("localStorage.getItem('lbp_migr_alarmas_correo')");
+  const iGate = ef.indexOf("!window._lbpCloudPullDone");
+  const iConv = ef.indexOf('window._lbpMigrarAlarmasCorreo(data.tasks)');
+  const iEscribe = ef.indexOf("localStorage.setItem('lbp_migr_alarmas_correo'");
+  assert.ok(iLee > 0 && iGate > 0 && iConv > 0 && iEscribe > 0, 'falta alguna pieza');
+  assert.ok(iLee < iGate && iGate < iConv && iConv < iEscribe,
+    'orden esperado: leer marca, esperar nube, convertir, escribir marca');
+  // el marcador va despues de la conversion, nunca antes de ver datos reales
+  assert.equal(ef.split("setItem('lbp_migr_alarmas_correo'").length - 1, 1);
+  // localStorage protegido: lectura y escritura dentro de try/catch
+  assert.match(ef, /try \{ if \(localStorage\.getItem\('lbp_migr_alarmas_correo'\)\) return; \}\s*catch/);
+  assert.match(ef, /try \{ localStorage\.setItem\('lbp_migr_alarmas_correo', '1'\); \} catch/);
+  // la senal que espera existe y se pone al terminar el pull
+  assert.ok(html.includes('window._lbpCloudPullDone = true'));
+});

@@ -174,7 +174,8 @@
   // Las tareas del correo ya aceptadas nacieron con alarma 'once' (suena una vez y
   // se olvidan). Las pasa a 'weekdays2'. Idempotente; sin cambios devuelve el MISMO
   // array (convencion de _mergeCloudData). NO toca updatedAt: _stampUpdatedAt lo
-  // sella al ver que alarm.recurrence difiere de la nube.
+  // sella al ver que alarm.recurrence difiere de la nube. Quien la llama decide
+  // CUANDO correr (ver el efecto de App: una sola vez por dispositivo).
   window._lbpMigrarAlarmasCorreo = function(tasks) {
     if (!Array.isArray(tasks)) return { tasks: tasks, cambiadas: 0 };
     var cambiadas = 0;
@@ -20835,10 +20836,24 @@ var App = function App() {
     return function() { window.removeEventListener('lbp_cloud_sync', onCloudSync); };
   }, []);
 
-  // Convierte una sola vez las tareas del correo ya aceptadas (alarma 'once') a
-  // 'weekdays2'. Converge en una pasada: sin cambios, setData no se llama.
+  // Migracion UNICA POR DISPOSITIVO: las tareas del correo ya aceptadas (alarma
+  // 'once') pasan a 'weekdays2'. La marca lbp_migr_alarmas_correo es solo local (no
+  // se sincroniza a proposito): una vez puesta, el efecto no vuelve a convertir y
+  // las ediciones manuales del usuario (volver a 'once', apagarla) se respetan.
+  // No corre hasta que la primera lectura de la nube termino: con datos vacios o
+  // viejos marcaria como hecha una migracion que no convirtio nada.
+  var _migTick = useState(0), _migN = _migTick[0], _migSet = _migTick[1];
   useEffect(function() {
     if (!data || !window._lbpMigrarAlarmasCorreo) return;
+    try { if (localStorage.getItem('lbp_migr_alarmas_correo')) return; }
+    catch(_e) { return; } // sin localStorage: mejor no migrar que migrar en cada render
+    var nube = false;
+    try { nube = !!localStorage.getItem('lbp_worker_url'); } catch(_e2) {}
+    if (!window._lbpCloudPullDone && nube) {
+      // el flag no es estado de React: reintento corto hasta que la lectura termine
+      var _t = setTimeout(function() { _migSet(function(n) { return n + 1; }); }, 1500);
+      return function() { clearTimeout(_t); };
+    }
     var r = window._lbpMigrarAlarmasCorreo(data.tasks);
     if (r.cambiadas > 0) {
       setData(function(prev) {
@@ -20846,7 +20861,8 @@ var App = function App() {
         return m.cambiadas > 0 ? Object.assign({}, prev, { tasks: m.tasks }) : prev;
       });
     }
-  }, [data && data.tasks]);
+    try { localStorage.setItem('lbp_migr_alarmas_correo', '1'); } catch(_e3) {}
+  }, [data && data.tasks, _migN]);
 
   // Auto-pull from cloud every 5 minutes (desktop keeps data fresh without manual refresh)
   useEffect(function() {
