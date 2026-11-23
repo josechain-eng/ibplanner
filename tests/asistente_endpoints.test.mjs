@@ -356,3 +356,64 @@ test('sin forzar, el cron respeta la marca existente', async () => {
   } finally { a.restaurar(); }
   assert.equal(a.llamadas.length, 0);
 });
+
+// ── I6: el vigilante manda SOLO LO NUEVO, asi que el POST suma ─────────────
+test('dos depositos entre dos pasadas conservan los dos hallazgos', async () => {
+  // El vigilante "solo avisa cuando hay algo nuevo": si el POST reemplazara, un
+  // segundo deposito antes de que corra la pasada borraria el primero EN
+  // SILENCIO, con el vigilante viendose sano. Es el fallo con cara de sano que
+  // este diseno persigue.
+  const kv = mundo();
+  const uno = { hallazgos: [{ que: 'CJ no contesto', detalle: 'ticket 4471', desde: '2026-11-20' }] };
+  const dos = { hallazgos: [{ que: 'Fourthwall sin respuesta', detalle: 'pedido 88', desde: '2026-11-22' }] };
+  assert.equal((await senal(kv, uno)).status, 200);
+  const r = await senal(kv, dos);
+  assert.equal(r.status, 200);
+  const g = JSON.parse(kv._map.get('asis_senal'));
+  assert.deepEqual(g.hallazgos.map((h) => h.que), ['CJ no contesto', 'Fourthwall sin respuesta'],
+    'el segundo deposito piso al primero: un hallazgo se perdio sin que se note');
+  assert.equal(g.consumidaEn, undefined);
+  assert.equal(r.cuerpo.hallazgos, 2);
+});
+
+test('el mismo hallazgo depositado dos veces no se duplica', async () => {
+  const kv = mundo();
+  const h = { hallazgos: [{ que: 'CJ no contesto', detalle: 'ticket 4471', desde: '2026-11-20' }] };
+  await senal(kv, h);
+  const r = await senal(kv, h);
+  assert.equal(r.status, 200);
+  assert.equal(JSON.parse(kv._map.get('asis_senal')).hallazgos.length, 1,
+    'el mismo texto repetido tiene que contar una sola vez');
+  assert.equal(r.cuerpo.nuevos, 0, 'y el vigilante tiene que poder ver que no aporto nada nuevo');
+});
+
+test('al sumar se pasa el tope: caen los MAS VIEJOS y el nuevo entra', async () => {
+  const kv = mundo();
+  // Cinco hallazgos grandes: los primeros ya no caben cuando llega el ultimo.
+  const grande = (n) => ({ hallazgos: [{ que: 'h' + n, detalle: 'd'.repeat(900), desde: '2026-11-2' + n }] });
+  for (let n = 1; n <= 5; n++) assert.equal((await senal(kv, grande(n))).status, 200);
+  const g = JSON.parse(kv._map.get('asis_senal'));
+  assert.ok(kv._map.get('asis_senal').length <= 4096,
+    'lo guardado pasa los 4096 bytes y el lector lo va a ignorar entero');
+  const ques = g.hallazgos.map((h) => h.que);
+  assert.ok(ques.includes('h5'), 'el hallazgo nuevo tiene que entrar');
+  assert.ok(!ques.includes('h1'), 'el mas viejo es el que tiene que caer');
+  assert.deepEqual(ques, ques.slice().sort(), 'el orden de llegada se conserva');
+});
+
+test('lo ya consumido por una pasada no se suma: la senal nueva empieza de cero', async () => {
+  const kv = mundo({ extra: { asis_senal: JSON.stringify({
+    hallazgos: [{ que: 'viejo ya dicho', detalle: '', desde: '' }], consumidaEn: 1 }) } });
+  const r = await senal(kv, { hallazgos: [{ que: 'nuevo', detalle: '', desde: '' }] });
+  assert.equal(r.status, 200);
+  const g = JSON.parse(kv._map.get('asis_senal'));
+  assert.deepEqual(g.hallazgos.map((h) => h.que), ['nuevo'],
+    'lo consumido ya se dijo: no puede volver pegado a un deposito nuevo');
+});
+
+test('una senal guardada ilegible no bloquea el deposito nuevo', async () => {
+  const kv = mundo({ extra: { asis_senal: 'esto no es json' } });
+  const r = await senal(kv, { hallazgos: [{ que: 'nuevo', detalle: '', desde: '' }] });
+  assert.equal(r.status, 200);
+  assert.deepEqual(JSON.parse(kv._map.get('asis_senal')).hallazgos.map((h) => h.que), ['nuevo']);
+});

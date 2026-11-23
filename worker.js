@@ -985,12 +985,58 @@ async function handleRequest(request, env) {
         const desde = typeof h.desde === 'string' ? h.desde.trim() : '';
         hallazgos.push({ que, detalle, desde });
       }
-      // Unica garantia de tamano: el lector ignora todo asis_senal de mas de ASIS_SENAL_MAX
-      // bytes, y el vigilante se veria sano sin aportar nada. Se mide sobre lo GUARDADO.
-      const guardado = JSON.stringify({ hallazgos });
+      // ================= CONTRATO DE asis_senal =================
+      // El SKILL.md del vigilante (vigilar-respuestas-cj-fourthwall) se reescribe
+      // en cada deploy, asi que el contrato vive ACA y ese SKILL.md tiene que
+      // cumplir esto:
+      //  1. El vigilante manda SOLO LO NUEVO en cada POST. NO es una foto completa
+      //     de todo lo que esta esperando. Por eso este endpoint SUMA y no
+      //     reemplaza: si deposita dos veces entre dos pasadas, perder el primer
+      //     deposito seria el fallo silencioso con cara de sano que este diseno
+      //     persigue (el vigilante se veria perfecto y el hallazgo no existiria).
+      //  2. Un hallazgo es {que, detalle, desde}; `que` es obligatorio, los otros
+      //     dos pueden ir vacios. Nada mas se guarda.
+      //  3. Se suma al final de lo que NINGUNA pasada consumio todavia. Si lo
+      //     guardado ya tiene `consumidaEn`, se descarta entero y el deposito
+      //     nuevo empieza de cero: lo consumido ya se dijo.
+      //  4. Los repetidos se descartan por TEXTO: mismo `que`, mismo `detalle` y
+      //     mismo `desde` es el MISMO hallazgo, no uno nuevo. La respuesta trae
+      //     `nuevos` para que el vigilante vea cuantos aporto de verdad.
+      //  5. El tope es ASIS_SENAL_MAX sobre lo GUARDADO (el lector ignora entera
+      //     una senal que lo pase, y entonces el vigilante se veria sano sin
+      //     aportar nada). Si al sumar no entra, caen los MAS VIEJOS primero. Si
+      //     ni los nuevos solos entran, 413 y no se escribe nada.
+      // ==========================================================
+      let previos = [];
+      try {
+        const antes = JSON.parse(await env.LBP_KV.get('asis_senal') || 'null');
+        if (antes && !antes.consumidaEn && Array.isArray(antes.hallazgos)) {
+          previos = antes.hallazgos.filter(function (h) { return h && typeof h.que === 'string' && h.que; });
+        }
+      } catch (e) { previos = []; /* una senal ilegible no puede bloquear el deposito nuevo */ }
+      const vistos = {};
+      const unicos = function (lista) {
+        const out = [];
+        lista.forEach(function (h) {
+          const limpio = { que: String(h.que), detalle: String(h.detalle || ''), desde: String(h.desde || '') };
+          const k = limpio.que + '|' + limpio.detalle + '|' + limpio.desde;
+          if (vistos[k]) return;
+          vistos[k] = true;
+          out.push(limpio);
+        });
+        return out;
+      };
+      const antesU = unicos(previos);
+      const nuevosU = unicos(hallazgos);
+      let juntos = antesU.concat(nuevosU);
+      let guardado = JSON.stringify({ hallazgos: juntos });
+      while (guardado.length > ASIS_SENAL_MAX && juntos.length > nuevosU.length) {
+        juntos = juntos.slice(1);                      // el mas viejo primero
+        guardado = JSON.stringify({ hallazgos: juntos });
+      }
       if (guardado.length > ASIS_SENAL_MAX) return json({ error: 'senal demasiado grande' }, 413);
       await env.LBP_KV.put('asis_senal', guardado, { expirationTtl: ASIS_SENAL_TTL });
-      return json({ ok: true, hallazgos: hallazgos.length });
+      return json({ ok: true, hallazgos: juntos.length, nuevos: nuevosU.length });
     }
 
     // POST /analyze-doc  \u2192  send a stored file to Claude for intelligent analysis
