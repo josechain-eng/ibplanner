@@ -162,6 +162,7 @@ test('POST /asistente/senal con el secreto correcto escribe asis_senal con TTL d
   assert.equal(g.hallazgos[0].que, 'Respuesta de CJ');
   assert.equal(g.hallazgos[0].detalle, 'Contesto el ticket 4471');
   assert.equal(g.hallazgos[0].desde, '2026-11-23');
+  assert.equal(g.hallazgos[0].texto, undefined);            // sin duplicar contenido
   assert.equal(g.consumidaEn, undefined);                   // una senal nueva no nace consumida
   assert.deepEqual(kv._opts.get('asis_senal'), { expirationTtl: 72 * 3600 });
   assert.deepEqual(kv._lists, []);                          // no hay sync key: no se lista nada
@@ -183,13 +184,17 @@ test('POST /asistente/senal de 1MB se rechaza sin escribir', async () => {
   assert.deepEqual(kv._puts, []);
 });
 
-test('POST /asistente/senal que entra en 4 KB pero ya guardada pasaria de 4 KB se rechaza', async () => {
-  // El lector ignora todo asis_senal de mas de 4096 bytes. Lo que se guarda lleva
-  // ademas "texto", asi que el tope se mide sobre lo GUARDADO, no sobre el cuerpo.
+test('POST /asistente/senal justo en el tope de 4096 bytes se guarda; un byte mas se rechaza', async () => {
+  // El lector ignora todo asis_senal de mas de 4096 bytes: ese es el tope sobre lo guardado.
   const kv = mundo();
-  const cuerpo = JSON.stringify({ hallazgos: [{ que: 'x', detalle: 'a'.repeat(2500), desde: '' }] });
-  assert.ok(cuerpo.length < 4096);
-  const r = await senal(kv, cuerpo);
+  const base = JSON.stringify({ hallazgos: [{ que: 'x', detalle: '', desde: '' }] }).length;
+  const arma = (n) => JSON.stringify({ hallazgos: [{ que: 'x', detalle: 'a'.repeat(n), desde: '' }] });
+  const n = 4096 - base;
+  assert.equal(arma(n).length, 4096);
+  assert.equal((await senal(kv, arma(n))).status, 200);
+  assert.equal(kv._map.get('asis_senal').length, 4096);
+  kv._map.delete('asis_senal');
+  const r = await senal(kv, arma(n + 1));
   assert.equal(r.status, 413);
   assert.equal(kv._map.has('asis_senal'), false);
 });
@@ -296,4 +301,58 @@ test('la respuesta de /asistente y la de /force-asistente nunca contienen la syn
   assert.equal(JSON.parse(leida).ready, true);               // la entrada existe: no es una prueba vacia
   assert.equal(forzada.includes(KEY), false);
   assert.equal(leida.includes(KEY), false);
+});
+
+// ── El lector entiende las formas de asis_senal ────────────────────────────
+
+async function pasadaConSenal(senalCruda) {
+  const kv = mundo({ extra: { asis_senal: senalCruda } });
+  const w = await cargarWorker();
+  const a = anthropicFalso([{ content: [{ type: 'text', text: '{"items":[]}' }], stop_reason: 'end_turn' }]);
+  try {
+    await conReloj(MANANA, () => w.fetch(new Request('https://x/force-asistente?key=' + KEY + '&pasada=manana'),
+      envFalso({ LBP_KV: kv, BRIEFING_SERVICE: { fetch: async () => new Response('{"emails":[]}', { status: 200 }) } })));
+  } finally { a.restaurar(); }
+  return a.cuerpos.join('\n');
+}
+
+test('un hallazgo objeto {que, detalle, desde} SIN texto llega al modelo como texto legible', async () => {
+  const c = await pasadaConSenal(JSON.stringify({ hallazgos: [{ que: 'CJ contesto', detalle: 'ticket 4471', desde: '2026-11-23' }] }));
+  assert.match(c, /- CJ contesto: ticket 4471 \(desde 2026-11-23\)/);
+  assert.doesNotMatch(c, /\[object Object\]/);
+});
+
+test('las otras tres formas de asis_senal siguen llegando al modelo', async () => {
+  assert.match(await pasadaConSenal(JSON.stringify(['un string suelto'])), /- un string suelto/);
+  assert.match(await pasadaConSenal(JSON.stringify({ texto: 'forma texto' })), /- forma texto/);
+  assert.match(await pasadaConSenal(JSON.stringify({ hallazgos: [{ texto: 'hallazgo con texto' }] })), /- hallazgo con texto/);
+});
+
+// ── /force-asistente fuerza de verdad ──────────────────────────────────────
+
+test('una pasada forzada corre aunque la marca de hoy ya exista para la key elegida', async () => {
+  // Dos keys validas: el registro elige la del blob mas nuevo (KEY); se fuerza con OTRA.
+  const OTRA = 'lbp_otra_de_prueba';
+  const marca = 'asis_mark:' + KEY + ':' + HOY + ':manana';
+  const kv = mundo({ extra: { [marca]: String(MANANA - H), synckeys_registry: JSON.stringify([KEY, OTRA]),
+    ['data:' + OTRA]: JSON.stringify({ _cloudSaveTime: MANANA - 50 * H }) } });
+  const a = anthropicFalso([{ content: [{ type: 'text', text: '{"items":[]}' }], stop_reason: 'end_turn' }]);
+  try {
+    const w = await cargarWorker();
+    await conReloj(MANANA, () => w.fetch(new Request('https://x/force-asistente?key=' + OTRA + '&pasada=manana'),
+      envFalso({ LBP_KV: kv, BRIEFING_SERVICE: { fetch: async () => new Response('{"emails":[]}', { status: 200 }) } })));
+  } finally { a.restaurar(); }
+  assert.equal(a.llamadas.length, 1);
+  assert.equal(kv._map.get(marca), String(MANANA));   // forzar igual ESCRIBE la marca
+});
+
+test('sin forzar, el cron respeta la marca existente', async () => {
+  const marca = 'asis_mark:' + KEY + ':' + HOY + ':manana';
+  const kv = mundo({ extra: { [marca]: String(MANANA - H) } });
+  const w = await cargarWorker();
+  const a = anthropicFalso([]);
+  try {
+    await conReloj(MANANA, () => w.scheduled({}, envFalso({ LBP_KV: kv })));
+  } finally { a.restaurar(); }
+  assert.equal(a.llamadas.length, 0);
 });

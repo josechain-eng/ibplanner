@@ -958,9 +958,8 @@ async function handleRequest(request, env) {
       if (pasada !== 'manana' && pasada !== 'tarde') return json({ error: 'pasada must be manana or tarde' }, 400);
       if (!(await _syncKeyValida(env, syncKey))) return json({ error: 'invalid key', ok: false });
       const now = Date.now();
-      await env.LBP_KV.delete('asis_mark:' + syncKey + ':' + _hoyBolivia(now) + ':' + pasada).catch(() => {});
       try {
-        return json(await correrAsistente(env, pasada, now));
+        return json(await correrAsistente(env, pasada, now, true));
       } catch (e) {
         return json({ ok: false, threw: String(e && e.message || e) });
       }
@@ -968,16 +967,12 @@ async function handleRequest(request, env) {
 
     // POST /asistente/senal  ->  el vigilante de las esperas deposita hallazgos para el asistente.
     // Cabecera X-Asis-Key = secreto ASIS_KEY (sin sync key: hay un solo usuario). Cuerpo
-    // {hallazgos:[{que, detalle, desde}]}. Se guarda en la forma {hallazgos:[...]} que lee
-    // correrAsistente, con un "texto" por hallazgo (el lector solo muestra h.texto o un string).
+    // {hallazgos:[{que, detalle, desde}]}, que se guarda tal cual: correrAsistente lo sabe leer.
     if (p === '/asistente/senal' && request.method === 'POST') {
       const esperado = env.ASIS_KEY;
       const dado = request.headers.get('X-Asis-Key') || '';
       if (!esperado || !_igualConstante(dado, String(esperado))) return json({ error: 'unauthorized' }, 401);
-      const declarado = parseInt(request.headers.get('content-length') || '0', 10);
-      if (declarado > ASIS_SENAL_MAX) return json({ error: 'senal demasiado grande' }, 413);
       const crudo = await request.text();
-      if (crudo.length > ASIS_SENAL_MAX) return json({ error: 'senal demasiado grande' }, 413);
       let cuerpo = null;
       try { cuerpo = JSON.parse(crudo); } catch (e) { return json({ error: 'json invalido' }, 400); }
       const lista = cuerpo && !Array.isArray(cuerpo) && Array.isArray(cuerpo.hallazgos) ? cuerpo.hallazgos : null;
@@ -988,11 +983,10 @@ async function handleRequest(request, env) {
         if (!que) return json({ error: 'cada hallazgo necesita "que"' }, 400);
         const detalle = typeof h.detalle === 'string' ? h.detalle.trim() : '';
         const desde = typeof h.desde === 'string' ? h.desde.trim() : '';
-        hallazgos.push({ que, detalle, desde,
-          texto: que + (detalle ? ': ' + detalle : '') + (desde ? ' (desde ' + desde + ')' : '') });
+        hallazgos.push({ que, detalle, desde });
       }
-      // El tope se mide sobre lo GUARDADO (lleva "texto" de mas): el lector ignora todo
-      // asis_senal de mas de ASIS_SENAL_MAX bytes y el vigilante se veria sano sin aportar nada.
+      // Unica garantia de tamano: el lector ignora todo asis_senal de mas de ASIS_SENAL_MAX
+      // bytes, y el vigilante se veria sano sin aportar nada. Se mide sobre lo GUARDADO.
       const guardado = JSON.stringify({ hallazgos });
       if (guardado.length > ASIS_SENAL_MAX) return json({ error: 'senal demasiado grande' }, 413);
       await env.LBP_KV.put('asis_senal', guardado, { expirationTtl: ASIS_SENAL_TTL });
@@ -2509,7 +2503,7 @@ const ASIS_SP = 'Eres el asistente proactivo de LB Planner, la app de Pepe (gere
   '"ruta":"tasks|projects|meetings|clients|imports","refId":"..."}]}\n' +
   'Si no hay nada que valga la pena: {"items":[]}.';
 
-async function correrAsistente(env, pasada, nowMs) {
+async function correrAsistente(env, pasada, nowMs, forzar) {
   const now = nowMs || Date.now();
   const fecha = _hoyBolivia(now);
   const salida = { ok: false, items: [], cegado: false, sinModelo: false, motivo: '' };
@@ -2599,7 +2593,8 @@ async function correrAsistente(env, pasada, nowMs) {
   // la pasada se caiga antes de gastar una llamada es el lado seguro.
   const marca = 'asis_mark:' + syncKey + ':' + fecha + ':' + pasada;
   try {
-    if (await env.LBP_KV.get(marca)) {
+    // forzar (solo /force-asistente) se salta la LECTURA de la marca; igual la escribe.
+    if (!forzar && await env.LBP_KV.get(marca)) {
       salida.ok = true;
       salida.motivo = 'la pasada ' + pasada + ' ya corrio hoy';
       return salida;
@@ -2669,7 +2664,14 @@ async function correrAsistente(env, pasada, nowMs) {
       if (s && s.consumidaEn) hall = [];
       else senalCruda = s;
       senalTxt = hall.map(function (h) {
-        return '- ' + String((h && h.texto) || h || '').slice(0, 300);
+        // Un hallazgo es un string, {texto} o {que, detalle, desde}: nunca "[object Object]".
+        let t = '';
+        if (typeof h === 'string') t = h;
+        else if (h && typeof h === 'object') {
+          t = h.texto ? String(h.texto)
+            : String(h.que || '') + (h.detalle ? ': ' + h.detalle : '') + (h.desde ? ' (desde ' + h.desde + ')' : '');
+        }
+        return '- ' + t.slice(0, 300);
       }).filter(function (l) { return l.length > 2; }).join('\n');
     }
   } catch (e) { senalIgnorada = 'asis_senal no parsea'; senalCruda = null; senalTxt = ''; }
