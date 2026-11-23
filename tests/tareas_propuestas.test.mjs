@@ -36,7 +36,7 @@ const eventos = html.slice(iEv, html.indexOf('\n  ];', iEv) + 4) + ';\n';
 
 const detect = cuerpo(html.indexOf('window._detectClientId = function'));
 const alias = cuerpo(html.indexOf('window._LBP_CLIENT_ALIASES = {'));
-const moviles = fuenteWindow('_LBP_FERIADOS_MOVILES');
+const moviles = fuenteWindow('_LBP_FERIADOS_MOVILES') + fuenteWindow('_lbpEsDiaHabil');
 const prologo = 'var window = {};\n' + alias + ';\n' + detect + ';\n' + eventos + moviles;
 const tp = ['_tpProximoDiaHabil', '_tpHoraAlarma', '_tpFiltrar', '_tpPodarDecididas', '_tpAplicar'];
 const nombres = ['uid', '_fechaLocal', '_clienteDeOrganizador'];
@@ -96,7 +96,6 @@ test('estas alarmas no llevan recordatorios', () => {
   assert.equal(a.repeatIntervals, null);
   assert.equal(a.repeatCount, 0);
   assert.equal(a.enabled, true);
-  assert.equal(a.recurrence, 'once');
 });
 
 test('lo descartado no vuelve', () => {
@@ -197,6 +196,7 @@ test('la tarea sigue la forma del proyecto', () => {
   assert.equal(typeof t.createdAt, 'number');
   assert.ok(t.id);
   assert.equal(t.alarm.datetime.slice(0, 10), t.dueDate);
+  assert.equal(t.alarm.recurrence, 'weekdays2');
 });
 test('dos tareas en una tanda escalonan la alarma, y extra cuenta lo ya puesto', () => {
   const a = P({ hiloId: 'hilo:a' }), b = P({ hiloId: 'hilo:b' });

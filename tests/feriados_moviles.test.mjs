@@ -31,7 +31,7 @@ const iEv = html.indexOf('window._LBP_EVENTS = [');
 assert.ok(iEv > 0, 'no encuentro window._LBP_EVENTS');
 const eventos = html.slice(iEv, html.indexOf('\n  ];', iEv) + 4) + ';\n';
 
-const nombres = ['_LBP_FERIADOS_MOVILES', '_tpProximoDiaHabil', '_lbpUpcomingEvents'];
+const nombres = ['_LBP_FERIADOS_MOVILES', '_lbpEsDiaHabil', '_tpProximoDiaHabil', '_lbpUpcomingEvents'];
 const win = new Function(
   'var window = {};\n' + eventos + nombres.map(fuenteWindow).join('') + 'return window;'
 )();
