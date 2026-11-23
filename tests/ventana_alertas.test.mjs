@@ -55,9 +55,20 @@ test('las alertas de tarea llevan el tilde y usan completeTask', () => {
 test('las que no son tarea siguen navegando', () => {
   assert.match(ventana, /navigate\(/);
 });
-test('el tilde no resucita una tarea ya hecha', () => {
-  const una = [{ id: 't1', status: 'DONE', completedAt: 111 }];
-  assert.equal(win._lbpAlertas({ tasks: una }, Date.now()).length, 0);
+test('el tilde saca la alerta: abierta da 1, hecha da 0', () => {
+  // Alarma ya disparada hoy (hora local, sin toISOString): 09:00, y «ahora» = 15:00.
+  const p2 = (n) => String(n).padStart(2, '0');
+  const ahora = new Date(2026, 10, 23, 15, 0, 0);
+  const antes = new Date(2026, 10, 23, 9, 0, 0);
+  const datetime = antes.getFullYear() + '-' + p2(antes.getMonth() + 1) + '-' + p2(antes.getDate()) +
+    'T' + p2(antes.getHours()) + ':' + p2(antes.getMinutes()) + ':00';
+  const tarea = { id: 't1', title: 'Llamar a aduana', status: 'TODO', alarm: { enabled: true, datetime } };
+  const abierta = win._lbpAlertas({ tasks: [tarea] }, ahora.getTime());
+  assert.equal(abierta.length, 1, 'la tarea abierta con alarma ya disparada debe dar 1 alerta');
+  assert.equal(abierta[0].taskId, 't1');
+  const hecha = { ...tarea, status: 'DONE', completedAt: ahora.getTime() };
+  assert.equal(win._lbpAlertas({ tasks: [hecha] }, ahora.getTime()).length, 0,
+    'completeTask pone DONE: la alerta debe desaparecer');
 });
 test('la version subio', () => {
   assert.match(html, /window\.LBP_VERSION = '5\.74'/);
