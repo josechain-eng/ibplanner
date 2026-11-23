@@ -81,12 +81,15 @@ test('una base de hace un ano no cuelga y da un dia habil pasado', () => {
   assert.equal(win._lbpEsDiaHabil(new Date(t)), true);
 });
 
-test('un ano sin feriados moviles no rompe el dia habil', () => {
+test('sin la funcion de feriados moviles el dia habil sigue funcionando', () => {
+  // 2031 no lo toca ningun otro test del archivo, asi que su lista no esta en
+  // el cache. Con `undefined` instalado, solo un guard dentro de _lbpEsDiaHabil
+  // evita que se rompa.
   const guardado = win._LBP_FERIADOS_MOVILES;
-  win._LBP_FERIADOS_MOVILES = function() { return []; };
+  win._LBP_FERIADOS_MOVILES = undefined;
   try {
-    assert.equal(win._lbpEsDiaHabil(new Date(2026, 11, 25, 12)), false); // el fijo sigue
-    assert.equal(win._lbpEsDiaHabil(new Date(2026, 10, 28, 12)), false); // el sabado sigue
+    assert.equal(win._lbpEsDiaHabil(new Date(2031, 11, 25, 12)), false); // Navidad, jueves: el fijo sigue
+    assert.equal(win._lbpEsDiaHabil(new Date(2031, 2, 12, 12)), true);   // miercoles comun
   } finally { win._LBP_FERIADOS_MOVILES = guardado; }
 });
 
