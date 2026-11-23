@@ -33,8 +33,16 @@ corren con `new Function`. Parches por reemplazo exacto de cadenas con Python.
   compara instantes, no fechas.
 - Comando de pruebas: `node --test "tests/*.test.mjs"` — con las comillas. Sin
   ellas, node trata `tests/` como un archivo de prueba y da 1 falla, 0 pases.
-- Línea base medida antes de empezar: **430 pases, 0 fallas**. Ninguna tarea
-  puede cerrar con menos pases que los que había al abrirla.
+- **Línea base medida en esta rama: 405 pases, 1 falla.** La falla es vieja y es
+  de main: `tests/tarjeta_propuestas.test.mjs:97` exige
+  `window.LBP_VERSION = '5.71'` y el HTML dice `'5.72'` desde la v5.72, que subió
+  la versión sin tocar esa aserción. **La Tarea 1 la corrige a `'5.72'`** para que
+  la suite arranque en verde y las fallas posteriores sean señal de verdad; la
+  Tarea 4 la mueve a `'5.74'` al subir la versión. Base en verde: **406 pases,
+  0 fallas**.
+- Los conteos de pases de cada tarea son una **baranda, no una meta**: están para
+  detectar que algo se rompió o que falta una prueba. Nunca se agrega una prueba
+  para llegar al número.
 - `grep -c` sale con código 1 cuando cuenta cero, así que una cadena `cmd && cmd`
   se corta sola. Verificar con `grep -c ... || true` o con Python.
 - No se toca `'weekdays'`, el tipo que ya existe: lo usan hábitos y metas.
@@ -226,15 +234,24 @@ Agregar ahí `assert.equal(creada.alarm.recurrence, 'weekdays2')` sobre la tarea
 que devuelve el alta, dentro de la prueba que ya revisa la forma de la tarea
 creada.
 
-- [ ] **Step 7: Correr las pruebas nuevas y la suite entera**
+- [ ] **Step 7: Corregir la falla vieja de main**
+
+`tests/tarjeta_propuestas.test.mjs:97` pasa a exigir `'5.72'`, que es la versión
+real de esta rama. Es una aserción de guardia que quedó atrás cuando la v5.72
+subió la versión; sin arreglarla, las cuatro tareas corren con una falla conocida
+y el «0 fallas» no prueba nada.
+
+- [ ] **Step 8: Correr las pruebas nuevas y la suite entera**
 
 Run: `node --test "tests/*.test.mjs"`
-Expected: PASS, con **al menos 441** pases y 0 fallas (430 de base + 10 nuevas en el archivo nuevo + 1 en tareas_propuestas).
+Expected: PASS, con **al menos 416** pases y 0 fallas (406 en verde + las 10 del archivo nuevo). La aserción agregada en `tareas_propuestas` va dentro de una prueba que ya existe, no suma una prueba nueva.
 
-- [ ] **Step 8: Commit**
+- [ ] **Step 9: Commit**
 
 ```bash
-git add tests/repeticion_habiles2.test.mjs LifeBusinessPlanner2026.html
+git add tests/repeticion_habiles2.test.mjs tests/tareas_propuestas.test.mjs \
+        tests/feriados_moviles.test.mjs tests/tarjeta_propuestas.test.mjs \
+        LifeBusinessPlanner2026.html
 git commit -m "Repeticion cada 2 dias habiles, con una sola definicion de dia habil"
 ```
 
@@ -325,7 +342,7 @@ ya usa `_mergeCloudData`; está documentada en `:1535-1537`.
 - [ ] **Step 5: Correr la suite**
 
 Run: `node --test "tests/*.test.mjs"`
-Expected: PASS, al menos **446** pases, 0 fallas.
+Expected: PASS, al menos **421** pases, 0 fallas.
 
 - [ ] **Step 6: Commit**
 
@@ -426,7 +443,7 @@ que se ven: `'🚨 Alertas (' + todas.length + ')'`.
 - [ ] **Step 5: Correr la suite**
 
 Run: `node --test "tests/*.test.mjs"`
-Expected: PASS, al menos **452** pases, 0 fallas.
+Expected: PASS, al menos **427** pases, 0 fallas.
 
 - [ ] **Step 6: Commit**
 
@@ -504,7 +521,7 @@ librería ni patrón nuevo.
 - [ ] **Step 5: Correr la suite y el chequeo de sintaxis**
 
 Run: `node --test "tests/*.test.mjs"`
-Expected: PASS, al menos **458** pases, 0 fallas.
+Expected: PASS, al menos **433** pases, 0 fallas.
 
 - [ ] **Step 6: Verificar en el navegador**
 
