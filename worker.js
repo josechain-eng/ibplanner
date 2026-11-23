@@ -2257,6 +2257,136 @@ async function refreshDailyInfo(env, trigger, opts) {
   return info;
 }
 
+// ---------------------------------------------------------------------------
+// Asistente proactivo: detector y vara del silencio. Funciones PURAS (sin red ni
+// KV), cada una autocontenida: los tests las extraen del texto de este archivo.
+// _asisDetectar refleja a mano las reglas de _lbpAlertas y _impDiasLimite del
+// HTML (dos detectores aceptados a proposito); si cambia uno, cambiar el otro.
+// Todo el calendario es de Bolivia (UTC-4, sin horario de verano).
+// ---------------------------------------------------------------------------
+function _asisDetectar(data, nowMs) {
+  data = data || {};
+  var BO = 4 * 3600 * 1000;
+  var DIA = 86400000;
+  // Fecha/hora sin zona ("2026-11-01T09:00") es hora de Bolivia, como en la app.
+  var aMs = function (txt) {
+    var t = String(txt || '');
+    if (t.length > 10 && !/(Z|[+-]\d\d:?\d\d)$/.test(t)) t += (t.length === 16 ? ':00' : '') + '-04:00';
+    return new Date(t).getTime();
+  };
+  var cortar = function (txt, n) { return String(txt || '').slice(0, n); };
+  var out = [];
+  var tasks = data.tasks || [];
+  // 1a. Alarma de hoy sin completar
+  tasks.forEach(function (t) {
+    if (!t || t.status === 'DONE') return;
+    if (!t.alarm || !t.alarm.enabled || !t.alarm.datetime) return;
+    var ms = aMs(t.alarm.datetime);
+    var dias = Math.floor((nowMs - ms) / DIA);
+    if (ms < nowMs && dias === 0) {
+      out.push({ id: 'today_' + t.id, tipo: 'alarma_hoy', ruta: 'tasks', refId: t.id,
+        texto: '"' + cortar(t.title, 35) + '" - alarma de hoy sin completar', dias: 0, urgencia: 'puede_esperar' });
+    }
+  });
+  // 1b. Alarma de hace 1 a 60 dias sin completar
+  tasks.forEach(function (t) {
+    if (!t || t.status === 'DONE') return;
+    if (!t.alarm || !t.alarm.enabled || !t.alarm.datetime) return;
+    var ms = aMs(t.alarm.datetime);
+    var dias = Math.floor((nowMs - ms) / DIA);
+    if (ms < nowMs && dias >= 1 && dias <= 60) {
+      out.push({ id: 'stale_' + t.id, tipo: 'alarma_vieja', ruta: 'tasks', refId: t.id,
+        texto: '"' + cortar(t.title, 35) + '" - alarma de hace ' + dias + ' dia' + (dias > 1 ? 's' : '') + ' sin completar',
+        dias: dias, urgencia: 'puede_esperar' });
+    }
+  });
+  // 2. Reunion de ayer sin tareas de seguimiento
+  var ayer = new Date(nowMs - DIA - BO).toISOString().slice(0, 10);
+  (data.meetings || []).forEach(function (m) {
+    if (!m || m.date !== ayer) return;
+    var mStart = aMs(m.date + 'T' + (m.startTime || '00:00'));
+    var hay = tasks.some(function (t) { return t && t.createdAt && t.createdAt > mStart; });
+    if (!hay) {
+      out.push({ id: 'followup_' + m.id, tipo: 'reunion', ruta: 'meetings', refId: m.id,
+        texto: '"' + cortar(m.title, 35) + '" de ayer - sin tareas de seguimiento', dias: 1, urgencia: 'puede_esperar' });
+    }
+  });
+  // 3. Proyecto sin actividad hace mas de 10 dias
+  (data.projects || []).forEach(function (p) {
+    if (!p || ['DONE', 'ON_HOLD', 'PAUSED'].indexOf(p.status) >= 0) return;
+    var last = p.updatedAt || p.createdAt || 0;
+    if (last && (nowMs - last) / DIA > 10) {
+      var d = Math.floor((nowMs - last) / DIA);
+      out.push({ id: 'proj_' + p.id, tipo: 'proyecto', ruta: 'projects', refId: p.id,
+        texto: '"' + cortar(p.name, 35) + '" - sin actividad en ' + d + ' dias', dias: d, urgencia: 'puede_esperar' });
+    }
+  });
+  // 4. Cliente activo con mas de 30 dias sin reunion
+  (data.clients || []).forEach(function (c) {
+    if (!c || ['ACTIVE', 'CLIENT'].indexOf(c.status) < 0) return;
+    var cm = (data.meetings || []).filter(function (m) { return m && m.clientId === c.id; });
+    var lastMs = cm.length ? Math.max.apply(null, cm.map(function (m) { return new Date(m.date).getTime(); })) : (c.createdAt || 0);
+    if (lastMs && (nowMs - lastMs) / DIA > 30) {
+      var d2 = Math.floor((nowMs - lastMs) / DIA);
+      out.push({ id: 'client_' + c.id, tipo: 'cliente', ruta: 'clients', refId: c.id,
+        texto: '"' + cortar(c.name || c.company, 30) + '" - ' + d2 + ' dias sin reunion', dias: d2, urgencia: 'puede_esperar' });
+    }
+  });
+  // 5. Despachos con limite de aduana a 7 dias o menos (o ya vencido). Van
+  // adelante, por dias ascendente. Dia calendario de Bolivia contra dia
+  // calendario (como _impDiasLimite): restar timestamps corre un dia entero.
+  var hoyBo = new Date(nowMs - BO);
+  var hoyDia = Date.UTC(hoyBo.getUTCFullYear(), hoyBo.getUTCMonth(), hoyBo.getUTCDate());
+  var adu = [];
+  (data.imports || []).forEach(function (imp) {
+    if (!imp || !imp.limiteAduana) return;
+    if (imp.status === 'RECIBIDO' || imp.status === 'CANCELADO') return;
+    var p = String(imp.limiteAduana).slice(0, 10).split('-');
+    if (p.length !== 3) return;
+    var lim = Date.UTC(+p[0], +p[1] - 1, +p[2]);
+    if (!isFinite(lim)) return;
+    var d = Math.round((lim - hoyDia) / DIA);
+    if (d > 7) return;
+    var cli = (data.clients || []).find(function (x) { return x && x.id === imp.clientId; });
+    var marca = cli ? (cli.businessName || cli.name) : 'Sin asignar';
+    var cuando = d < 0 ? 'VENCIDO hace ' + (-d) + ' dia' + (d < -1 ? 's' : '') : (d === 0 ? 'vence HOY' : 'vence en ' + d + ' dia' + (d > 1 ? 's' : ''));
+    adu.push({ id: 'aduana_' + imp.id, tipo: 'aduana', ruta: 'imports', refId: imp.id,
+      texto: marca + ' ' + (imp.season || 'despacho') + ' - aduana ' + cuando, dias: d,
+      urgencia: d <= 1 ? 'ya' : 'hoy' });
+  });
+  adu.sort(function (a, b) { return a.dias - b.dias; });
+  return adu.concat(out);
+}
+
+// Decide si el telefono suena. Manda con al menos un "ya" o con dos "hoy"; un
+// "hoy" suelto o una pila de "puede_esperar" no valen una interrupcion. Sabado y
+// domingo (hora de Bolivia) solo cuentan los "ya".
+function _asisPasaLaVara(items, nowMs) {
+  items = items || [];
+  var ya = items.filter(function (x) { return x && x.urgencia === 'ya'; }).length;
+  var hoy = items.filter(function (x) { return x && x.urgencia === 'hoy'; }).length;
+  var dow = new Date(nowMs - 4 * 3600 * 1000).getUTCDay();
+  var finde = dow === 0 || dow === 6;
+  if (ya >= 1) return { manda: true, motivo: ya + ' urgente(s) ya' };
+  if (finde) return { manda: false, motivo: 'fin de semana: solo cuentan los ya (hoy=' + hoy + ')' };
+  if (hoy >= 2) return { manda: true, motivo: hoy + ' para hoy' };
+  return { manda: false, motivo: 'nada que valga una interrupcion (ya=0, hoy=' + hoy + ')' };
+}
+
+// Tope de 5: primero los "ya", despues los "hoy", despues el resto, sin mover el
+// orden relativo dentro de cada grupo. No muta la lista de entrada.
+function _asisRecortar(items) {
+  var rango = { ya: 0, hoy: 1 };
+  return (items || []).map(function (x, i) { return { x: x, i: i }; })
+    .sort(function (a, b) {
+      var ra = a.x && a.x.urgencia in rango ? rango[a.x.urgencia] : 2;
+      var rb = b.x && b.x.urgencia in rango ? rango[b.x.urgencia] : 2;
+      return ra - rb || a.i - b.i;
+    })
+    .slice(0, 5)
+    .map(function (e) { return e.x; });
+}
+
 async function scheduledHandler(event, env) {
     const now = Date.now();
 
