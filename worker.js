@@ -2473,6 +2473,7 @@ const ASIS_SENAL_MAX = 4096;           // tope de asis_senal: mas que eso se ign
 const ASIS_BLOB_VIEJO_MS = 18 * 3600 * 1000;
 const ASIS_CORREO_VIEJO_MS = 36 * 3600 * 1000;
 const ASIS_PUSH_ITEMS = 3;             // items que se nombran en el cuerpo del push
+const ASIS_MAX_EXCLUIDOS = 200;        // ids decididos que entran al prompt (el filtro es completo)
 const ASIS_RUTAS = ['tasks', 'projects', 'meetings', 'clients', 'imports'];
 
 const ASIS_SP = 'Eres el asistente proactivo de LB Planner, la app de Pepe (gerente de Ventura Mall, ' +
@@ -2759,11 +2760,17 @@ async function correrAsistente(env, pasada, nowMs, forzar) {
   // 7. Lo que Pepe ya decidio. Va antes del correo porque tambien FILTRA los
   // hilos: levantar un correo que el descarto a mano es peor que repetirse.
   const excluidos = {};
+  const tsDecision = {};
   const marcar = function (d) {
-    if (d && d.id && d.decision !== 'revocada') excluidos[String(d.id)] = true;
+    if (!d || !d.id || d.decision === 'revocada') return;
+    const id = String(d.id);
+    excluidos[id] = true;
+    // El ts sirve para elegir los mas recientes cuando el prompt se recorta.
+    const t = Number(d && d.ts) || 0;
+    if (!Object.prototype.hasOwnProperty.call(tsDecision, id) || t > tsDecision[id]) tsDecision[id] = t;
   };
-  (data.tareasDecididas || []).forEach(marcar);
-  (data.asisDecididos || []).forEach(marcar);
+  (Array.isArray(data.tareasDecididas) ? data.tareasDecididas : []).forEach(marcar);
+  (Array.isArray(data.asisDecididos) ? data.asisDecididos : []).forEach(marcar);
 
   // 5. El correo, por el mismo camino que /task-proposals (service binding: entre
   // Workers de la misma cuenta, workers.dev da 404). Tope de 25 hilos y solo el
@@ -2829,7 +2836,14 @@ async function correrAsistente(env, pasada, nowMs, forzar) {
   const senalUsada = !!senalTxt;
 
   // 8. UNA llamada al modelo, pidiendo solo JSON.
-  const idsExcluidos = Object.keys(excluidos);
+  // Al prompt van SOLO los ids decididos mas recientes. Los ids son
+  // `hilo:<asunto completo del correo>`: sin tope, en seis meses son cientos de
+  // asuntos enteros repetidos en los dos prompts de cada dia. El tope es del
+  // PROMPT y no del filtro: `excluidos` sigue completo, porque hablar de un hilo
+  // que Pepe descarto a mano es peor que repetirse (es desoir).
+  const idsExcluidos = Object.keys(excluidos)
+    .sort(function (a, b) { return (tsDecision[b] || 0) - (tsDecision[a] || 0); })
+    .slice(0, ASIS_MAX_EXCLUIDOS);
   const partes = [
     'PASADA: ' + (pasada === 'manana' ? 'manana (8:20 de Bolivia)' : 'tarde (18:10 de Bolivia)') + ' del ' + fecha + '.',
     '\nSENALES DEL DETECTOR (ya calculadas sobre los datos de la app):\n' + (senales.length

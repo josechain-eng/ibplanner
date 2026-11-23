@@ -53,7 +53,8 @@ function fuenteObj(nombre) {
 const FUENTES = fuenteFn('_fechaLocal') +
   fuenteObj('_LBP_ASIS_URG') + fuenteObj('_LBP_ASIS_RUTAS') + fuenteObj('_LBP_ASIS_DECISIONES') +
   fuenteWin('_lbpAsisUrg') + fuenteWin('_lbpAsisFrescos') +
-  fuenteWin('_lbpAsisDecidir') + fuenteWin('_lbpAsisDestino');
+  fuenteWin('_lbpAsisDecidir') + fuenteWin('_lbpAsisDestino') +
+  fuenteWin('_tpPodarDecididas');   // _lbpAsisDecidir reusa la poda de tareasDecididas
 
 const win = new Function('var window = {};\n' + FUENTES + 'return window;')();
 
@@ -369,7 +370,9 @@ test('decidir no toca el blob de entrada', () => {
 });
 
 test('una decision inventada no pisa la que ya habia', () => {
-  const d = win._lbpAsisDecidir({ asisDecididos: [{ id: 'a', decision: 'no', ts: 1 }] }, 'a', 'quiza');
+  // ts reciente a proposito: decidir poda la lista a 180 dias (la misma regla que
+  // tareasDecididas), asi que un ts de 1970 se iria por la poda y no por el id.
+  const d = win._lbpAsisDecidir({ asisDecididos: [{ id: 'a', decision: 'no', ts: Date.now() - 1000 }] }, 'a', 'quiza');
   assert.deepEqual(d.asisDecididos.map((x) => x.decision), ['no']);
 });
 
@@ -389,8 +392,8 @@ test('asisDecididos sale array pase lo que pase en el blob', () => {
 });
 
 test('las entradas malformadas del blob no sobreviven a una decision', () => {
-  const d = win._lbpAsisDecidir({ asisDecididos: [null, { decision: 'no' }, { id: 'b', decision: 'no', ts: 2 }] },
-    'a', 'listo');
+  const d = win._lbpAsisDecidir({ asisDecididos: [null, { decision: 'no' },
+    { id: 'b', decision: 'no', ts: Date.now() - 1000 }] }, 'a', 'listo');
   assert.deepEqual(d.asisDecididos.map((x) => x.id).sort(), ['a', 'b']);
 });
 
@@ -666,4 +669,24 @@ test('la lista vacia no afirma que decidio todo', () => {
     'el dia tranquilo no puede afirmar que decidio nada');
   assert.match(copia({ todoDecidido: false }), /valga la pena/,
     'el estado vacio por defecto tiene que decir la verdad: no habia nada que valga la pena');
+});
+
+// ── I5: asisDecididos se poda igual que tareasDecididas ───────────────────
+test('asisDecididos se poda a 180 dias, con la misma regla que tareasDecididas', () => {
+  // tareasDecididas se poda en _tpPodarDecididas; asisDecididos no se podaba
+  // NUNCA y vive dentro de un blob sincronizado de ~4,6 MB: una lista que solo
+  // crece. Se reusa la poda que ya existe, no se inventa una segunda.
+  const viejo = Date.now() - 200 * 24 * 3600 * 1000;
+  const reciente = Date.now() - 10 * 24 * 3600 * 1000;
+  const d = win._lbpAsisDecidir({ asisDecididos: [
+    { id: 'viejo', decision: 'no', ts: viejo },
+    { id: 'reciente', decision: 'listo', ts: reciente },
+  ] }, 'nuevo', 'listo');
+  const ids = d.asisDecididos.map(function (x) { return x.id; }).sort();
+  assert.deepEqual(ids, ['nuevo', 'reciente'],
+    'la decision de hace 200 dias sigue viajando en el blob');
+  // Una sola entrada por id, como ya hacia.
+  const d2 = win._lbpAsisDecidir(d, 'nuevo', 'no');
+  assert.equal(d2.asisDecididos.filter(function (x) { return x.id === 'nuevo'; }).length, 1);
+  assert.equal(d2.asisDecididos.find(function (x) { return x.id === 'nuevo'; }).decision, 'no');
 });

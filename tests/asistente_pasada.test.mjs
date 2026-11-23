@@ -478,3 +478,32 @@ test('sin tipo de cambio en KV el push sale igual, sin linea en blanco', async (
   assert.equal(aviso.body.split('\n')[0], '- Aduana CK',
     'sin TC el cuerpo no puede empezar con una linea vacia');
 });
+
+// ── I5: la lista de exclusion no puede crecer sin techo dentro del prompt ──
+test('al prompt van los 200 ids decididos mas recientes, pero filtran TODOS', async () => {
+  // Los ids son `hilo:<asunto completo del correo>`: en seis meses son cientos
+  // de asuntos enteros repetidos en los dos prompts de cada dia. El tope es
+  // del PROMPT; el filtro sigue siendo completo, porque hablar de un hilo que
+  // Pepe descarto a mano es peor que repetirse.
+  const dec = [];
+  for (let i = 1; i <= 250; i++) dec.push({ id: 'hilo:d' + String(i).padStart(4, '0'),
+    decision: 'no', ts: MANANA - (251 - i) * 60000 });   // i mayor = mas reciente
+  const kv = mundo({ data: { tasks: [], asisDecididos: dec } });
+  const r = await correr(kv, MANANA, [JSON_OK([
+    { id: 'hilo:d0001', urgencia: 'ya', titulo: 'El mas viejo decidido', porque: 'p', accion: '', ruta: 'tasks', refId: '' },
+    { id: 'nuevo', urgencia: 'hoy', titulo: 'Algo sin decidir', porque: 'p', accion: '', ruta: 'tasks', refId: '' },
+  ])]);
+  // r.cuerpos[0] es el cuerpo HTTP (JSON): los saltos de linea viajan escapados,
+  // asi que el prompt se lee parseado y no con un regex sobre el JSON crudo.
+  const prompt = JSON.parse(r.cuerpos[0]).messages[0].content;
+  const sec = prompt.slice(prompt.indexOf('YA DECIDIDO POR PEPE'));
+  const listados = (sec.match(/^- hilo:d\d{4}$/gm) || []);
+  assert.equal(listados.length, 200, 'el prompt lista ' + listados.length + ' ids, no 200');
+  assert.ok(sec.includes('- hilo:d0250'), 'falta el id mas reciente');
+  assert.ok(sec.includes('- hilo:d0051'), 'falta el 200o mas reciente');
+  assert.ok(!sec.includes('- hilo:d0050'), 'el id 201 por antiguedad no puede entrar al prompt');
+  assert.ok(!sec.includes('- hilo:d0001'), 'el mas viejo no puede entrar al prompt');
+  // Y el filtro SI los cubre a todos: el item del id mas viejo no se guarda.
+  assert.deepEqual(entradaDe(kv).items.map((x) => x.id), ['nuevo'],
+    'un id decidido viejo se colo en la entrada porque el filtro quedo recortado');
+});

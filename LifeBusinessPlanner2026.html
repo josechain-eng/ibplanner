@@ -3804,12 +3804,16 @@ window._lbpAsisDecidir = function(data, itemId, decision) {
   });
   var id = String(itemId || '');
   var dec = String(decision || '');
+  // La poda es la MISMA que ya usa tareasDecididas (_tpPodarDecididas: una sola
+  // entrada por id, nada de mas de 180 dias). Sin ella asisDecididos solo crecia,
+  // dentro de un blob sincronizado que ya pesa ~4,6 MB. No se inventa una segunda
+  // regla de poda: se reusa la que existe.
   if (!id || !Object.prototype.hasOwnProperty.call(window._LBP_ASIS_DECISIONES, dec)) {
-    return Object.assign({}, d, { asisDecididos: lista });
+    return Object.assign({}, d, { asisDecididos: window._tpPodarDecididas(lista) });
   }
   lista = lista.filter(function(x) { return String(x.id) !== id; });
   lista.push({ id: id, decision: dec, ts: Date.now() });
-  return Object.assign({}, d, { asisDecididos: lista });
+  return Object.assign({}, d, { asisDecididos: window._tpPodarDecididas(lista) });
 };
 // Saca las propuestas que ya tienen decision (aceptada o descartada).
 window._tpFiltrar = function(propuestas, decididas) {
