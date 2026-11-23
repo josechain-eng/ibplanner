@@ -22,7 +22,7 @@
 <script>
 (function() {
   // ── Version ──────────────────────────────────────────────────────────────
-  window.LBP_VERSION = '5.74';
+  window.LBP_VERSION = '5.75';
 
   // ── PWA Install prompt ───────────────────────────────────────────────────
   window._installPrompt = null;
@@ -1153,7 +1153,16 @@
     // (5-nov-2026).
     'imports',
     // tareasDecididas: lista de objetos con `id` (el hiloId), la condicion que el merge exige.
-    'tareasDecididas'];
+    'tareasDecididas',
+    // asisDecididos: las decisiones por item del asistente ({id, decision, ts}).
+    // Entra aca y NO en las lapidas (_deletedIds) por el mismo motivo ya MEDIDO en
+    // tareasDecididas: con lapida, _mergeTombstones toma el maximo por id y nunca
+    // deja desaparecer la clave, asi que la decision SIGUIENTE sobre ese id se
+    // perdia 30 dias. Deshacer escribe decision:'revocada', que el worker ya trata
+    // como sin decidir.
+    // Un equipo en v5.74 no tiene esta clave: el merge la lee como lista vacia y
+    // apendea las decisiones del otro lado, asi que no borra ni revive nada.
+    'asisDecididos'];
 
   // Prune deletion tombstones older than 30 days to keep the blob lean
   // Exposed on window so the React component script (separate <script> tag) can call it
@@ -3703,6 +3712,87 @@ window._tpHoraAlarma = function(data, ymd, extra) {
   while (ocupadas[ymd + 'T' + hhmm(min)] && min < 23 * 60 + 55) min += 5;
   return ymd + 'T' + hhmm(min);
 };
+// ── El asistente proactivo en la app (v5.75) ──────────────────────────────
+// Como se ve cada urgencia. El worker ya cae a 'puede_esperar' cuando el modelo
+// inventa un valor, pero una entrada vieja de KV puede traer cualquier cosa. La
+// busqueda usa hasOwnProperty y no `in`: con `in`, "constructor" pasaria.
+window._LBP_ASIS_URG = {
+  ya:            { ic: '🔴', c: '#ef4444' },
+  hoy:           { ic: '🟠', c: '#F59E0B' },
+  puede_esperar: { ic: '⚪', c: '#9CA3AF' }
+};
+window._lbpAsisUrg = function(u) {
+  var k = String(u || '');
+  return Object.prototype.hasOwnProperty.call(window._LBP_ASIS_URG, k)
+    ? window._LBP_ASIS_URG[k] : window._LBP_ASIS_URG.puede_esperar;
+};
+// La entrada del asistente se presenta SOLO si es de hoy en hora LOCAL y queda
+// algo sin decidir. Bolivia es UTC-4 todo el anio: comparada en UTC, la entrada
+// de la pasada de las 18:10 deja de ser "de hoy" a las 20:00, y la ventana se
+// vaciaria cada noche --cayendo a la lista vieja de Alertas-- sin que se vea por
+// que. La fecha se arma con getFullYear/getMonth/getDate (_fechaLocal), NUNCA con
+// toISOString(), que es el bug que arrastra la tarjeta del briefing.
+// `de` es la hora de `generado` y va siempre, fresca o no, para que la ventana
+// diga de cuando es: una entrada de la pasada de la maniana no se puede presentar
+// a las 20:00 como recien hecha.
+// `decididas` es opcional (data.asisDecididos): 'revocada' cuenta como sin
+// decidir, la misma regla que usa el worker.
+window._lbpAsisFrescos = function(entrada, nowMs, decididas) {
+  var e = entrada || {};
+  var ya = {};
+  (Array.isArray(decididas) ? decididas : []).forEach(function(d) {
+    if (d && d.id && d.decision !== 'revocada') ya[String(d.id)] = true;
+  });
+  // Sin id no hay con que decidirlo y sin titulo no hay nada que leer.
+  var items = (Array.isArray(e.items) ? e.items : []).filter(function(x) {
+    return x && String(x.id || '') && String(x.titulo || '').trim() && !ya[String(x.id)];
+  });
+  var g = new Date(e.generado);
+  var valida = e.generado != null && !isNaN(g.getTime());
+  var de = valida ? ('0' + g.getHours()).slice(-2) + ':' + ('0' + g.getMinutes()).slice(-2) : '';
+  var fresca = valida && items.length > 0 && _fechaLocal(g) === _fechaLocal(new Date(nowMs));
+  return { items: items, fresca: fresca, de: de };
+};
+// A que puede llevar un item. El worker acota `ruta` a esta lista blanca, pero
+// una entrada vieja de KV puede traer otra cosa; y `refId` NO lo valida nadie:
+// puede nombrar una tarea que ya se borro. Sin entidad no hay tilde (cerraria
+// nada) y sin ruta no hay a donde ir (navigate('') deja la app en blanco).
+window._LBP_ASIS_RUTAS = { tasks: 1, projects: 1, meetings: 1, clients: 1, imports: 1 };
+window._lbpAsisDestino = function(item, data) {
+  var it = item || {}, d = data || {};
+  var ruta = String(it.ruta || '');
+  if (!Object.prototype.hasOwnProperty.call(window._LBP_ASIS_RUTAS, ruta)) {
+    return { tarea: null, ruta: '' };
+  }
+  var refId = String(it.refId || '');
+  var tarea = null;
+  if (ruta === 'tasks' && refId) {
+    (d.tasks || []).forEach(function(t) { if (!tarea && t && t.id === refId) tarea = t; });
+  }
+  return { tarea: tarea, ruta: ruta };
+};
+// Una decision por item del asistente, en data.asisDecididos: {id, decision, ts}
+// con decision 'listo' | 'no' | 'revocada'. La entrada se REEMPLAZA (una sola por
+// id), igual que en _tpAplicar, y no se sella ninguna lapida.
+// asisDecididos SIEMPRE sale array: el chequeo horario del worker hace .forEach
+// sobre esta lista con solo `|| []` de proteccion (worker.js:2596 y 2736), y un
+// objeto o un texto ahi lo hace tirar; su propio try/catch se traga entonces el
+// chequeo entero EN SILENCIO. Las entradas sin id se descartan al paso.
+window._LBP_ASIS_DECISIONES = { listo: 1, no: 1, revocada: 1 };
+window._lbpAsisDecidir = function(data, itemId, decision) {
+  var d = data || {};
+  var lista = (Array.isArray(d.asisDecididos) ? d.asisDecididos : []).filter(function(x) {
+    return x && x.id;
+  });
+  var id = String(itemId || '');
+  var dec = String(decision || '');
+  if (!id || !Object.prototype.hasOwnProperty.call(window._LBP_ASIS_DECISIONES, dec)) {
+    return Object.assign({}, d, { asisDecididos: lista });
+  }
+  lista = lista.filter(function(x) { return String(x.id) !== id; });
+  lista.push({ id: id, decision: dec, ts: Date.now() });
+  return Object.assign({}, d, { asisDecididos: lista });
+};
 // Saca las propuestas que ya tienen decision (aceptada o descartada).
 window._tpFiltrar = function(propuestas, decididas) {
   var ya = {};
@@ -5424,6 +5514,12 @@ var HomeScreen = function HomeScreen(_ref14) {
       });
     });
   };
+  // Una decision del asistente va al BLOB (no a KV) para que viaje entre el
+  // celular y la Mac por el mismo sync de siempre.
+  var _asisDecidir = function(id, decision) {
+    if (!window._lbpAsisDecidir) return;
+    setData(function(d) { return window._lbpAsisDecidir(d, id, decision); });
+  };
   var toggleHabit = function toggleHabit(habitId) {
     var existing = habitEntries.find(function (e) {
       return e.habitId === habitId && e.date === todayStr;
@@ -5485,6 +5581,7 @@ var HomeScreen = function HomeScreen(_ref14) {
   var _useStateSAP = useState(false), _useStateSAP2 = _slicedToArray(_useStateSAP, 2), showAllPriorities = _useStateSAP2[0], setShowAllPriorities = _useStateSAP2[1];
   var _swipe = useRef({ x: null, y: null, did: false });
   var _brfA=useState(null),_brfB=_slicedToArray(_brfA,2),brfData=_brfB[0],setBrfData=_brfB[1];
+  var _asisA=useState(null),_asisB=_slicedToArray(_asisA,2),asisEntrada=_asisB[0],setAsisEntrada=_asisB[1];
   var _brfC=useState(false),_brfD=_slicedToArray(_brfC,2),brfOpen=_brfD[0],setBrfOpen=_brfD[1];
   var _brfE=useState(false),_brfF=_slicedToArray(_brfE,2),brfLoad=_brfF[0],setBrfLoad=_brfF[1];
   var _brfG=useState(null),_brfH=_slicedToArray(_brfG,2),brfSummary=_brfH[0],setBrfSummary=_brfH[1];
@@ -5511,18 +5608,36 @@ var HomeScreen = function HomeScreen(_ref14) {
         if(j&&!j.error){setDiData(j);try{localStorage.setItem('lbp_dailyinfo3',JSON.stringify({data:j,fetchedAt:Date.now()}));}catch(e){}}
       }).catch(function(){});
   },[]);
+  /*TARJETA_ASIS*/
   useEffect(function(){
     if(!window.LBP_WORKER_URL)return;
     var sk=localStorage.getItem('lbp_sync_key');
     if(!sk)return;
-    var today=new Date().toISOString().slice(0,10);
+    // La fecha va en hora LOCAL. Con toISOString() --que es lo que hacia esta
+    // tarjeta-- despues de las 20:00 de Bolivia se pedia la fecha de MANIANA, y
+    // el worker guarda por fecha de Bolivia: no volvia nada y la tarjeta quedaba
+    // en blanco todas las noches.
+    var today=_fechaLocal(new Date());
     setBrfLoad(true);
-    fetch(window.LBP_WORKER_URL+'/briefing-ai?key='+encodeURIComponent(sk)+'&date='+today)
-      .then(function(r){return r.ok?r.json():null;})
-      .then(function(d){if(d&&d.ready&&d.briefing){try{setBrfData(JSON.parse(d.briefing));}catch(e){}}})
+    fetch(window.LBP_WORKER_URL+'/asistente?key='+encodeURIComponent(sk)+'&date='+today)
+      .then(function(r){return r&&r.ok?r.json():null;})
+      .then(function(j){
+        if(j&&j.ready&&j.entrada){
+          setAsisEntrada(j.entrada);
+          // El renderizador de la tarjeta ya pinta `summary` como lineas y la
+          // primera linea del asistente es el TC: no hace falta reescribirlo.
+          if(j.entrada.summary)setBrfData({summary:j.entrada.summary,generated:j.entrada.generado});
+          return null;
+        }
+        // Sin entrada del asistente queda el briefing viejo como red.
+        return fetch(window.LBP_WORKER_URL+'/briefing-ai?key='+encodeURIComponent(sk)+'&date='+today)
+          .then(function(r){return r&&r.ok?r.json():null;})
+          .then(function(d){if(d&&d.ready&&d.briefing){try{setBrfData(JSON.parse(d.briefing));}catch(e){}}});
+      })
       .catch(function(){})
       .finally(function(){setBrfLoad(false);});
   },[]);
+  /*FIN_TARJETA_ASIS*/
   var _brfK=useState([]),_brfL=_slicedToArray(_brfK,2),brfRecs=_brfL[0],setBrfRecs=_brfL[1];
   // Operational AI briefing: analyzes data, detects inaction patterns, returns summary + actionable recommendations
   var _genBrfSummary=function(){
@@ -6021,19 +6136,33 @@ var HomeScreen = function HomeScreen(_ref14) {
   ),
     alertsVisible && /*#__PURE__*/React.createElement("div", {style:{marginBottom:14}},
     (function(){
-      var alerts=window._lbpAlertas?window._lbpAlertas(data,Date.now()):[];
-      if(!alerts.length)return null;
-      return /*#__PURE__*/React.createElement('div',{style:{background:'rgba(239,68,68,0.06)',border:'1px solid rgba(239,68,68,0.2)',borderRadius:12,padding:'10px 12px'}},
+      // Con entrada fresca del asistente manda el asistente; si no --sin worker,
+      // sin key, entrada de ayer o todo decidido-- queda _lbpAlertas, que no se
+      // toca. Las dos ramas se normalizan a filas {id,icon,texto,color,route} para
+      // que el encabezado y la lista sean los mismos. Solo las filas de Alertas
+      // llevan `route`: la fila del asistente abre la ventana, donde esta el porque.
+      var _ahora=Date.now();
+      var fr=window._lbpAsisFrescos?window._lbpAsisFrescos(asisEntrada,_ahora,data.asisDecididos):{items:[],fresca:false,de:''};
+      var filas=fr.fresca
+        ? fr.items.map(function(x){var u=window._lbpAsisUrg(x.urgencia);return {id:x.id,icon:u.ic,texto:x.titulo,color:u.c,route:''};})
+        : (window._lbpAlertas?window._lbpAlertas(data,_ahora):[]).map(function(a){return {id:a.id,icon:a.icon,texto:a.msg,color:a.color,route:a.route};});
+      if(!filas.length)return null;
+      var _tit=(fr.fresca?'🤖 Asistente (':'🚨 Alertas (')+filas.length+') ›';
+      var _bg=fr.fresca?'rgba(156,104,214,0.06)':'rgba(239,68,68,0.06)';
+      var _bd=fr.fresca?'rgba(156,104,214,0.25)':'rgba(239,68,68,0.2)';
+      var _fil=fr.fresca?'rgba(156,104,214,0.12)':'rgba(239,68,68,0.1)';
+      var _col=fr.fresca?'var(--purple-light)':'#ef4444';
+      return /*#__PURE__*/React.createElement('div',{style:{background:_bg,border:'1px solid '+_bd,borderRadius:12,padding:'10px 12px'}},
         /*#__PURE__*/React.createElement('div',{style:{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:8}},
-          /*#__PURE__*/React.createElement('span',{onClick:function(){setAlertasTodas(true);},style:{fontSize:12,fontWeight:700,color:'#ef4444',cursor:'pointer',flex:1}},'🚨 Alertas ('+alerts.length+') ›'),
+          /*#__PURE__*/React.createElement('span',{onClick:function(){setAlertasTodas(true);},style:{fontSize:12,fontWeight:700,color:_col,cursor:'pointer',flex:1}},_tit),
           /*#__PURE__*/React.createElement('button',{onClick:function(){setAlertsVisible(false);},style:{background:'none',border:'none',color:'var(--text-dim)',cursor:'pointer',fontSize:14}},'×')
         ),
-        alerts.slice(0,5).map(function(a){
+        filas.slice(0,5).map(function(a){
           return /*#__PURE__*/React.createElement('div',{key:a.id,
-            style:{display:'flex',alignItems:'center',gap:8,padding:'5px 0',borderBottom:'1px solid rgba(239,68,68,0.1)',cursor:'pointer'},
-            onClick:function(){navigate(a.route);}},
+            style:{display:'flex',alignItems:'center',gap:8,padding:'5px 0',borderBottom:'1px solid '+_fil,cursor:'pointer'},
+            onClick:function(){ if(a.route){navigate(a.route);} else {setAlertasTodas(true);} }},
             /*#__PURE__*/React.createElement('span',{style:{fontSize:14,flexShrink:0}},a.icon),
-            /*#__PURE__*/React.createElement('span',{style:{fontSize:11,color:'var(--text)',flex:1}},a.msg),
+            /*#__PURE__*/React.createElement('span',{style:{fontSize:11,color:'var(--text)',flex:1}},a.texto),
             /*#__PURE__*/React.createElement('span',{style:{fontSize:10,color:a.color,fontWeight:600,flexShrink:0}},'→')
           );
         })
@@ -6442,7 +6571,72 @@ fhVisible&&(data.clients||[]).filter(function(c){var hasFr=(data.clients||[]).so
     )
   )),
 alertasTodas && /*VENTANA_ALERTAS*/ (function(){
-    var todas=window._lbpAlertas?window._lbpAlertas(data,Date.now()):[];
+    var _ahora=Date.now();
+    var fr=window._lbpAsisFrescos?window._lbpAsisFrescos(asisEntrada,_ahora,data.asisDecididos):{items:[],fresca:false,de:''};
+    if(fr.fresca){
+      // De CUANDO es la entrada, arriba y siempre: la pasada y la hora local de
+      // `generado`. Una entrada de la pasada de la maniana no se puede leer a las
+      // 20:00 como si fuera recien hecha.
+      var _pas=(asisEntrada&&asisEntrada.pasada)==='tarde'?'de la tarde':'de la ma\u00F1ana';
+      var _subt='Pasada '+_pas+(fr.de?' \u00B7 '+fr.de:'')
+        +((asisEntrada&&asisEntrada.tc!=null)?' \u00B7 TC Bs '+Number(asisEntrada.tc).toFixed(2):'');
+      var _avisos=[];
+      if(asisEntrada&&asisEntrada.cegado)_avisos.push('Sin correo de hoy \u2014 abr\u00ED Outlook');
+      if(asisEntrada&&asisEntrada.sinModelo)_avisos.push('La IA no respondi\u00F3: va la lista del detector');
+      return /*#__PURE__*/React.createElement(Modal, {
+        title: "\uD83E\uDD16 Asistente (" + fr.items.length + ")",
+        onClose: function() { setAlertasTodas(false); }
+      },
+        /*#__PURE__*/React.createElement("div", {style:{fontSize:11,color:'var(--text-dim)',marginBottom:_avisos.length?4:8}}, _subt),
+        _avisos.length?/*#__PURE__*/React.createElement("div", {style:{fontSize:11,color:'#F59E0B',marginBottom:8}}, _avisos.join(' \u00B7 ')):null,
+        /*#__PURE__*/React.createElement("div", {style:{maxHeight:'60vh',overflowY:'auto',WebkitOverflowScrolling:'touch'}},
+          fr.items.map(function(x){
+            var u=window._lbpAsisUrg(x.urgencia);
+            // refId no lo valida el worker: si no resuelve una tarea NO hay tilde
+            // (cerraria nada) y sin ruta no hay a donde navegar.
+            var dest=window._lbpAsisDestino(x,data);
+            return /*#__PURE__*/React.createElement("div", {key:x.id,
+              style:{display:'flex',alignItems:'flex-start',gap:8,padding:'10px 0',borderBottom:'1px solid var(--border)'}},
+              dest.tarea && /*#__PURE__*/React.createElement("button", {
+                title:'Marcar la tarea como hecha',
+                'aria-label':'Marcar la tarea como hecha',
+                onClick: function() { completeTask(dest.tarea.id); _asisDecidir(x.id, 'listo'); },
+                style:{flexShrink:0,minWidth:44,minHeight:44,padding:0,display:'flex',alignItems:'center',justifyContent:'center',background:'transparent',border:'none',cursor:'pointer'}
+              }, /*#__PURE__*/React.createElement("span", {
+                style:{width:30,height:30,borderRadius:'50%',border:'1px solid #22c55e',background:'rgba(34,197,94,0.12)',color:'#22c55e',fontSize:15,display:'flex',alignItems:'center',justifyContent:'center'}
+              }, "\u2713")),
+              /*#__PURE__*/React.createElement("div", {style:{flex:1,minWidth:0}},
+                /*#__PURE__*/React.createElement("div", {
+                  style:{display:'flex',alignItems:'center',gap:6,cursor:(dest.tarea||dest.ruta)?'pointer':'default'},
+                  onClick: function() {
+                    if (dest.tarea) { setViewTask(dest.tarea); }
+                    else if (dest.ruta) { setAlertasTodas(false); navigate(dest.ruta); }
+                  }},
+                  /*#__PURE__*/React.createElement("span", {style:{fontSize:12,flexShrink:0}}, u.ic),
+                  /*#__PURE__*/React.createElement("span", {style:{fontSize:13,fontWeight:600,color:'var(--text)',flex:1,minWidth:0}}, x.titulo),
+                  (dest.tarea||dest.ruta)?/*#__PURE__*/React.createElement("span", {style:{fontSize:11,color:u.c,fontWeight:600,flexShrink:0}}, "\u2192"):null
+                ),
+                x.porque?/*#__PURE__*/React.createElement("div", {style:{fontSize:11,color:'var(--text-dim)',marginTop:3,lineHeight:1.4}}, x.porque):null,
+                x.accion?/*#__PURE__*/React.createElement("div", {style:{fontSize:11,color:u.c,marginTop:3,lineHeight:1.4}}, '\u2192 '+x.accion):null,
+                /*#__PURE__*/React.createElement("div", {style:{display:'flex',flexWrap:'wrap',gap:8,marginTop:7}},
+                  // El tilde redondo YA es el "listo" cuando hay tarea: cierra la
+                  // tarea y decide. Sin tarea no hay tilde, y entonces va el boton.
+                  dest.tarea?null:/*#__PURE__*/React.createElement("button", {
+                    onClick: function() { _asisDecidir(x.id, 'listo'); },
+                    style:{minHeight:44,padding:'0 12px',borderRadius:8,border:'1px solid #22c55e',background:'rgba(34,197,94,0.12)',color:'#22c55e',fontSize:12,cursor:'pointer'}
+                  }, "\u2713 Listo"),
+                  /*#__PURE__*/React.createElement("button", {
+                    onClick: function() { _asisDecidir(x.id, 'no'); },
+                    style:{minHeight:44,padding:'0 12px',borderRadius:8,border:'1px solid var(--border)',background:'transparent',color:'var(--text-dim)',fontSize:12,cursor:'pointer'}
+                  }, "No me interesa")
+                )
+              )
+            );
+          })
+        )
+      );
+    }
+    var todas=window._lbpAlertas?window._lbpAlertas(data,_ahora):[];
     return /*#__PURE__*/React.createElement(Modal, {
       title: "🚨 Alertas (" + todas.length + ")",
       onClose: function() { setAlertasTodas(false); }
