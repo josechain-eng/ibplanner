@@ -190,6 +190,93 @@
     });
     return { tasks: cambiadas ? out : tasks, cambiadas: cambiadas };
   };
+  // Las seis reglas de alerta del Home, como datos (sin closures: `route` es la
+  // pantalla a la que navega el clic; el render arma el onClick). Ya devuelve la
+  // lista ordenada: primero aduana por dias ascendente, despues el resto en el
+  // orden de las reglas. `taskId` solo en las dos reglas de tarea.
+  // Unico cambio de comportamiento respecto al JSX original: el limite de la
+  // regla 1b sube de 14 a 60 dias. `data` puede venir incompleto (dispositivo
+  // nuevo antes de su primer pull): cada lista se protege con || [].
+  window._lbpAlertas = function(data, nowMs) {
+    data = data || {};
+    var now = nowMs;
+    var alerts = [];
+    // 1a. Today's fired alarms: alarm fired today, task still open
+    (data.tasks||[]).forEach(function(t){
+      if(t.status==='DONE')return;
+      if(!t.alarm||!t.alarm.enabled||!t.alarm.datetime)return;
+      var ms=new Date(t.alarm.datetime).getTime();
+      var days=Math.floor((now-ms)/86400000);
+      if(ms<now&&days===0){
+        var hoursAgo=Math.floor((now-ms)/3600000);
+        alerts.push({id:'today_'+t.id,icon:'🔔',color:'#F59E0B',
+          msg:'"'+t.title.slice(0,35)+'" — alarma de hoy'+(hoursAgo>0?' (hace '+hoursAgo+'h)':'')+' sin completar',
+          route:'tasks',taskId:t.id});
+      }
+    });
+    // 1b. Stale alarms: task alarm fired 1-60 days ago, still open
+    (data.tasks||[]).forEach(function(t){
+      if(t.status==='DONE')return;
+      if(!t.alarm||!t.alarm.enabled||!t.alarm.datetime)return;
+      var ms=new Date(t.alarm.datetime).getTime();
+      var days=Math.floor((now-ms)/86400000);
+      if(ms<now&&days>=1&&days<=60){
+        alerts.push({id:'stale_'+t.id,icon:'⏰',color:'#ef4444',
+          msg:'"'+t.title.slice(0,35)+'" — alarma de hace '+days+' día'+(days>1?'s':'')+' sin completar',
+          route:'tasks',taskId:t.id});
+      }
+    });
+    // 2. Meeting follow-up: meetings from yesterday with no tasks created after
+    var _yd=new Date(now-86400000);var yesterday=_yd.getFullYear()+'-'+String(_yd.getMonth()+1).padStart(2,'0')+'-'+String(_yd.getDate()).padStart(2,'0');
+    (data.meetings||[]).forEach(function(m){
+      if(m.date!==yesterday)return;
+      var mStart=new Date(m.date+'T'+(m.startTime||'00:00')).getTime();
+      var hasTask=(data.tasks||[]).some(function(t){return t.createdAt&&t.createdAt>mStart;});
+      if(!hasTask){
+        alerts.push({id:'followup_'+m.id,icon:'📋',color:'#f59e0b',
+          msg:'"'+m.title.slice(0,35)+'" de ayer — sin tareas de seguimiento',
+          route:'meetings'});
+      }
+    });
+    // 3. Projects stagnant > 10 days
+    (data.projects||[]).forEach(function(p){
+      if(['DONE','ON_HOLD','PAUSED'].includes(p.status))return;
+      var last=p.updatedAt||p.createdAt||0;
+      if(last&&(now-last)/86400000>10){
+        alerts.push({id:'proj_'+p.id,icon:'📁',color:'#8b5cf6',
+          msg:'"'+p.name.slice(0,35)+'" — sin actividad en '+Math.floor((now-last)/86400000)+' días',
+          route:'projects'});
+      }
+    });
+    // 4. Clients neglected > 30 days
+    (data.clients||[]).forEach(function(c){
+      if(!['ACTIVE','CLIENT'].includes(c.status))return;
+      var cm=(data.meetings||[]).filter(function(m){return m.clientId===c.id;});
+      var lastMs=cm.length?Math.max.apply(null,cm.map(function(m){return new Date(m.date).getTime();})):(c.createdAt||0);
+      if(lastMs&&(now-lastMs)/86400000>30){
+        alerts.push({id:'client_'+c.id,icon:'👥',color:'#6366f1',
+          msg:'"'+(c.name||c.company||'').slice(0,30)+'" — '+Math.floor((now-lastMs)/86400000)+' días sin reunión',
+          route:'clients'});
+      }
+    });
+    // 5. Despachos con fecha limite en aduana. Van ADELANTE de las demas porque
+    // la lista del Home se corta en 5 y una multa de aduana pesa mas que una
+    // alarma vieja sin tildar (5-nov-2026).
+    var _adu=[];
+    (data.imports||[]).forEach(function(imp){
+      var d=_impDiasLimite(imp);
+      if(d===null||d>7)return;
+      var ci=(data.clients||[]).find(function(x){return x.id===imp.clientId;});
+      var marca=ci?(ci.businessName||ci.name):'Sin asignar';
+      var trib=_impNum(imp.tributos);
+      _adu.push({id:'aduana_'+imp.id,icon:d<0?'🛑':'🏛',color:d<=0?'#ef4444':'#FF9800',
+        msg:marca+' '+(imp.season||'despacho')+' — aduana '+_impLimiteTexto(d)+(trib?' · Bs '+Math.round(trib).toLocaleString():''),
+        route:'imports',_d:d});
+    });
+    _adu.sort(function(a,b){return a._d-b._d;});
+    if(_adu.length) alerts=_adu.concat(alerts);
+    return alerts;
+  };
   // Devuelve eventos en los próximos `months` meses (por defecto 3), ordenados por fecha.
   window._lbpUpcomingEvents = function(fromDate, months) {
     months = months || 3;
@@ -5925,82 +6012,7 @@ var HomeScreen = function HomeScreen(_ref14) {
   ),
     alertsVisible && /*#__PURE__*/React.createElement("div", {style:{marginBottom:14}},
     (function(){
-      var now=Date.now();
-      var alerts=[];
-      // 1a. Today's fired alarms: alarm fired today, task still open
-      (data.tasks||[]).forEach(function(t){
-        if(t.status==='DONE')return;
-        if(!t.alarm||!t.alarm.enabled||!t.alarm.datetime)return;
-        var ms=new Date(t.alarm.datetime).getTime();
-        var days=Math.floor((now-ms)/86400000);
-        if(ms<now&&days===0){
-          var hoursAgo=Math.floor((now-ms)/3600000);
-          alerts.push({id:'today_'+t.id,icon:'🔔',color:'#F59E0B',
-            msg:'"'+t.title.slice(0,35)+'" — alarma de hoy'+(hoursAgo>0?' (hace '+hoursAgo+'h)':'')+' sin completar',
-            action:function(){navigate('tasks');}});
-        }
-      });
-      // 1b. Stale alarms: task alarm fired 1-14 days ago, still open
-      (data.tasks||[]).forEach(function(t){
-        if(t.status==='DONE')return;
-        if(!t.alarm||!t.alarm.enabled||!t.alarm.datetime)return;
-        var ms=new Date(t.alarm.datetime).getTime();
-        var days=Math.floor((now-ms)/86400000);
-        if(ms<now&&days>=1&&days<=14){
-          alerts.push({id:'stale_'+t.id,icon:'⏰',color:'#ef4444',
-            msg:'"'+t.title.slice(0,35)+'" — alarma de hace '+days+' día'+(days>1?'s':'')+' sin completar',
-            action:function(){navigate('tasks');}});
-        }
-      });
-      // 2. Meeting follow-up: meetings from yesterday with no tasks created after
-      var _yd=new Date(now-86400000);var yesterday=_yd.getFullYear()+'-'+String(_yd.getMonth()+1).padStart(2,'0')+'-'+String(_yd.getDate()).padStart(2,'0');
-      (data.meetings||[]).forEach(function(m){
-        if(m.date!==yesterday)return;
-        var mStart=new Date(m.date+'T'+(m.startTime||'00:00')).getTime();
-        var hasTask=(data.tasks||[]).some(function(t){return t.createdAt&&t.createdAt>mStart;});
-        if(!hasTask){
-          alerts.push({id:'followup_'+m.id,icon:'📋',color:'#f59e0b',
-            msg:'"'+m.title.slice(0,35)+'" de ayer — sin tareas de seguimiento',
-            action:function(){navigate('meetings');}});
-        }
-      });
-      // 3. Projects stagnant > 10 days
-      (data.projects||[]).forEach(function(p){
-        if(['DONE','ON_HOLD','PAUSED'].includes(p.status))return;
-        var last=p.updatedAt||p.createdAt||0;
-        if(last&&(now-last)/86400000>10){
-          alerts.push({id:'proj_'+p.id,icon:'📁',color:'#8b5cf6',
-            msg:'"'+p.name.slice(0,35)+'" — sin actividad en '+Math.floor((now-last)/86400000)+' días',
-            action:function(){navigate('projects');}});
-        }
-      });
-      // 4. Clients neglected > 30 days
-      (data.clients||[]).forEach(function(c){
-        if(!['ACTIVE','CLIENT'].includes(c.status))return;
-        var cm=(data.meetings||[]).filter(function(m){return m.clientId===c.id;});
-        var lastMs=cm.length?Math.max.apply(null,cm.map(function(m){return new Date(m.date).getTime();})):(c.createdAt||0);
-        if(lastMs&&(now-lastMs)/86400000>30){
-          alerts.push({id:'client_'+c.id,icon:'👥',color:'#6366f1',
-            msg:'"'+(c.name||c.company||'').slice(0,30)+'" — '+Math.floor((now-lastMs)/86400000)+' días sin reunión',
-            action:function(){navigate('clients');}});
-        }
-      });
-      // 5. Despachos con fecha limite en aduana. Van ADELANTE de las demas
-      // porque la lista se corta en 5 (ver el slice de mas abajo) y una multa
-      // de aduana pesa mas que una alarma vieja sin tildar (5-nov-2026).
-      var _adu=[];
-      (data.imports||[]).forEach(function(imp){
-        var d=_impDiasLimite(imp);
-        if(d===null||d>7)return;
-        var ci=(data.clients||[]).find(function(x){return x.id===imp.clientId;});
-        var marca=ci?(ci.businessName||ci.name):'Sin asignar';
-        var trib=_impNum(imp.tributos);
-        _adu.push({id:'aduana_'+imp.id,icon:d<0?'🛑':'🏛',color:d<=0?'#ef4444':'#FF9800',
-          msg:marca+' '+(imp.season||'despacho')+' — aduana '+_impLimiteTexto(d)+(trib?' · Bs '+Math.round(trib).toLocaleString():''),
-          action:function(){navigate('imports');},_d:d});
-      });
-      _adu.sort(function(a,b){return a._d-b._d;});
-      if(_adu.length) alerts=_adu.concat(alerts);
+      var alerts=window._lbpAlertas?window._lbpAlertas(data,Date.now()):[];
       if(!alerts.length)return null;
       return /*#__PURE__*/React.createElement('div',{style:{background:'rgba(239,68,68,0.06)',border:'1px solid rgba(239,68,68,0.2)',borderRadius:12,padding:'10px 12px'}},
         /*#__PURE__*/React.createElement('div',{style:{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:8}},
@@ -6010,7 +6022,7 @@ var HomeScreen = function HomeScreen(_ref14) {
         alerts.slice(0,5).map(function(a){
           return /*#__PURE__*/React.createElement('div',{key:a.id,
             style:{display:'flex',alignItems:'center',gap:8,padding:'5px 0',borderBottom:'1px solid rgba(239,68,68,0.1)',cursor:'pointer'},
-            onClick:a.action},
+            onClick:function(){navigate(a.route);}},
             /*#__PURE__*/React.createElement('span',{style:{fontSize:14,flexShrink:0}},a.icon),
             /*#__PURE__*/React.createElement('span',{style:{fontSize:11,color:'var(--text)',flex:1}},a.msg),
             /*#__PURE__*/React.createElement('span',{style:{fontSize:10,color:a.color,fontWeight:600,flexShrink:0}},'→')
