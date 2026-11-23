@@ -162,11 +162,6 @@ test('un ano sin feriados moviles no rompe el dia habil', () => {
   } finally { win._LBP_FERIADOS_MOVILES = guardado; }
 });
 
-test('la tarea propuesta nace con la repeticion', () => {
-  // montar() de tests/tareas_propuestas.test.mjs; una propuesta decidida 'ok'
-  assert.equal(creada.alarm.recurrence, 'weekdays2');
-});
-
 test('weekdays NO cambio: sigue cayendo en feriado', () => {
   // El refactor no puede haberle agregado feriados al tipo viejo, que usan
   // habitos y metas. Navidad 2026 es viernes: 'weekdays' tiene que incluirla.
@@ -224,10 +219,17 @@ Cuatro puntos, todos en el patrón que ya existe para `'weekdays'`:
 
 - [ ] **Step 6: `_tpAplicar:3659` → `recurrence: 'weekdays2'`**
 
+La aserción de que la tarea nace con la repetición va en
+`tests/tareas_propuestas.test.mjs`, **no** en el archivo nuevo: ese ya tiene el
+`montar()` que fabrica una propuesta decidida `'ok'` y ya ejercita `_tpAplicar`.
+Agregar ahí `assert.equal(creada.alarm.recurrence, 'weekdays2')` sobre la tarea
+que devuelve el alta, dentro de la prueba que ya revisa la forma de la tarea
+creada.
+
 - [ ] **Step 7: Correr las pruebas nuevas y la suite entera**
 
 Run: `node --test "tests/*.test.mjs"`
-Expected: PASS, con **al menos 441** pases y 0 fallas (430 de base + 11 nuevas).
+Expected: PASS, con **al menos 441** pases y 0 fallas (430 de base + 10 nuevas en el archivo nuevo + 1 en tareas_propuestas).
 
 - [ ] **Step 8: Commit**
 
@@ -379,6 +381,14 @@ test('el limite de dias sube a 60', () => {
   assert.equal(win._lbpAlertas({ tasks: [tarea({ diasHace: 61 })] }, ahora).length, 0);
 });
 
+test('las SEIS reglas siguen alcanzables', () => {
+  // El traslado del JSX a la funcion no puede perder una regla en el camino.
+  // Un fixture que dispare las seis, y se exige un id de cada prefijo.
+  const ids = win._lbpAlertas(fixtureSeisReglas, ahora).map((a) => a.id);
+  for (const pre of ['today_', 'stale_', 'followup_', 'proj_', 'client_', 'aduana_'])
+    assert.ok(ids.some((id) => id.indexOf(pre) === 0), 'falta la regla ' + pre);
+});
+
 test('aduana va adelante de las tareas, y la mas urgente primero', () => {
   const a = win._lbpAlertas({ tasks: [tarea({ diasHace: 2 }), tarea({ diasHace: 3, id: 't2' })],
                               imports: [imp({ dias: 5 }), imp({ dias: 1, id: 'i2' })],
@@ -389,9 +399,11 @@ test('aduana va adelante de las tareas, y la mas urgente primero', () => {
 });
 ```
 
-Los ayudantes `tarea({...})` e `imp({...})` los escribe quien implementa: tienen
-que producir la forma mínima que cada regla lee (`status`, `alarm`, y para
-aduana lo que `_impDiasLimite` necesita).
+Los ayudantes `tarea({...})`, `imp({...})` y el `fixtureSeisReglas` los escribe
+quien implementa: tienen que producir la forma mínima que cada regla lee
+(`status`, `alarm`; para aduana lo que `_impDiasLimite` necesita; para las
+reglas 2, 3 y 4 una reunión de ayer sin tareas posteriores, un proyecto sin
+actividad en más de 10 días y un cliente activo sin reunión en más de 30).
 
 - [ ] **Step 2: Correr y ver que fallan**
 
@@ -414,7 +426,7 @@ que se ven: `'🚨 Alertas (' + todas.length + ')'`.
 - [ ] **Step 5: Correr la suite**
 
 Run: `node --test "tests/*.test.mjs"`
-Expected: PASS, al menos **451** pases, 0 fallas.
+Expected: PASS, al menos **452** pases, 0 fallas.
 
 - [ ] **Step 6: Commit**
 
@@ -440,7 +452,10 @@ git commit -m "Las reglas de alerta salen del JSX a una funcion pura, y el limit
 - [ ] **Step 1: Escribir las pruebas que fallan**
 
 Esta tarea es de interfaz, así que las pruebas son estructurales sobre el bloque
-extraído del HTML, al estilo de `tests/tarjeta_propuestas.test.mjs`. Aserciones:
+extraído del HTML. `bloque` (el bloque de Alertas del Home) y `ventana` (el
+componente nuevo) se extraen igual que en `tests/tarjeta_propuestas.test.mjs`:
+buscar la cadena donde arranca y tomar el cuerpo balanceado por llaves con
+`cuerpo(i)`. Aserciones:
 
 ```js
 test('el encabezado de Alertas abre la ventana', () => {
@@ -489,7 +504,7 @@ librería ni patrón nuevo.
 - [ ] **Step 5: Correr la suite y el chequeo de sintaxis**
 
 Run: `node --test "tests/*.test.mjs"`
-Expected: PASS, al menos **457** pases, 0 fallas.
+Expected: PASS, al menos **458** pases, 0 fallas.
 
 - [ ] **Step 6: Verificar en el navegador**
 
