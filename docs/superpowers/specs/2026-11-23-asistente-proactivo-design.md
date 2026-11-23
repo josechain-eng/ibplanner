@@ -274,7 +274,9 @@ se inventa. El push sale sólo a las suscripciones de esa llave.
 
 - **KV:** `asis:<syncKey>:<fecha>` con `{ generado, pasada, items, cegado,
   sinModelo, tc }`, TTL 48 h. Las marcas: `asis_mark:<syncKey>:<fecha>:<pasada>`
-  y `asis_dicho:<syncKey>:<itemId>:<fecha>`.
+  y `asis_dicho:<itemId>:<fecha>:<pasada>` (sin sync key: hay un solo
+  usuario, y el dedup tiene que ser por PASADA y no por dia, o un `ya` sin
+  entidad detras vuelve a sonar todas las mananas para siempre).
 - **Endpoint:** `GET /asistente?key=&date=` espejo de `/briefing-ai`. Valida la
   key con `_syncKeyValida` antes de cualquier lectura.
 - **Forzado:** `GET /force-asistente?key=&pasada=` para probar sin esperar el
