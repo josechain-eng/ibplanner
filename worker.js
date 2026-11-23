@@ -2503,15 +2503,10 @@ const ASIS_SP = 'Eres el asistente proactivo de LB Planner, la app de Pepe (gere
   '"ruta":"tasks|projects|meetings|clients|imports","refId":"..."}]}\n' +
   'Si no hay nada que valga la pena: {"items":[]}.';
 
-async function correrAsistente(env, pasada, nowMs, forzar) {
-  const now = nowMs || Date.now();
-  const fecha = _hoyBolivia(now);
-  const salida = { ok: false, items: [], cegado: false, sinModelo: false, motivo: '' };
-
-  // 1. UNA sola sync key: la del blob con _cloudSaveTime mas nuevo. Misma logica
-  // que /briefing (worker.js:1035-1062). El registro tiene cuatro llaves: sin
-  // este filtro serian cuatro llamadas al modelo por pasada y push a equipos que
-  // ya no son los de Pepe.
+// La UNICA regla para elegir la sync key del asistente: el blob con _cloudSaveTime
+// mas nuevo del registro (misma logica que /briefing). La usan la pasada y el
+// chequeo horario; no hay una segunda regla. Nunca llama a KV.list().
+async function _asisBlobMasNuevo(env) {
   let registro = [];
   try { registro = JSON.parse(await env.LBP_KV.get('synckeys_registry') || '[]'); } catch (e) { registro = []; }
   let syncKey = null, data = null, blobMs = 0;
@@ -2524,6 +2519,133 @@ async function correrAsistente(env, pasada, nowMs, forzar) {
       if (t > blobMs) { blobMs = t; syncKey = k; data = parsed; }
     } catch (e) { /* un blob ilegible no puede tumbar la pasada de los demas */ }
   }
+  return { syncKey: syncKey, data: data, blobMs: blobMs };
+}
+
+// El envio del asistente (pasada y chequeo horario): manda a las suscripciones de
+// la sync key, anota cada envio en push_log y poda las muertas. UN solo bloque
+// para los dos caminos. Devuelve cuantos se entregaron.
+async function _asisEnviarPush(env, syncKey, now, titulo, cuerpo, alarmId, pasadaLog) {
+  let enviados = 0;
+  try {
+    const subs = JSON.parse(await env.LBP_KV.get('subs:' + syncKey) || '[]');
+    // Constancia de cada envio y poda de las suscripciones muertas, igual que
+    // sendSmartNotif (worker.js:1892-1915). Este repo ya pago la leccion en
+    // septiembre: sin el registro, un push fallido era indistinguible de uno
+    // entregado y el diagnostico se volvia adivinanza; y una suscripcion
+    // vencida (404/410) que no se borra hace fallar el envio para siempre.
+    const fallos = [];
+    for (const sub of subs) {
+      try {
+        await sendPush(sub, { title: titulo, body: cuerpo,
+          alarmId: alarmId, vibration: 'long' });
+        enviados++;
+      } catch (e) {
+        // un device caido no puede tumbar a los demas, pero si queda anotado
+        fallos.push({ status: e && e.status, msg: String((e && e.message) || e).slice(0, 140),
+          ep: String(sub.endpoint || '').slice(0, 60) });
+        if (e && (e.status === 404 || e.status === 410)) {
+          try { await env.LBP_KV.put('subs:' + syncKey, JSON.stringify(subs.filter(function (s) { return s.endpoint !== sub.endpoint; }))); }
+          catch (e2) { /* la poda puede esperar al proximo envio */ }
+        }
+      }
+    }
+    try {
+      const lk = 'push_log:' + syncKey;
+      const log = JSON.parse(await env.LBP_KV.get(lk) || '[]');
+      log.unshift({ t: new Date(now).toISOString(), type: 'asistente', pasada: pasadaLog,
+        subs: subs.length, sent: enviados, failed: fallos.length, errors: fallos });
+      await env.LBP_KV.put(lk, JSON.stringify(log.slice(0, 40)), { expirationTtl: 1209600 });
+    } catch (e) { /* el log nunca debe romper el envio */ }
+  } catch (e) { /* sin subs legibles queda la entrada en KV */ }
+  return enviados;
+}
+
+// Chequeo horario de las lineas duras: SIN modelo, dos reglas y solo dos. (a) un
+// despacho con el limite de aduana a 1 dia o menos (_asisDetectar ya lo calcula
+// como tipo 'aduana' con dias <= 1, vencido incluido); (b) un item que la ultima
+// pasada marco 'ya' y sigue sin decidir. Son las unicas cosas que no pueden
+// esperar a la proxima pasada. asisDecididos todavia no existe en el blob (lo crea
+// la Tarea 6): una lista ausente es "nada decidido". Elige la sync key con la
+// MISMA regla que la pasada (_asisBlobMasNuevo) y no llama a KV.list().
+// La franja de 7 a 21 (Bolivia) evita que a medianoche un 'ya' pierda su marca y
+// despierte a Pepe; la marca asis_dicho:<id>:<fecha>:<pasada> va ANTES del envio
+// (los dos disparos de la ventana de 2 minutos no mandan dos push) y la pasada
+// parte el dia a las 18:00, asi un item dicho de manana puede volver de tarde.
+async function _asisLineasDuras(env, nowMs) {
+  const now = nowMs || Date.now();
+  const salida = { dichos: [] };
+  const horaBo = new Date(now - 4 * 3600 * 1000).getUTCHours();
+  if (horaBo < 7 || horaBo > 21) return salida;
+  const fecha = _hoyBolivia(now);
+  const pasada = horaBo < 18 ? 'manana' : 'tarde';
+
+  const elegido = await _asisBlobMasNuevo(env);
+  const syncKey = elegido.syncKey, data = elegido.data;
+  if (!data) return salida;
+  // Con datos de hace mas de 18 h el despacho puede estar ya resuelto: se calla,
+  // igual que la pasada (y el aviso de "datos viejos" ya lo da la pasada).
+  if (now - elegido.blobMs > ASIS_BLOB_VIEJO_MS) return salida;
+
+  // Lo que Pepe ya decidio, con la misma regla que la pasada.
+  const excluidos = {};
+  const marcar = function (d) {
+    if (d && d.id && d.decision !== 'revocada') excluidos[String(d.id)] = true;
+  };
+  (data.tareasDecididas || []).forEach(marcar);
+  (data.asisDecididos || []).forEach(marcar);
+
+  const candidatos = [];
+  const vistos = {};
+  const agregar = function (id, texto) {
+    id = String(id || '');
+    if (!id || vistos[id] || excluidos[id]) return;
+    vistos[id] = true;
+    candidatos.push({ id: id, texto: String(texto || id).slice(0, 160) });
+  };
+  // (a) aduana a 1 dia o menos
+  _asisDetectar(data, now).forEach(function (s) {
+    if (s && s.tipo === 'aduana' && s.dias <= 1) agregar(s.id, s.texto);
+  });
+  // (b) los 'ya' de la ultima pasada
+  try {
+    const raw = await env.LBP_KV.get('asis:' + syncKey + ':' + fecha);
+    const entrada = raw ? JSON.parse(raw) : null;
+    ((entrada && entrada.items) || []).forEach(function (x) {
+      if (x && x.urgencia === 'ya') agregar(x.id, x.titulo || x.texto);
+    });
+  } catch (e) { /* sin entrada legible queda solo la regla (a) */ }
+
+  // Marca ANTES del envio; lo ya dicho en esta pasada no vuelve.
+  const nuevos = [];
+  for (const c of candidatos) {
+    const marca = 'asis_dicho:' + c.id + ':' + fecha + ':' + pasada;
+    try { if (await env.LBP_KV.get(marca)) continue; } catch (e) { /* si no se lee, mejor decirlo que callarse */ }
+    await env.LBP_KV.put(marca, String(now), { expirationTtl: ASIS_MARK_TTL });
+    nuevos.push(c);
+  }
+  if (!nuevos.length) return salida;
+
+  const top = nuevos.slice(0, ASIS_PUSH_ITEMS);
+  const cuerpo = top.map(function (x) { return '- ' + x.texto; }).join('\n')
+    + (nuevos.length > top.length ? '\n+' + (nuevos.length - top.length) + ' mas en la app' : '');
+  await _asisEnviarPush(env, syncKey, now, 'Asistente de LB Planner', cuerpo,
+    'asis_' + fecha + '_duras_' + horaBo, 'lineas_duras');
+  salida.dichos = nuevos.map(function (x) { return x.id; });
+  return salida;
+}
+
+async function correrAsistente(env, pasada, nowMs, forzar) {
+  const now = nowMs || Date.now();
+  const fecha = _hoyBolivia(now);
+  const salida = { ok: false, items: [], cegado: false, sinModelo: false, motivo: '' };
+
+  // 1. UNA sola sync key: la del blob con _cloudSaveTime mas nuevo. Misma logica
+  // que /briefing (worker.js:1035-1062). El registro tiene cuatro llaves: sin
+  // este filtro serian cuatro llamadas al modelo por pasada y push a equipos que
+  // ya no son los de Pepe.
+  const elegido = await _asisBlobMasNuevo(env);
+  const syncKey = elegido.syncKey, data = elegido.data, blobMs = elegido.blobMs;
   if (!data) { salida.motivo = 'sin blob sincronizado en el registro'; return salida; }
 
   // El tipo de cambio es la PRIMERA linea y no pasa por el modelo: es lo unico
@@ -2771,37 +2893,8 @@ async function correrAsistente(env, pasada, nowMs, forzar) {
     const top = recortados.slice(0, ASIS_PUSH_ITEMS);
     const cuerpo = top.map(function (x) { return '- ' + x.titulo; }).join('\n')
       + (recortados.length > top.length ? '\n+' + (recortados.length - top.length) + ' mas en la app' : '');
-    try {
-      const subs = JSON.parse(await env.LBP_KV.get('subs:' + syncKey) || '[]');
-      // Constancia de cada envio y poda de las suscripciones muertas, igual que
-      // sendSmartNotif (worker.js:1892-1915). Este repo ya pago la leccion en
-      // septiembre: sin el registro, un push fallido era indistinguible de uno
-      // entregado y el diagnostico se volvia adivinanza; y una suscripcion
-      // vencida (404/410) que no se borra hace fallar el envio para siempre.
-      const fallos = [];
-      for (const sub of subs) {
-        try {
-          await sendPush(sub, { title: 'Asistente de LB Planner', body: cuerpo,
-            alarmId: 'asis_' + fecha + '_' + pasada, vibration: 'long' });
-          enviados++;
-        } catch (e) {
-          // un device caido no puede tumbar a los demas, pero si queda anotado
-          fallos.push({ status: e && e.status, msg: String((e && e.message) || e).slice(0, 140),
-            ep: String(sub.endpoint || '').slice(0, 60) });
-          if (e && (e.status === 404 || e.status === 410)) {
-            try { await env.LBP_KV.put('subs:' + syncKey, JSON.stringify(subs.filter(function (s) { return s.endpoint !== sub.endpoint; }))); }
-            catch (e2) { /* la poda puede esperar al proximo envio */ }
-          }
-        }
-      }
-      try {
-        const lk = 'push_log:' + syncKey;
-        const log = JSON.parse(await env.LBP_KV.get(lk) || '[]');
-        log.unshift({ t: new Date(now).toISOString(), type: 'asistente', pasada: pasada,
-          subs: subs.length, sent: enviados, failed: fallos.length, errors: fallos });
-        await env.LBP_KV.put(lk, JSON.stringify(log.slice(0, 40)), { expirationTtl: 1209600 });
-      } catch (e) { /* el log nunca debe romper el envio */ }
-    } catch (e) { /* sin subs legibles queda la entrada en KV */ }
+    enviados = await _asisEnviarPush(env, syncKey, now, 'Asistente de LB Planner', cuerpo,
+      'asis_' + fecha + '_' + pasada, pasada);
   }
 
   // 11. La senal usada queda consumida: el vigilante solo avisa cuando hay algo
@@ -3048,6 +3141,15 @@ async function scheduledHandler(event, env) {
     if (_asisPasada) {
       try { await correrAsistente(env, _asisPasada, now); }
       catch (e) { /* la pasada no puede tumbar el resto del cron */ }
+    }
+
+    // Lineas duras: minutos 15 y 16 de cada hora (la hora de Bolivia la acota
+    // _asisLineasDuras a 7-21). Sin modelo. Ninguna otra puerta del cron usa mm 15-16
+    // (el TC es mm<5 y 30-35; las demas, mm<5, 20-22, 10-12, 45-47), asi que no
+    // comparte invocacion con nada pesado.
+    if (utcM >= 15 && utcM < 17) {
+      try { await _asisLineasDuras(env, now); }
+      catch (e) { /* el chequeo no puede tumbar el resto del cron */ }
     }
 }
 
