@@ -334,10 +334,31 @@ Dos cosas que la firma no decide y el diseño sí:
 - [ ] **Step 4: Engancharla en `App`**
 
 Un `useEffect` que depende de `data.tasks`, llama a la función y hace `setData`
-**solo si `cambiadas > 0`**. No hace falta bandera de «una sola vez»: la función
-es idempotente y devuelve el mismo array cuando no cambia nada, así que el efecto
-converge en una pasada. Esa convención (misma referencia = nada cambió) es la que
-ya usa `_mergeCloudData`; está documentada en `:1535-1537`.
+**solo si `cambiadas > 0`**. La convención «misma referencia = nada cambió» es la
+que ya usa `_mergeCloudData`, documentada en `:1535-1537`, y es lo que hace que el
+efecto converja en una pasada.
+
+**El efecto tiene que correr una sola vez por dispositivo, y hay que anotarlo.**
+Sin marca no es una conversión: es una imposición permanente. El efecto volvería a
+correr en cada cambio de `data.tasks` y, si el usuario le pone «una sola vez» a la
+alarma de una de esas tareas, se la revierte en el render siguiente. El diseño dice
+lo contrario — que la alarma aparece en el editor y se puede cambiar o apagar tarea
+por tarea — así que la permanencia es un defecto, no una decisión.
+
+La marca va en `localStorage`, con clave `lbp_migr_alarmas_correo`: es una pasada
+local por dispositivo, y la función es idempotente, así que no importa que cada
+dispositivo haga la suya. **No va en los datos sincronizados**, que exigirían una
+clave de sincronización nueva y pensar lápidas.
+
+Y la marca **no se puede poner antes de haber visto los datos de verdad**: en el
+primer render, antes de que termine la bajada de la nube, `data.tasks` puede venir
+vacío; si el efecto se marcara ahí, las tareas que llegan después nunca se
+convertirían. Por eso el efecto espera con
+`if (!window._lbpCloudPullDone && localStorage.getItem('lbp_worker_url')) return;`
+— que se lee «si la nube está configurada y su primera bajada no terminó, esperá».
+`window._lbpCloudPullDone` se pone en `true` en todos los caminos de la bajada
+(éxito, «no hay datos todavía», dispositivo nuevo y error de red); está en
+`:1545`.
 
 - [ ] **Step 5: Correr la suite**
 
