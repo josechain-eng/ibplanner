@@ -3114,17 +3114,23 @@ async function scheduledHandler(event, env) {
 
     // \u2500\u2500 Intelligent Alerts (Bolivia UTC-4) \u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500
     // Stale alarms: Mon-Fri 10am Bolivia = 14:00 UTC
-    // APAGADO 23-nov-2026: lo reemplaza el asistente proactivo (12:20 y 22:10 UTC). Para volver: descomentar el bloque.
+    // APAGADO 23-nov-2026: lo reemplaza el asistente proactivo (12:20 y 22:10 UTC).
+    // OJO: descomentar NO basta. Antes de apagarse ya fallaba: el generador usa `now`, que no esta
+    // definido en sendSmartNotif, y el ReferenceError lo tragaba el catch. Arreglar `now` primero.
     // if (utcH === 14 && utcM < 2 && utcDow >= 1 && utcDow <= 5) {
     //   await sendSmartNotif(env, syncKeys, 'stale_alarms', todayUTC, tomorrowUTC);
     // }
     // Meeting follow-up: every day 9am Bolivia = 13:00 UTC (daily until followedUp)
-    // APAGADO 23-nov-2026: lo reemplaza el asistente proactivo (12:20 y 22:10 UTC). Para volver: descomentar el bloque.
+    // APAGADO 23-nov-2026: lo reemplaza el asistente proactivo (12:20 y 22:10 UTC).
+    // OJO: descomentar NO basta. Antes de apagarse ya fallaba: el generador usa `now`, que no esta
+    // definido en sendSmartNotif, y el ReferenceError lo tragaba el catch. Arreglar `now` primero.
     // if (utcH === 13 && utcM < 2) {
     //   await sendSmartNotif(env, syncKeys, 'meeting_followup', todayUTC, tomorrowUTC);
     // }
     // Project health + Client health: every Monday 9:45am Bolivia = 13:45 UTC
-    // APAGADO 23-nov-2026: lo reemplaza el asistente proactivo (12:20 y 22:10 UTC). Para volver: descomentar el bloque.
+    // APAGADO 23-nov-2026: lo reemplaza el asistente proactivo (12:20 y 22:10 UTC).
+    // OJO: descomentar NO basta. Antes de apagarse ya fallaba: el generador usa `now`, que no esta
+    // definido en sendSmartNotif, y el ReferenceError lo tragaba el catch. Arreglar `now` primero.
     // if (utcDow === 1 && utcH === 13 && utcM >= 45 && utcM < 47) {
     //   await sendSmartNotif(env, syncKeys, 'project_health', todayUTC, tomorrowUTC);
     //   await sendSmartNotif(env, syncKeys, 'client_health', todayUTC, tomorrowUTC);
