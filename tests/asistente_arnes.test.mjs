@@ -21,7 +21,34 @@ test('conReloj restaura Date.now aunque la funcion lance', async () => {
   assert.equal(Date.now, antes);
 });
 
-test('el arnes prohibe salir a la red', async () => {
+test('el arnes prohibe salir a la red, lo registra y restaurar() lo hace fallar', async () => {
   const a = anthropicFalso([]);
-  try { await assert.rejects(() => fetch('https://example.com')); } finally { a.restaurar(); }
+  await assert.rejects(() => fetch('https://example.com/x'), /prohibida.*example\.com/);
+  assert.deepEqual(a.prohibidas, ['https://example.com/x']);
+  // aunque el codigo bajo prueba se haya tragado el error, el cierre falla
+  assert.throws(() => a.restaurar(), /prohibidas/);
+});
+
+test('anthropicFalso deja pasar api.anthropic.com y entrega la respuesta en orden', async () => {
+  const a = anthropicFalso([{ n: 1 }, { n: 2 }]);
+  try {
+    const r1 = await (await fetch('https://api.anthropic.com/v1/messages', { method: 'POST', body: '{"q":1}' })).json();
+    const r2 = await (await fetch('https://api.anthropic.com/v1/messages', { method: 'POST', body: '{"q":2}' })).json();
+    assert.deepEqual([r1, r2], [{ n: 1 }, { n: 2 }]);
+    assert.deepEqual(a.cuerpos, ['{"q":1}', '{"q":2}']);
+    assert.equal(a.llamadas.length, 2);
+  } finally { a.restaurar(); }
+});
+
+test('conReloj fija tambien new Date() sin argumentos y lo restaura', async () => {
+  const D = Date;
+  const ms = Date.UTC(2026, 10, 24, 9, 1);
+  await conReloj(ms, () => {
+    assert.equal(new Date().toISOString(), '2026-11-24T09:01:00.000Z');
+    assert.equal(Date.now(), ms);
+    assert.equal(new Date(0).getTime(), 0);
+    assert.ok(new Date() instanceof D);
+  });
+  assert.equal(globalThis.Date, D);
+  assert.ok(Math.abs(new Date().getTime() - Date.now()) < 1000 && Date.now() !== ms);
 });

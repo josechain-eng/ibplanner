@@ -53,12 +53,19 @@ export function envFalso(opts) {
   return env;
 }
 
-// Fija Date.now y lo restaura siempre, aun si fn lanza.
+// Fija el reloj y lo restaura siempre, aun si fn lanza. Fija Date.now Y el
+// constructor sin argumentos (new Date() no pasa por Date.now): el worker usa
+// ambos. Date se reemplaza por una subclase; con argumentos se comporta igual.
 export async function conReloj(ms, fn) {
-  const original = Date.now;
-  Date.now = () => ms;
+  const DateOriginal = globalThis.Date;
+  const nowOriginal = DateOriginal.now;
+  class DateFija extends DateOriginal {
+    constructor(...args) { if (args.length === 0) super(ms); else super(...args); }
+    static now() { return ms; }
+  }
+  globalThis.Date = DateFija;
   try { return await fn(); }
-  finally { Date.now = original; }
+  finally { globalThis.Date = DateOriginal; DateOriginal.now = nowOriginal; }
 }
 
 // Reemplaza globalThis.fetch. Cualquier host distinto de api.anthropic.com
@@ -73,7 +80,7 @@ export function anthropicFalso(respuestas) {
     const host = new URL(String(u && u.url ? u.url : u)).host;
     if (host !== 'api.anthropic.com') {
       prohibidas.push(String(u));
-      assert.fail('salida a la red prohibida en prueba: ' + host);
+      throw new assert.AssertionError({ message: 'salida a la red prohibida en prueba: ' + host });
     }
     llamadas.push(String(u));
     cuerpos.push(init && init.body !== undefined ? String(init.body) : '');
@@ -81,5 +88,10 @@ export function anthropicFalso(respuestas) {
     const r = cola.shift();
     return r instanceof Response ? r : new Response(JSON.stringify(r), { status: 200, headers: { 'content-type': 'application/json' } });
   };
-  return { llamadas, cuerpos, prohibidas, restaurar() { globalThis.fetch = original; } };
+  // restaurar() devuelve fetch y FALLA si hubo salidas prohibidas, aunque el
+  // worker se haya tragado el error: asi ninguna prueba queda verde por error.
+  return { llamadas, cuerpos, prohibidas, restaurar() {
+    globalThis.fetch = original;
+    assert.deepEqual(prohibidas, [], 'salidas a la red prohibidas durante la prueba');
+  } };
 }
