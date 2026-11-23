@@ -3095,9 +3095,10 @@ async function scheduledHandler(event, env) {
     // enviar los push en UNA sola invocacion la sobrecargaba, y los envios ---que
     // van al final--- morian. Con 3 minutos de separacion el briefing corre en su
     // propia invocacion liviana y lee el TC ya cacheado en KV.
-    if (utcH === 12 && utcM >= 3 && utcM < 5) {
-      await sendSmartNotif(env, syncKeys, 'briefing', todayUTC, tomorrowUTC);
-    }
+    // APAGADO 23-nov-2026: lo reemplaza el asistente proactivo (12:20 y 22:10 UTC). Para volver: descomentar el bloque.
+    // if (utcH === 12 && utcM >= 3 && utcM < 5) {
+    //   await sendSmartNotif(env, syncKeys, 'briefing', todayUTC, tomorrowUTC);
+    // }
     // Habit reminder: 01:00 UTC = 9pm Bolivia (UTC-4)
     if (utcH === 1 && utcM < 2) {
       await sendSmartNotif(env, syncKeys, 'habits', todayUTC, tomorrowUTC);
@@ -3113,18 +3114,21 @@ async function scheduledHandler(event, env) {
 
     // \u2500\u2500 Intelligent Alerts (Bolivia UTC-4) \u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500
     // Stale alarms: Mon-Fri 10am Bolivia = 14:00 UTC
-    if (utcH === 14 && utcM < 2 && utcDow >= 1 && utcDow <= 5) {
-      await sendSmartNotif(env, syncKeys, 'stale_alarms', todayUTC, tomorrowUTC);
-    }
+    // APAGADO 23-nov-2026: lo reemplaza el asistente proactivo (12:20 y 22:10 UTC). Para volver: descomentar el bloque.
+    // if (utcH === 14 && utcM < 2 && utcDow >= 1 && utcDow <= 5) {
+    //   await sendSmartNotif(env, syncKeys, 'stale_alarms', todayUTC, tomorrowUTC);
+    // }
     // Meeting follow-up: every day 9am Bolivia = 13:00 UTC (daily until followedUp)
-    if (utcH === 13 && utcM < 2) {
-      await sendSmartNotif(env, syncKeys, 'meeting_followup', todayUTC, tomorrowUTC);
-    }
+    // APAGADO 23-nov-2026: lo reemplaza el asistente proactivo (12:20 y 22:10 UTC). Para volver: descomentar el bloque.
+    // if (utcH === 13 && utcM < 2) {
+    //   await sendSmartNotif(env, syncKeys, 'meeting_followup', todayUTC, tomorrowUTC);
+    // }
     // Project health + Client health: every Monday 9:45am Bolivia = 13:45 UTC
-    if (utcDow === 1 && utcH === 13 && utcM >= 45 && utcM < 47) {
-      await sendSmartNotif(env, syncKeys, 'project_health', todayUTC, tomorrowUTC);
-      await sendSmartNotif(env, syncKeys, 'client_health', todayUTC, tomorrowUTC);
-    }
+    // APAGADO 23-nov-2026: lo reemplaza el asistente proactivo (12:20 y 22:10 UTC). Para volver: descomentar el bloque.
+    // if (utcDow === 1 && utcH === 13 && utcM >= 45 && utcM < 47) {
+    //   await sendSmartNotif(env, syncKeys, 'project_health', todayUTC, tomorrowUTC);
+    //   await sendSmartNotif(env, syncKeys, 'client_health', todayUTC, tomorrowUTC);
+    // }
 
     // === ASISTENTE PROACTIVO ====================================================
     // Dos pasadas al dia, cada una en su propia invocacion: 12:20-12:22 UTC
