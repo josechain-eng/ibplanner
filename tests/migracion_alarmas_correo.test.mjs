@@ -1,0 +1,60 @@
+// Conversion de las tareas del correo ya aceptadas (alarma 'once') a 'weekdays2'.
+import { test } from 'node:test';
+import assert from 'node:assert/strict';
+import fs from 'node:fs';
+import path from 'node:path';
+import { fileURLToPath } from 'node:url';
+
+const raiz = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
+const html = fs.readFileSync(path.join(raiz, 'LifeBusinessPlanner2026.html'), 'utf8');
+
+function cuerpo(i) {
+  let nivel = 0;
+  for (let j = html.indexOf('{', i); j < html.length; j++) {
+    if (html[j] === '{') nivel++;
+    else if (html[j] === '}' && --nivel === 0) return html.slice(i, j + 1);
+  }
+  assert.fail('no cierra');
+}
+const i = html.indexOf('window._lbpMigrarAlarmasCorreo = function');
+assert.ok(i > 0, 'no encuentro window._lbpMigrarAlarmasCorreo');
+const win = new Function('var window = {};\n' + cuerpo(i) + ';\nreturn window;')();
+
+const base = (over) => Object.assign({
+  id: 't1', title: 'Pagar royalty', status: 'INBOX', tags: ['Correo'],
+  alarm: { enabled: true, datetime: '2026-11-20T09:40:00', recurrence: 'once' }
+}, over);
+
+test('convierte la tarea del correo sin terminar', () => {
+  const r = win._lbpMigrarAlarmasCorreo([base()]);
+  assert.equal(r.cambiadas, 1);
+  assert.equal(r.tasks[0].alarm.recurrence, 'weekdays2');
+  assert.equal(r.tasks[0].alarm.datetime, '2026-11-20T09:40:00'); // la base NO se toca
+});
+
+test('es idempotente: la segunda pasada no cambia nada', () => {
+  const r1 = win._lbpMigrarAlarmasCorreo([base()]);
+  const r2 = win._lbpMigrarAlarmasCorreo(r1.tasks);
+  assert.equal(r2.cambiadas, 0);
+  assert.equal(r2.tasks, r1.tasks, 'sin cambios tiene que devolver el MISMO array');
+});
+
+test('no toca lo que no corresponde', () => {
+  for (const t of [
+    base({ status: 'DONE' }), base({ status: 'CANCELLED' }), base({ status: 'ARCHIVED' }),
+    base({ tags: ['Trabajo'] }), base({ tags: undefined }),
+    base({ alarm: { enabled: false, datetime: '2026-11-20T09:40:00', recurrence: 'once' } }),
+    base({ alarm: { enabled: true, datetime: '2026-11-20T09:40:00', recurrence: 'daily' } }),
+    base({ alarm: null }),
+  ]) assert.equal(win._lbpMigrarAlarmasCorreo([t]).cambiadas, 0, JSON.stringify(t.alarm) + ' ' + t.status);
+});
+
+test('no inventa updatedAt: lo sella el camino de sincronizacion', () => {
+  const r = win._lbpMigrarAlarmasCorreo([base()]);
+  assert.equal('updatedAt' in r.tasks[0], false);
+});
+
+test('una lista vacia o ausente no rompe', () => {
+  assert.equal(win._lbpMigrarAlarmasCorreo([]).cambiadas, 0);
+  assert.equal(win._lbpMigrarAlarmasCorreo(undefined).cambiadas, 0);
+});

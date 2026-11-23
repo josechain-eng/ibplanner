@@ -171,6 +171,24 @@
     var m = d.getMonth() + 1, dia = d.getDate();
     return !cache[anio].some(function(e) { return e.m === m && e.d === dia; });
   };
+  // Las tareas del correo ya aceptadas nacieron con alarma 'once' (suena una vez y
+  // se olvidan). Las pasa a 'weekdays2'. Idempotente; sin cambios devuelve el MISMO
+  // array (convencion de _mergeCloudData). NO toca updatedAt: _stampUpdatedAt lo
+  // sella al ver que alarm.recurrence difiere de la nube.
+  window._lbpMigrarAlarmasCorreo = function(tasks) {
+    if (!Array.isArray(tasks)) return { tasks: tasks, cambiadas: 0 };
+    var cambiadas = 0;
+    var out = tasks.map(function(t) {
+      if (!t || !Array.isArray(t.tags) || t.tags.indexOf('Correo') < 0) return t;
+      if (t.status === 'DONE' || t.status === 'CANCELLED' || t.status === 'ARCHIVED') return t;
+      var al = t.alarm;
+      if (!al || !al.enabled || !al.datetime) return t;
+      if ((al.recurrence || 'once') !== 'once') return t;
+      cambiadas++;
+      return Object.assign({}, t, { alarm: Object.assign({}, al, { recurrence: 'weekdays2' }) });
+    });
+    return { tasks: cambiadas ? out : tasks, cambiadas: cambiadas };
+  };
   // Devuelve eventos en los próximos `months` meses (por defecto 3), ordenados por fecha.
   window._lbpUpcomingEvents = function(fromDate, months) {
     months = months || 3;
@@ -20816,6 +20834,19 @@ var App = function App() {
     window.addEventListener('lbp_cloud_sync', onCloudSync);
     return function() { window.removeEventListener('lbp_cloud_sync', onCloudSync); };
   }, []);
+
+  // Convierte una sola vez las tareas del correo ya aceptadas (alarma 'once') a
+  // 'weekdays2'. Converge en una pasada: sin cambios, setData no se llama.
+  useEffect(function() {
+    if (!data || !window._lbpMigrarAlarmasCorreo) return;
+    var r = window._lbpMigrarAlarmasCorreo(data.tasks);
+    if (r.cambiadas > 0) {
+      setData(function(prev) {
+        var m = window._lbpMigrarAlarmasCorreo(prev.tasks);
+        return m.cambiadas > 0 ? Object.assign({}, prev, { tasks: m.tasks }) : prev;
+      });
+    }
+  }, [data && data.tasks]);
 
   // Auto-pull from cloud every 5 minutes (desktop keeps data fresh without manual refresh)
   useEffect(function() {
