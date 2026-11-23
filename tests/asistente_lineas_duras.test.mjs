@@ -298,3 +298,52 @@ test('el cuerpo del push del chequeo horario empieza por el tipo de cambio', asy
     'el push de las lineas duras no lleva el tipo de cambio');
   assert.match(cuerpo.body, /aduana vence en 1 dia/, 'y la linea dura sigue estando debajo');
 });
+
+// ── I7: el chequeo horario deja de parsear los cuatro blobs ────────────────
+// Una invocacion que parsea los cuatro blobs del registro son ~18 MB de JSON;
+// el chequeo corre 30 veces al dia. Este repo ya murio dos veces por un tick del
+// cron que hacia demasiado. La pasada deja escrita la llave elegida y el chequeo
+// lee ESE blob; si la entrada no esta o su blob desaparecio, cae a la regla
+// completa (_asisBlobMasNuevo) y no se queda sin nada.
+function conGets(kv) {
+  const get0 = kv.get;
+  kv._gets = [];
+  kv.get = async (k) => { kv._gets.push(k); return get0(k); };
+  return kv;
+}
+const blobsLeidos = (kv) => kv._gets.filter((k) => k.indexOf('data:') === 0);
+
+test('con la llave escrita, el chequeo horario lee UN solo blob', async () => {
+  const ms = bo(10, 40);
+  const kv = conGets(mundo({ registro: ['k_a', 'k_b', 'k_c', KEY], blobs: {
+    k_a: { saveTime: ms - 9 * H, data: {} }, k_b: { saveTime: ms - 8 * H, data: {} },
+    k_c: { saveTime: ms - 7 * H, data: {} },
+    [KEY]: { saveTime: ms - 1 * H, data: { imports: [imp('i1', '2026-11-25')] } } },
+    extra: { asis_llave: KEY } }));
+  const r = await correr(kv, ms);
+  assert.equal(r.push.length, 1, 'con la llave escrita el chequeo dejo de avisar');
+  assert.deepEqual(blobsLeidos(kv), ['data:' + KEY],
+    'el chequeo leyo ' + blobsLeidos(kv).length + ' blobs: tiene que leer uno');
+  assert.deepEqual(kv._lists, [], 'y nunca lista el KV');
+});
+
+test('sin la llave escrita, el chequeo horario cae a la regla completa', async () => {
+  const ms = bo(10, 40);
+  const kv = conGets(mundo({ registro: ['k_vieja', KEY], blobs: {
+    k_vieja: { saveTime: ms - 5 * H, data: {} },
+    [KEY]: { saveTime: ms - 1 * H, data: { imports: [imp('i1', '2026-11-25')] } } } }));
+  const r = await correr(kv, ms);
+  assert.equal(r.push.length, 1, 'sin la llave el chequeo se quedo mudo');
+  assert.equal(blobsLeidos(kv).length, 2, 'la regla completa recorre el registro entero');
+});
+
+test('con la llave apuntando a un blob que ya no existe, cae a la regla completa', async () => {
+  const ms = bo(10, 40);
+  const kv = conGets(mundo({ registro: ['k_vieja', KEY], blobs: {
+    k_vieja: { saveTime: ms - 5 * H, data: {} },
+    [KEY]: { saveTime: ms - 1 * H, data: { imports: [imp('i1', '2026-11-25')] } } },
+    extra: { asis_llave: 'k_que_ya_no_esta' } }));
+  const r = await correr(kv, ms);
+  assert.equal(r.push.length, 1,
+    'una llave rancia no puede dejar al chequeo horario sin datos');
+});

@@ -507,3 +507,22 @@ test('al prompt van los 200 ids decididos mas recientes, pero filtran TODOS', as
   assert.deepEqual(entradaDe(kv).items.map((x) => x.id), ['nuevo'],
     'un id decidido viejo se colo en la entrada porque el filtro quedo recortado');
 });
+
+// ── I7: la pasada deja escrita la llave elegida ────────────────────────────
+test('la pasada escribe la llave elegida para que el chequeo horario no busque', async () => {
+  const kv = mundo({ blobs: {
+    k_vieja: { saveTime: MANANA - 10 * H, data: {} },
+    k_uno: { saveTime: MANANA - 2 * H, sub: SUB.sub, data: { tasks: [] } } } });
+  await correr(kv, MANANA, [JSON_OK([])]);
+  assert.equal(kv._map.get('asis_llave'), 'k_uno',
+    'sin esto el chequeo horario parsea los cuatro blobs del registro 30 veces al dia');
+  assert.ok(kv._opts.get('asis_llave').expirationTtl > 0,
+    'la llave tiene que caducar: si la pasada deja de correr, la regla completa vuelve');
+});
+
+test('tambien la escribe el camino del blob viejo', async () => {
+  // La eleccion es la misma; lo que cambia es que esa pasada no llama al modelo.
+  const kv = mundo({ blobs: { k_uno: { saveTime: MANANA - 72 * H, sub: SUB.sub, data: {} } } });
+  await correr(kv, MANANA, []);
+  assert.equal(kv._map.get('asis_llave'), 'k_uno');
+});

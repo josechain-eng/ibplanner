@@ -2589,6 +2589,29 @@ async function _asisTcLinea(env, nowMs) {
   return { tc: null, linea: '' };
 }
 
+// La llave que la ULTIMA pasada eligio. El chequeo horario corre 30 veces al dia
+// y _asisBlobMasNuevo parsea los cuatro blobs del registro en cada corrida (del
+// orden de 18 MB de JSON por invocacion); este repo ya se quedo dos veces sin
+// aviso por un tick del cron que hacia demasiado. La pasada deja la llave
+// escrita y el chequeo lee ESE blob: cuatro parseos pasan a uno.
+// Si la entrada no esta (la pasada todavia no corrio, o caduco porque dejo de
+// correr) o su blob ya no existe, se cae a la regla completa: una llave rancia no
+// puede dejar al chequeo horario sin datos.
+const ASIS_LLAVE_TTL = 7 * 86400;
+async function _asisBlobElegido(env) {
+  try {
+    const k = await env.LBP_KV.get('asis_llave');
+    if (k) {
+      const raw = await env.LBP_KV.get('data:' + k);
+      if (raw) {
+        const parsed = JSON.parse(raw);
+        return { syncKey: k, data: parsed, blobMs: parsed._cloudSaveTime || 0 };
+      }
+    }
+  } catch (e) { /* cualquier problema con el atajo cae a la regla completa */ }
+  return _asisBlobMasNuevo(env);
+}
+
 // El envio del asistente (pasada y chequeo horario): manda a las suscripciones de
 // la sync key, anota cada envio en push_log y poda las muertas. UN solo bloque
 // para los dos caminos. Devuelve cuantos se entregaron.
@@ -2655,7 +2678,7 @@ async function _asisLineasDuras(env, nowMs) {
   const fecha = _hoyBolivia(now);
   const pasada = horaBo < 18 ? 'manana' : 'tarde';
 
-  const elegido = await _asisBlobMasNuevo(env);
+  const elegido = await _asisBlobElegido(env);
   const syncKey = elegido.syncKey, data = elegido.data;
   if (!data) return salida;
   // Con datos de hace mas de 18 h el despacho puede estar ya resuelto: se calla,
@@ -2722,6 +2745,13 @@ async function correrAsistente(env, pasada, nowMs, forzar) {
   const elegido = await _asisBlobMasNuevo(env);
   const syncKey = elegido.syncKey, data = elegido.data, blobMs = elegido.blobMs;
   if (!data) { salida.motivo = 'sin blob sincronizado en el registro'; return salida; }
+  // La llave elegida queda escrita para que el chequeo horario no tenga que
+  // repetir la busqueda (lee un blob en vez de cuatro). Va ANTES del camino del
+  // blob viejo a proposito: la eleccion es la misma, lo que cambia es que esa
+  // pasada no llama al modelo. Con TTL: si la pasada deja de correr, el atajo
+  // caduca y vuelve la regla completa.
+  try { await env.LBP_KV.put('asis_llave', syncKey, { expirationTtl: ASIS_LLAVE_TTL }); }
+  catch (e) { /* sin atajo el chequeo horario sigue funcionando, solo mas caro */ }
 
   // El tipo de cambio es la PRIMERA linea y no pasa por el modelo: es lo unico
   // del briefing que Pepe valora, asi que una llamada caida no puede hacerselo
