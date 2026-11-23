@@ -80,6 +80,10 @@ const tarjeta = t0 > 0 && t1 > t0 ? html.slice(t0, t1) : '';
 // Sin los comentarios: nombran lo que NO hay que hacer (toISOString) y un
 // `assert.ok(!/.../)` sobre el texto crudo cazaria el comentario, no el codigo.
 const tarjetaCodigo = tarjeta.replace(/^\s*\/\/.*$/gm, '');
+// El encabezado de la tarjeta del Home, donde vive el titulo.
+const e0 = html.indexOf("background:'rgba(156,104,214,.12)'");
+const e1 = html.indexOf("brfOpen&&/*#__PURE__*/React.createElement(\"div\",{style:{padding:'0 14px 14px'}}", e0);
+const encabezado = e0 > 0 && e1 > e0 ? html.slice(e0, e1) : '';
 
 // ── Datos de prueba ────────────────────────────────────────────────────────
 const AHORA = new Date(2026, 10, 23, 20, 0, 0).getTime();   // 23-nov 20:00 local
@@ -153,6 +157,34 @@ test('la tarjeta pide /asistente con la fecha local y cae a /briefing-ai', () =>
   assert.match(tarjetaCodigo, /\/briefing-ai\?key=/, 'sin entrada del asistente la tarjeta cae al briefing');
   assert.ok(tarjetaCodigo.indexOf('/asistente?key=') < tarjetaCodigo.indexOf('/briefing-ai?key='),
     'el asistente va primero y el briefing es la red, no al revez');
+});
+
+test('el titulo de la tarjeta dice de donde salio lo que pinta', () => {
+  // La tarjeta rendea brfData.summary, que puede venir del asistente o del
+  // briefing viejo. Decir "Briefing del dia" sobre el summary del asistente
+  // confunde al unico que la mira. El titulo sale del ORIGEN de brfData, no de
+  // un estado aparte, asi no se puede desincronizar de lo que se esta pintando.
+  assert.ok(encabezado.length > 200, 'no se encontro el encabezado de la tarjeta');
+  const m = encabezado.match(/\(brfData&&brfData\._asis\)\?\s*("(?:[^"\\]|\\.)*")\s*:\s*("(?:[^"\\]|\\.)*")/);
+  assert.ok(m, 'el titulo tiene que elegirse por brfData._asis');
+  const titulo = new Function('brfData', 'return (brfData&&brfData._asis)?' + m[1] + ':' + m[2] + ';');
+  const delAsis = titulo({ summary: 'TC oficial: Bs 11.80', generated: GENERADO, _asis: true });
+  const delBrief = titulo({ summary: 'VENCIDAS: 3', generated: GENERADO });
+  assert.match(delAsis, /Asistente/);
+  assert.ok(!/Briefing/.test(delAsis), 'con datos del asistente no puede decir Briefing');
+  assert.match(delBrief, /Briefing/, 'cuando cae al briefing el titulo vuelve a ser el de siempre');
+  assert.ok(!/Asistente/.test(delBrief));
+  assert.match(titulo(null), /Briefing/, 'sin datos todavia, el titulo de siempre');
+});
+
+test('la marca de origen la pone SOLO la rama del asistente', () => {
+  const iA = tarjetaCodigo.indexOf('/asistente?key=');
+  const iB = tarjetaCodigo.indexOf('/briefing-ai?key=');
+  assert.ok(iA > 0 && iB > iA);
+  assert.match(tarjetaCodigo.slice(iA, iB), /setBrfData\(\{[^}]*_asis:true[^}]*\}\)/,
+    'la rama del asistente tiene que marcar el origen');
+  assert.ok(!/_asis/.test(tarjetaCodigo.slice(iB)),
+    'la rama del briefing no puede marcar la tarjeta como del asistente');
 });
 
 // ── 3. refId que no existe ─────────────────────────────────────────────────

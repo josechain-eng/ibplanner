@@ -5626,7 +5626,9 @@ var HomeScreen = function HomeScreen(_ref14) {
           setAsisEntrada(j.entrada);
           // El renderizador de la tarjeta ya pinta `summary` como lineas y la
           // primera linea del asistente es el TC: no hace falta reescribirlo.
-          if(j.entrada.summary)setBrfData({summary:j.entrada.summary,generated:j.entrada.generado});
+          // _asis marca el ORIGEN de lo que pinta la tarjeta, y de ahi sale el
+          // titulo: no puede decir "Briefing" sobre el summary del asistente.
+          if(j.entrada.summary)setBrfData({summary:j.entrada.summary,generated:j.entrada.generado,_asis:true});
           return null;
         }
         // Sin entrada del asistente queda el briefing viejo como red.
@@ -5930,7 +5932,8 @@ var HomeScreen = function HomeScreen(_ref14) {
   /*#__PURE__*/React.createElement("div",{style:{margin:'12px 24px 0',background:'rgba(156,104,214,.12)',border:'1px solid rgba(156,104,214,.35)',borderRadius:14,overflow:'hidden'}},
     /*#__PURE__*/React.createElement("div",{onClick:function(){setBrfOpen(function(v){return!v;});},style:{display:'flex',alignItems:'center',justifyContent:'space-between',padding:'10px 14px',cursor:'pointer'}},
       /*#__PURE__*/React.createElement("div",{style:{display:'flex',alignItems:'center',gap:8}},
-        /*#__PURE__*/React.createElement("span",{style:{fontSize:13,fontWeight:700,color:'var(--purple-light)'}},"\uD83C\uDF05 Briefing del d\u00eda"),
+        /*#__PURE__*/React.createElement("span",{style:{fontSize:13,fontWeight:700,color:'var(--purple-light)'}},
+          (brfData&&brfData._asis)?"\uD83E\uDD16 Asistente del d\u00eda":"\uD83C\uDF05 Briefing del d\u00eda"),
         brfRecs.length>0&&/*#__PURE__*/React.createElement("span",{style:{fontSize:10,fontWeight:700,background:'#F59E0B',color:'#000',borderRadius:10,padding:'1px 6px'}},brfRecs.filter(function(r){return r.priority==='URGENTE';}).length>0?'\uD83D\uDD34 '+brfRecs.filter(function(r){return r.priority==='URGENTE';}).length+' urgente'+(brfRecs.filter(function(r){return r.priority==='URGENTE';}).length>1?'s':''):brfRecs.length+' alertas')
       ),
       /*#__PURE__*/React.createElement("div",{style:{display:'flex',alignItems:'center',gap:8}},
