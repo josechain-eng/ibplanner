@@ -3771,6 +3771,30 @@ window._lbpAsisFrescos = function(entrada, nowMs, decididas) {
   var todoDecidido = pintables.length > 0 && items.length === 0;
   return { items: items, fresca: fresca, deHoy: deHoy, de: de, todoDecidido: todoDecidido };
 };
+// Cual de las dos pasadas del dia ya corrio, en hora LOCAL (la manana a las 8:20,
+// la tarde a las 18:10; nada de toISOString, que despues de las 20:00 de Bolivia
+// ya es otro dia). Devuelve '' antes de la primera.
+window._lbpAsisPasadaEsperada = function(nowMs) {
+  var d = new Date(nowMs);
+  var min = d.getHours() * 60 + d.getMinutes();
+  if (min >= 18 * 60 + 10) return 'tarde';
+  if (min >= 8 * 60 + 20) return 'manana';
+  return '';
+};
+// Si lo que ya se tiene quedo viejo: no hay nada, es de otro dia, o la pasada de
+// la tarde ya corrio y lo que hay es de la manana. El efecto de la tarjeta corre
+// UNA sola vez ([]): en Android el push remonta la PWA y se vuelve a pedir solo,
+// pero en la Mac con la pestania abierta desde la manana no, y entonces el push
+// decia una cosa y el bloque seguia mostrando la lista de las 8:20.
+window._lbpAsisHayQueRefrescar = function(entrada, nowMs) {
+  var e = entrada;
+  if (!e || e.generado == null) return true;
+  var g = new Date(e.generado);
+  if (isNaN(g.getTime())) return true;
+  if (_fechaLocal(g) !== _fechaLocal(new Date(nowMs))) return true;
+  if (window._lbpAsisPasadaEsperada(nowMs) === 'tarde' && e.pasada !== 'tarde') return true;
+  return false;
+};
 // A que puede llevar un item. El worker acota `ruta` a esta lista blanca, pero
 // una entrada vieja de KV puede traer otra cosa; y `refId` NO lo valida nadie:
 // puede nombrar una tarea que ya se borro. Sin entidad no hay tilde (cerraria
@@ -5635,31 +5659,55 @@ var HomeScreen = function HomeScreen(_ref14) {
     if(!window.LBP_WORKER_URL)return;
     var sk=localStorage.getItem('lbp_sync_key');
     if(!sk)return;
-    // La fecha va en hora LOCAL. Con toISOString() --que es lo que hacia esta
-    // tarjeta-- despues de las 20:00 de Bolivia se pedia la fecha de MANIANA, y
-    // el worker guarda por fecha de Bolivia: no volvia nada y la tarjeta quedaba
-    // en blanco todas las noches.
-    var today=_fechaLocal(new Date());
-    setBrfLoad(true);
-    fetch(window.LBP_WORKER_URL+'/asistente?key='+encodeURIComponent(sk)+'&date='+today)
-      .then(function(r){return r&&r.ok?r.json():null;})
-      .then(function(j){
-        if(j&&j.ready&&j.entrada){
-          setAsisEntrada(j.entrada);
-          // El renderizador de la tarjeta ya pinta `summary` como lineas y la
-          // primera linea del asistente es el TC: no hace falta reescribirlo.
-          // _asis marca el ORIGEN de lo que pinta la tarjeta, y de ahi sale el
-          // titulo: no puede decir "Briefing" sobre el summary del asistente.
-          if(j.entrada.summary)setBrfData({summary:j.entrada.summary,generated:j.entrada.generado,_asis:true});
-          return null;
-        }
-        // Sin entrada del asistente queda el briefing viejo como red.
-        return fetch(window.LBP_WORKER_URL+'/briefing-ai?key='+encodeURIComponent(sk)+'&date='+today)
-          .then(function(r){return r&&r.ok?r.json():null;})
-          .then(function(d){if(d&&d.ready&&d.briefing){try{setBrfData(JSON.parse(d.briefing));}catch(e){}}});
-      })
-      .catch(function(){})
-      .finally(function(){setBrfLoad(false);});
+    // `ultima` vive en el CIERRE y no en el estado: este efecto corre una sola vez
+    // ([]), asi que leer `asisEntrada` de arriba lo dejaria congelado en null y
+    // cada foco volveria a pedir aunque ya estuviera al dia.
+    var ultima=null,pidiendo=false;
+    var traer=function(){
+      if(pidiendo)return;
+      pidiendo=true;
+      // La fecha va en hora LOCAL. Con toISOString() --que es lo que hacia esta
+      // tarjeta-- despues de las 20:00 de Bolivia se pedia la fecha de MANIANA, y
+      // el worker guarda por fecha de Bolivia: no volvia nada y la tarjeta quedaba
+      // en blanco todas las noches.
+      var today=_fechaLocal(new Date());
+      setBrfLoad(true);
+      return fetch(window.LBP_WORKER_URL+'/asistente?key='+encodeURIComponent(sk)+'&date='+today)
+        .then(function(r){return r&&r.ok?r.json():null;})
+        .then(function(j){
+          if(j&&j.ready&&j.entrada){
+            ultima=j.entrada;
+            setAsisEntrada(j.entrada);
+            // El renderizador de la tarjeta ya pinta `summary` como lineas y la
+            // primera linea del asistente es el TC: no hace falta reescribirlo.
+            // _asis marca el ORIGEN de lo que pinta la tarjeta, y de ahi sale el
+            // titulo: no puede decir "Briefing" sobre el summary del asistente.
+            if(j.entrada.summary)setBrfData({summary:j.entrada.summary,generated:j.entrada.generado,_asis:true});
+            return null;
+          }
+          // Sin entrada del asistente queda el briefing viejo como red.
+          return fetch(window.LBP_WORKER_URL+'/briefing-ai?key='+encodeURIComponent(sk)+'&date='+today)
+            .then(function(r){return r&&r.ok?r.json():null;})
+            .then(function(d){if(d&&d.ready&&d.briefing){try{setBrfData(JSON.parse(d.briefing));}catch(e){}}});
+        })
+        .catch(function(){})
+        .finally(function(){pidiendo=false;setBrfLoad(false);});
+    };
+    traer();
+    // Al volver a la pestania se re-pide SOLO si lo que hay quedo viejo. En la Mac
+    // la pestania queda abierta desde la manana y el efecto no volvia a correr: el
+    // push de las 18:10 decia una cosa y el bloque seguia en la lista de las 8:20.
+    var alVolver=function(){
+      if(typeof document!=='undefined'&&document.visibilityState==='hidden')return;
+      if(!window._lbpAsisHayQueRefrescar(ultima,Date.now()))return;
+      traer();
+    };
+    if(typeof document!=='undefined'&&document.addEventListener)document.addEventListener('visibilitychange',alVolver);
+    if(window.addEventListener)window.addEventListener('focus',alVolver);
+    return function(){
+      if(typeof document!=='undefined'&&document.removeEventListener)document.removeEventListener('visibilitychange',alVolver);
+      if(window.removeEventListener)window.removeEventListener('focus',alVolver);
+    };
   },[]);
   /*FIN_TARJETA_ASIS*/
   var _brfK=useState([]),_brfL=_slicedToArray(_brfK,2),brfRecs=_brfL[0],setBrfRecs=_brfL[1];

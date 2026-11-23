@@ -54,7 +54,8 @@ const FUENTES = fuenteFn('_fechaLocal') +
   fuenteObj('_LBP_ASIS_URG') + fuenteObj('_LBP_ASIS_RUTAS') + fuenteObj('_LBP_ASIS_DECISIONES') +
   fuenteWin('_lbpAsisUrg') + fuenteWin('_lbpAsisFrescos') +
   fuenteWin('_lbpAsisDecidir') + fuenteWin('_lbpAsisDestino') +
-  fuenteWin('_tpPodarDecididas');   // _lbpAsisDecidir reusa la poda de tareasDecididas
+  fuenteWin('_tpPodarDecididas') +   // _lbpAsisDecidir reusa la poda de tareasDecididas
+  fuenteWin('_lbpAsisPasadaEsperada') + fuenteWin('_lbpAsisHayQueRefrescar');
 
 const win = new Function('var window = {};\n' + FUENTES + 'return window;')();
 
@@ -689,4 +690,101 @@ test('asisDecididos se poda a 180 dias, con la misma regla que tareasDecididas',
   const d2 = win._lbpAsisDecidir(d, 'nuevo', 'no');
   assert.equal(d2.asisDecididos.filter(function (x) { return x.id === 'nuevo'; }).length, 1);
   assert.equal(d2.asisDecididos.find(function (x) { return x.id === 'nuevo'; }).decision, 'no');
+});
+
+// ── I3: la entrada se vuelve a pedir al volver a la pestania ───────────────
+test('_lbpAsisPasadaEsperada parte el dia en las dos pasadas, en hora local', () => {
+  const a = (h, m) => new Date(2026, 10, 24, h, m, 0).getTime();
+  assert.equal(win._lbpAsisPasadaEsperada(a(8, 19)), '', 'antes de las 8:20 no hay pasada del dia');
+  assert.equal(win._lbpAsisPasadaEsperada(a(8, 20)), 'manana');
+  assert.equal(win._lbpAsisPasadaEsperada(a(18, 9)), 'manana');
+  assert.equal(win._lbpAsisPasadaEsperada(a(18, 10)), 'tarde');
+  assert.equal(win._lbpAsisPasadaEsperada(a(23, 59)), 'tarde');
+});
+
+test('_lbpAsisHayQueRefrescar dice cuando lo que hay quedo viejo', () => {
+  const hoy = (h, m) => new Date(2026, 10, 24, h, m, 0).getTime();
+  const ayer = new Date(2026, 10, 23, 18, 10, 0).getTime();
+  const man = { generado: hoy(8, 20), pasada: 'manana' };
+  const tar = { generado: hoy(18, 10), pasada: 'tarde' };
+  assert.equal(win._lbpAsisHayQueRefrescar(null, hoy(10, 0)), true, 'sin nada hay que pedir');
+  assert.equal(win._lbpAsisHayQueRefrescar({ generado: ayer, pasada: 'tarde' }, hoy(9, 0)), true,
+    'la entrada de ayer no sirve');
+  assert.equal(win._lbpAsisHayQueRefrescar({ generado: 'manana' }, hoy(9, 0)), true,
+    'una fecha ilegible se trata como que no hay nada');
+  assert.equal(win._lbpAsisHayQueRefrescar(man, hoy(10, 0)), false,
+    'a las 10:00 la entrada de la manana es la ultima que hay: no se pide de gusto');
+  assert.equal(win._lbpAsisHayQueRefrescar(man, hoy(18, 30)), true,
+    'pasada la pasada de la tarde, la lista de las 8:20 ya no es la que hay');
+  assert.equal(win._lbpAsisHayQueRefrescar(tar, hoy(18, 30)), false);
+  assert.equal(win._lbpAsisHayQueRefrescar(tar, hoy(23, 0)), false);
+});
+
+test('al volver a la pestania se vuelve a pedir /asistente si quedo viejo', async () => {
+  // En Android el push remonta la PWA y el pedido del montaje alcanza. En la Mac,
+  // con la pestania abierta desde la manana, el efecto corria UNA vez ([]): el
+  // push de las 18:10 decia una cosa y el bloque seguia mostrando la lista de las
+  // 8:20. Se mide corriendo el efecto de verdad con un fetch y un document falsos.
+  const hoy = (h, m) => new Date(2026, 10, 24, h, m, 0).getTime();
+  function correrEfecto() {
+    const llamadas = [];
+    const oyentes = {};
+    const quitados = [];
+    // El worker devuelve la entrada de la ULTIMA pasada que corrio: a las 10:00 la
+    // de la manana, pasadas las 18:10 la de la tarde. Si el doble devolviera
+    // siempre la de la manana, cada foco pediria de nuevo para siempre y la cuarta
+    // afirmacion de esta prueba no podria distinguir nada.
+    const entradaDe = () => (win._lbpAsisPasadaEsperada(Date.now()) === 'tarde'
+      ? { generado: hoy(18, 10), pasada: 'tarde', items: [ITEM()], summary: 'TC oficial: Bs 11.80' }
+      : { generado: hoy(8, 20), pasada: 'manana', items: [ITEM()], summary: 'TC oficial: Bs 11.80' });
+    const escuchar = (t, f) => { (oyentes[t] = oyentes[t] || []).push(f); };
+    const olvidar = (t, f) => { quitados.push(t); oyentes[t] = (oyentes[t] || []).filter((g) => g !== f); };
+    const ventanilla = Object.assign({}, win, { LBP_WORKER_URL: 'https://w.example.test',
+      addEventListener: escuchar, removeEventListener: olvidar });
+    const documento = { visibilityState: 'visible', addEventListener: escuchar, removeEventListener: olvidar };
+    const pedir = (u) => { llamadas.push(String(u));
+      return Promise.resolve({ ok: true, json: () => Promise.resolve({ ready: true, entrada: entradaDe() }) }); };
+    let limpiar = null;
+    const useEffect = (fn) => { limpiar = fn(); };
+    new Function('useEffect', 'window', 'document', 'localStorage', 'fetch', '_fechaLocal',
+      'setBrfLoad', 'setAsisEntrada', 'setBrfData', '{' + tarjeta + '}')(
+      useEffect, ventanilla, documento, { getItem: () => 'lbp_clave_de_prueba' }, pedir,
+      win._fechaLocal || ((d) => d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0')),
+      () => {}, () => {}, () => {});
+    return { llamadas, oyentes, quitados, limpiar: () => limpiar && limpiar(),
+      disparar: (t) => (oyentes[t] || []).forEach((f) => f()) };
+  }
+  // El reloj se fija como en el arnes del worker: el efecto pregunta Date.now().
+  const DateReal = globalThis.Date;
+  const fijar = (ms) => { class D extends DateReal {
+      constructor(...a) { if (!a.length) super(ms); else super(...a); }
+      static now() { return ms; } }
+    globalThis.Date = D; };
+  const asentar = () => new Promise((r) => setTimeout(r, 0));
+
+  try {
+    fijar(hoy(10, 0));
+    const e = correrEfecto();
+    await asentar(); await asentar();
+    assert.equal(e.llamadas.length, 1, 'el montaje tiene que pedir la entrada una vez');
+    assert.ok(e.oyentes.visibilitychange && e.oyentes.visibilitychange.length,
+      'nadie escucha el volver a la pestania');
+    assert.ok(e.oyentes.focus && e.oyentes.focus.length, 'nadie escucha el foco de la ventana');
+    // A las 10:00 lo que hay sigue siendo lo ultimo: volver a la pestania no pide.
+    e.disparar('visibilitychange');
+    await asentar();
+    assert.equal(e.llamadas.length, 1, 'se re-pidio sin que nada hubiera cambiado');
+    // A las 18:30 la pasada de la tarde ya corrio y lo que hay es de la manana.
+    fijar(hoy(18, 30));
+    e.disparar('visibilitychange');
+    await asentar(); await asentar();
+    assert.equal(e.llamadas.length, 2, 'volver a la pestania despues de la pasada de la tarde no re-pidio');
+    e.disparar('focus');
+    await asentar();
+    assert.equal(e.llamadas.length, 2, 'con la entrada de la tarde ya traida no hay que volver a pedir');
+    // Y al desmontar se sueltan los dos oyentes.
+    e.limpiar();
+    assert.deepEqual(e.quitados.sort(), ['focus', 'visibilitychange'],
+      'el efecto no suelta sus oyentes al desmontar');
+  } finally { globalThis.Date = DateReal; }
 });
