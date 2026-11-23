@@ -8,6 +8,11 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
+// El Worker de Cloudflare corre en UTC; las pruebas tambien, sea cual sea la zona
+// de la maquina (aqui es America/La_Paz y ocultaria el bug de las horas sin zona).
+// Hay una prueba abajo que falla si esta linea deja de tener efecto.
+process.env.TZ = 'UTC';
+
 const raiz = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const src = fs.readFileSync(path.join(raiz, 'worker.js'), 'utf8');
 
@@ -157,4 +162,19 @@ test('el fin de semana se mide en hora de Bolivia, no en UTC', () => {
   const domingo22 = Date.UTC(2026, 10, 30, 2, 0);  // dom 29-nov 22:00 Bolivia = lun 02:00 UTC
   assert.equal(_asisPasaLaVara(dos, viernes22).manda, true);
   assert.equal(_asisPasaLaVara(dos, domingo22).manda, false);
+});
+test('la zona de la prueba es UTC de verdad (si no, la prueba de horas sin zona no prueba nada)', () => {
+  assert.equal(new Date('2026-11-24T14:00').toISOString(), '2026-11-24T14:00:00.000Z');
+});
+test('una tarea DONE con alarma de HOY no genera senal (regla 1a)', () => {
+  const data = { tasks: [{ id: 't1', title: 'T', status: 'DONE', alarm: { enabled: true, datetime: '2026-11-24T08:00' } }] };
+  assert.deepEqual(_asisDetectar(data, MARTES), []);
+});
+test('la alarma de hoy sin completar es "hoy": una sola no manda, dos si', () => {
+  const t = (id) => ({ id, title: 'T', status: 'INBOX', alarm: { enabled: true, datetime: '2026-11-24T08:00' } });
+  const uno = _asisDetectar({ tasks: [t('a')] }, MARTES);
+  assert.deepEqual(uno.map(x => [x.id, x.urgencia]), [['today_a', 'hoy']]);
+  assert.equal(_asisPasaLaVara(uno, MARTES).manda, false);
+  const dos = _asisDetectar({ tasks: [t('a'), t('b')] }, MARTES);
+  assert.equal(_asisPasaLaVara(dos, MARTES).manda, true);
 });

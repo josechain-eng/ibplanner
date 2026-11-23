@@ -2277,7 +2277,8 @@ function _asisDetectar(data, nowMs) {
   var cortar = function (txt, n) { return String(txt || '').slice(0, n); };
   var out = [];
   var tasks = data.tasks || [];
-  // 1a. Alarma de hoy sin completar
+  // 1a. Alarma de hoy sin completar. Es 'hoy': si no se hace ese dia, la app deja
+  // de mostrarla y se olvida; las demas reglas pueden esperar un dia.
   tasks.forEach(function (t) {
     if (!t || t.status === 'DONE') return;
     if (!t.alarm || !t.alarm.enabled || !t.alarm.datetime) return;
@@ -2285,7 +2286,7 @@ function _asisDetectar(data, nowMs) {
     var dias = Math.floor((nowMs - ms) / DIA);
     if (ms < nowMs && dias === 0) {
       out.push({ id: 'today_' + t.id, tipo: 'alarma_hoy', ruta: 'tasks', refId: t.id,
-        texto: '"' + cortar(t.title, 35) + '" - alarma de hoy sin completar', dias: 0, urgencia: 'puede_esperar' });
+        texto: '"' + cortar(t.title, 35) + '" - alarma de hoy sin completar', dias: 0, urgencia: 'hoy' });
     }
   });
   // 1b. Alarma de hace 1 a 60 dias sin completar
