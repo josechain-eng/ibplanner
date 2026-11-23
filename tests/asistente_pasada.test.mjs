@@ -294,9 +294,6 @@ test('si la vara no se pasa: escribe en KV y NO manda push', async () => {
   assert.equal(r.push.length, 0, 'un solo "hoy" mando push');
   const e = entradaDe(kv);
   assert.equal(e.items.length, 1);
-  // El tipo de cambio es la primera linea y no pasa por el modelo.
-  assert.equal(e.summary.split('\n')[0], 'TC oficial: Bs 11.80');
-  assert.equal(e.tc, 11.8);
 });
 
 test('la senal usada queda marcada como consumida', async () => {
@@ -323,4 +320,108 @@ test('el cuerpo del push lleva como maximo 3 items aunque se guarden 5', async (
   const aviso = await descifrar(r.push[0].body, SUB);
   const nombrados = [1, 2, 3, 4, 5].filter((i) => aviso.body.includes('Cosa ' + i));
   assert.deepEqual(nombrados, [1, 2, 3], 'el cuerpo del push nombra ' + nombrados.length + ' items, no 3');
+});
+
+test('el tipo de cambio es la primera linea del summary y no pasa por el modelo', async () => {
+  const kv = mundo({ data: { tasks: [] } });
+  const r = await correr(kv, MANANA, [JSON_OK([{ id: 'u1', urgencia: 'hoy', titulo: 'Responder a Paola',
+    porque: 'escribio el 2026-11-23 pidiendo el estado de cuenta', accion: '', ruta: 'tasks', refId: '' }])]);
+  const e = entradaDe(kv);
+  assert.equal(e.summary.split('\n')[0], 'TC oficial: Bs 11.80', 'el TC no es la primera linea del summary');
+  assert.equal(e.tc, 11.8);
+  // No pasa por el modelo: el prompt le prohibe repetirlo y el valor no viaja en el.
+  assert.ok(!(r.cuerpos[0] || '').includes('11.80'), 'el TC viajo al modelo');
+});
+
+// El bloque que desconfia de la salida del modelo (Review Focus 3): un JSON
+// hostil con las cuatro cosas que tiene que atajar.
+test('la salida del modelo se desinfecta: porque vacio, urgencia inventada, ruta rara e id ya decidido', async () => {
+  const items = [
+    { id: 'hostil', urgencia: 'urgentisima', titulo: 'Aduana Mango', porque: 'limite 2026-11-25', accion: '', ruta: '../admin', refId: 'i1' },
+    { id: 'sin_porque', urgencia: 'ya', titulo: 'Algo', porque: '   ', accion: '', ruta: 'tasks', refId: '' },
+    { id: 'hilo:pago interiorismo', urgencia: 'ya', titulo: 'Pago interiorismo', porque: 'laura escribio el 2026-11-22', accion: '', ruta: 'tasks', refId: '' },
+    { id: 'ok1', urgencia: 'hoy', titulo: 'Dos', porque: 'vence 2026-11-24', accion: '', ruta: 'tasks', refId: 't9' },
+  ];
+  const kv = mundo({ data: { tasks: [],
+    tareasDecididas: [{ id: 'hilo:pago interiorismo', decision: 'no', ts: MANANA - 5 * H }] } });
+  const r = await correr(kv, MANANA, [JSON_OK(items)]);
+  const e = entradaDe(kv);
+  const ids = e.items.map((x) => x.id);
+  assert.ok(!ids.includes('sin_porque'), 'un item con "porque" vacio llego al KV');
+  assert.ok(!ids.includes('hilo:pago interiorismo'), 'un item ya decidido por Pepe llego al KV');
+  assert.deepEqual(ids.slice().sort(), ['hostil', 'ok1'], 'quedaron items que no son los dos validos');
+  const h = e.items.find((x) => x.id === 'hostil');
+  assert.equal(h.urgencia, 'puede_esperar', 'una urgencia inventada por el modelo llego al KV tal cual');
+  assert.equal(h.ruta, '', 'una ruta fuera de la lista blanca llego al KV');
+  assert.equal(e.items.find((x) => x.id === 'ok1').ruta, 'tasks', 'se borro una ruta buena');
+  // Con la urgencia normalizada queda un solo "hoy": la vara NO manda. Si la
+  // "urgentisima" pasara tal cual, _asisPasaLaVara la contaria fuera de los tres
+  // valores y este push no saldria igual, pero Tarea 5 la leeria como valida.
+  assert.equal(r.push.length, 0, 'mando push con un solo "hoy" real');
+});
+
+test('el tope de 5 tambien se aplica a la salida del modelo', async () => {
+  const items = [];
+  for (let i = 1; i <= 7; i++) items.push({ id: 'm' + i, urgencia: 'hoy', titulo: 'Cosa ' + i,
+    porque: 'vence 2026-11-24', accion: '', ruta: 'tasks', refId: 't' + i });
+  const kv = mundo({ data: { tasks: [] } });
+  await correr(kv, MANANA, [JSON_OK(items)]);
+  const e = entradaDe(kv);
+  assert.equal(e.items.length, 5, 'el modelo devolvio 7 items y se guardaron ' + e.items.length);
+  assert.deepEqual(e.items.map((x) => x.id), ['m1', 'm2', 'm3', 'm4', 'm5'], 'el recorte no respeto el orden del modelo');
+});
+
+test('la pasada de la tarde con el blob ya viejo NO borra la lista de la manana', async () => {
+  // Sincronizo a las 23:00 de Bolivia (03:00 UTC): a las 12:20 el blob tiene 9 h
+  // y la pasada corre entera; a las 22:10 tiene 19 h y entra por el camino viejo.
+  const sync = Date.UTC(2026, 10, 24, 3, 0);
+  const kv = mundo({ blobs: { k_uno: { saveTime: sync, sub: SUB.sub, data: { tasks: [] } } } });
+  await correr(kv, MANANA, [JSON_OK([{ id: 'u1', urgencia: 'hoy', titulo: 'Responder a Paola',
+    porque: 'escribio el 2026-11-23', accion: '', ruta: 'tasks', refId: '' }])]);
+  assert.equal(entradaDe(kv).items.length, 1, 'la pasada de la manana no dejo lista');
+
+  const r = await correr(kv, Date.UTC(2026, 10, 24, 22, 10), []);
+  assert.equal(r.llamadas.length, 0, 'con el blob viejo llamo al modelo');
+  const e = entradaDe(kv);
+  assert.equal(e.items.length, 1, 'la pasada de la tarde borro la lista de la manana');
+  assert.equal(e.items[0].titulo, 'Responder a Paola');
+  assert.match(e.summary, /DATOS VIEJOS/, 'no avisa que los datos estan viejos');
+  assert.ok(e.summary.includes('Responder a Paola'), 'el summary perdio el item de la manana');
+});
+
+test('en sinModelo una senal que Pepe descarto no vuelve ni hace sonar el telefono', async () => {
+  const kv = mundo({ data: {
+    imports: [{ id: 'i1', limiteAduana: '2026-11-25', status: 'EN_TRANSITO' }],
+    asisDecididos: [{ id: 'aduana_i1', decision: 'no', ts: MANANA - 5 * H }],
+  } });
+  const r = await correr(kv, MANANA, [dice('no puedo')]);
+  const e = entradaDe(kv);
+  assert.equal(e.sinModelo, true);
+  assert.deepEqual(e.items.map((x) => x.id), [], 'una senal ya descartada volvio en el camino sinModelo');
+  assert.equal(r.push.length, 0, 'una senal ya descartada hizo sonar el telefono');
+});
+
+test('el push deja constancia en push_log y poda la suscripcion vencida', async () => {
+  const kv = mundo({ data: { imports: [{ id: 'i1', limiteAduana: '2026-11-25', status: 'EN_TRANSITO' }] } });
+  // Dos subs: la segunda responde 410 (vencida) y tiene que desaparecer del KV.
+  const muerta = await suscripcion('muerta');
+  kv._map.set('subs:k_uno', JSON.stringify([SUB.sub, muerta.sub]));
+  const w = await cargarWorker();
+  const a = anthropicFalso([dice('no puedo')]);
+  const interno = globalThis.fetch;
+  globalThis.fetch = async (u, init) => {
+    const s = String(u && u.url ? u.url : u);
+    if (new URL(s).host === HOST_PUSH) return new Response(null, { status: /muerta$/.test(s) ? 410 : 201 });
+    return interno(u, init);
+  };
+  try {
+    await conReloj(MANANA, () => w.scheduled({}, envFalso({ LBP_KV: kv, BRIEFING_SERVICE: puente() })));
+  } finally { a.restaurar(); }
+  const log = leer(kv, 'push_log:k_uno');
+  assert.equal(log[0].type, 'asistente');
+  assert.equal(log[0].sent, 1, 'el log no distingue el push entregado del fallido');
+  assert.equal(log[0].failed, 1);
+  assert.equal(log[0].errors[0].status, 410);
+  const subs = leer(kv, 'subs:k_uno');
+  assert.deepEqual(subs.map((s) => s.endpoint), [SUB.sub.endpoint], 'la suscripcion vencida no se podo');
 });

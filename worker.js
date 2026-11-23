@@ -2497,10 +2497,25 @@ async function correrAsistente(env, pasada, nowMs) {
   if (now - blobMs > ASIS_BLOB_VIEJO_MS) {
     const aviso = 'DATOS VIEJOS: los datos de la app son del ' + _hoyBolivia(blobMs)
       + '; abri la app para sincronizar';
-    await guardar({ generado: now, pasada: pasada, items: [], cegado: false, sinModelo: false,
-      tc: tc, summary: armarSummary([], [aviso]) });
+    // La entrada del dia es UNA sola para las dos pasadas, asi que este camino
+    // NO puede escribir items: [] encima de lo que escribio la pasada anterior.
+    // Pasa de verdad: si Pepe sincroniza a las 23:00 de Bolivia, a las 12:20 el
+    // blob tiene 9 h y la pasada corre entera, y a las 22:10 tiene 19 h y entra
+    // por aca. Sin esto la lista de la manana --que puede no haber leido-- se
+    // pierde y queda solo el aviso, que es el peor resultado del diseno.
+    let previos = null;
+    try {
+      const yaHay = await env.LBP_KV.get(clave);
+      if (yaHay) previos = JSON.parse(yaHay);
+    } catch (e) { previos = null; }
+    const items = (previos && Array.isArray(previos.items)) ? previos.items : [];
+    await guardar({ generado: now, pasada: pasada, items: items,
+      cegado: !!(previos && previos.cegado), sinModelo: !!(previos && previos.sinModelo),
+      tc: tc, summary: armarSummary(items, [aviso]) });
     salida.ok = true;
-    salida.motivo = 'blob de la app del ' + _hoyBolivia(blobMs) + ': sin modelo y sin push';
+    salida.items = items;
+    salida.motivo = 'blob de la app del ' + _hoyBolivia(blobMs) + ': sin modelo y sin push'
+      + (items.length ? ' (se conservan ' + items.length + ' items de la pasada anterior)' : '');
     return salida;
   }
 
@@ -2631,7 +2646,13 @@ async function correrAsistente(env, pasada, nowMs) {
   let sinModelo = false, items = [];
   if (!crudos) {
     sinModelo = true;
-    items = senales.map(function (s) {
+    // La exclusion rige TAMBIEN aca. Las senales del detector comparten el
+    // espacio de ids que graba asisDecididos (aduana_<id>, stale_<id>...), asi
+    // que sin este filtro una senal que el descarto a mano reaparece el dia que
+    // el modelo falla, y como conserva su urgencia un 'ya' le hace sonar el
+    // telefono: el camino que endurecimos para no quedar mudo no puede ser el
+    // unico que desoye sus decisiones.
+    items = senales.filter(function (s) { return s && !excluidos[String(s.id)]; }).map(function (s) {
       return { id: s.id, urgencia: s.urgencia, titulo: s.texto, porque: '', accion: '',
                ruta: s.ruta, refId: s.refId || '', tipo: s.tipo, dias: s.dias };
     });
@@ -2677,13 +2698,34 @@ async function correrAsistente(env, pasada, nowMs) {
       + (recortados.length > top.length ? '\n+' + (recortados.length - top.length) + ' mas en la app' : '');
     try {
       const subs = JSON.parse(await env.LBP_KV.get('subs:' + syncKey) || '[]');
+      // Constancia de cada envio y poda de las suscripciones muertas, igual que
+      // sendSmartNotif (worker.js:1892-1915). Este repo ya pago la leccion en
+      // septiembre: sin el registro, un push fallido era indistinguible de uno
+      // entregado y el diagnostico se volvia adivinanza; y una suscripcion
+      // vencida (404/410) que no se borra hace fallar el envio para siempre.
+      const fallos = [];
       for (const sub of subs) {
         try {
           await sendPush(sub, { title: 'Asistente de LB Planner', body: cuerpo,
             alarmId: 'asis_' + fecha + '_' + pasada, vibration: 'long' });
           enviados++;
-        } catch (e) { /* un device caido no puede tumbar a los demas */ }
+        } catch (e) {
+          // un device caido no puede tumbar a los demas, pero si queda anotado
+          fallos.push({ status: e && e.status, msg: String((e && e.message) || e).slice(0, 140),
+            ep: String(sub.endpoint || '').slice(0, 60) });
+          if (e && (e.status === 404 || e.status === 410)) {
+            try { await env.LBP_KV.put('subs:' + syncKey, JSON.stringify(subs.filter(function (s) { return s.endpoint !== sub.endpoint; }))); }
+            catch (e2) { /* la poda puede esperar al proximo envio */ }
+          }
+        }
       }
+      try {
+        const lk = 'push_log:' + syncKey;
+        const log = JSON.parse(await env.LBP_KV.get(lk) || '[]');
+        log.unshift({ t: new Date(now).toISOString(), type: 'asistente', pasada: pasada,
+          subs: subs.length, sent: enviados, failed: fallos.length, errors: fallos });
+        await env.LBP_KV.put(lk, JSON.stringify(log.slice(0, 40)), { expirationTtl: 1209600 });
+      } catch (e) { /* el log nunca debe romper el envio */ }
     } catch (e) { /* sin subs legibles queda la entrada en KV */ }
   }
 
