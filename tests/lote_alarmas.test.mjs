@@ -60,7 +60,7 @@ function montar(cuantas) {
   const correr = new Function('ctx',
     'var _cloudAlarmBuffer = ctx._cloudAlarmBuffer, _cloudAlarmFlushTimer = ctx._cloudAlarmFlushTimer;' +
     'var localStorage = ctx.localStorage, window = ctx.window, _workerFetch = ctx._workerFetch, console = ctx.console;' +
-    fuenteFuncion('_flushCloudAlarms') +
+    'var _ultimoLote = {};' + fuenteFuncion('_firmaAlarma') + fuenteFuncion('_flushCloudAlarms') +
     'return { r: _flushCloudAlarms(), buffer: _cloudAlarmBuffer };');
   const estado = {};
   return { ctx, envios, estado, correr: async () => { const o = correr(ctx); await o.r; estado.buffer = o.buffer; } };
@@ -127,4 +127,73 @@ test('el lote NO usa keepalive', async () => {
   await m.correr();
   const con = m.envios.filter((e) => e.opts.keepalive);
   assert.equal(con.length, 0, con.length + ' pedazos van con keepalive y van a fallar');
+});
+
+// ── No re-subir lo que no cambio ───────────────────────────────────────────
+// Medido el 24-nov, apenas el lote empezo a funcionar: el celular subia las 658
+// alarmas CADA MINUTO, en 4 pedazos. La app baja de la nube cada 60 s y, si los
+// datos vienen de alla, el efecto vuelve a agendar todo. Son ~8 escrituras por
+// minuto al KV, mas de 11.000 al dia, contra un limite de 1.000 en el plan
+// gratuito: habria tumbado todo lo que escribe en KV. Antes no se notaba porque
+// el envio fallaba entero.
+
+function montarCS() {
+  const envios = [];
+  const ctx = {
+    localStorage: { getItem: (k) => (k === 'lbp_sync_key' ? 'k_uno' : null) },
+    window: { LBP_WORKER_URL: 'https://w.test', LBP_VERSION: '5.84', _lbpEquipo: () => ({ id: 'mac' }) },
+    _workerFetch: (ruta, opts) => {
+      envios.push({ ruta, cuerpo: JSON.parse(opts.body) });
+      return Promise.resolve({ ok: true, status: 200 });
+    },
+    console: { log() {}, warn() {}, error() {} },
+    setTimeout: (f) => { f(); return 1; },
+    clearTimeout: () => {},
+  };
+  const correr = new Function('ctx', `
+    var localStorage = ctx.localStorage, window = ctx.window, _workerFetch = ctx._workerFetch;
+    var console = ctx.console, setTimeout = ctx.setTimeout, clearTimeout = ctx.clearTimeout;
+    var _cloudAlarmBuffer = [], _cloudAlarmFlushTimer = null;
+    var _ultimoLote = {};
+    ${fuenteFuncion('_firmaAlarma')}
+    ${fuenteFuncion('_flushCloudAlarms')}
+    ${HTML.slice(HTML.indexOf('  window._cloudScheduleAlarm = function'), HTML.indexOf('};', HTML.indexOf('  window._cloudScheduleAlarm = function')) + 2)}
+    ${HTML.match(/var _ultimoLote = \{\};/) ? '' : ''}
+    return { agendar: window._cloudScheduleAlarm, flush: _flushCloudAlarms };
+  `);
+  return { ctx, envios, api: correr(ctx) };
+}
+
+test('agendar la MISMA alarma dos veces no la sube dos veces', async () => {
+  const m = montarCS();
+  const una = ['a1', 1795615200000, 'Titulo', 'Cuerpo', 'long', { ruta: 'tasks', refId: 't1' }];
+  m.api.agendar.apply(null, una);
+  await m.api.flush();
+  const primera = m.envios.length;
+  assert.ok(primera >= 1, 'no mando la primera vez');
+  m.api.agendar.apply(null, una);
+  await m.api.flush();
+  assert.equal(m.envios.length, primera,
+    'volvio a subir una alarma identica: con 658 cada 60 s se quema la cuota de KV');
+});
+
+test('si la alarma CAMBIA, se vuelve a subir', async () => {
+  const m = montarCS();
+  m.api.agendar('a1', 1795615200000, 'Titulo', 'Cuerpo', 'long', { ruta: 'tasks', refId: 't1' });
+  await m.api.flush();
+  const n = m.envios.length;
+  m.api.agendar('a1', 1795615200000, 'Titulo NUEVO', 'Cuerpo', 'long', { ruta: 'tasks', refId: 't1' });
+  await m.api.flush();
+  assert.ok(m.envios.length > n, 'cambio el titulo y no lo subio');
+});
+
+test('si el envio FALLA, la proxima vez se reintenta', async () => {
+  const m = montarCS();
+  m.ctx._workerFetch = () => Promise.resolve({ ok: false, status: 500 });
+  m.api.agendar('a1', 1795615200000, 'Titulo', 'Cuerpo', 'long', null);
+  await m.api.flush();
+  m.ctx._workerFetch = (ruta, opts) => { m.envios.push({ ruta, cuerpo: JSON.parse(opts.body) }); return Promise.resolve({ ok: true, status: 200 }); };
+  m.api.agendar('a1', 1795615200000, 'Titulo', 'Cuerpo', 'long', null);
+  await m.api.flush();
+  assert.equal(m.envios.length, 1, 'dio por subida una alarma cuyo envio fallo');
 });

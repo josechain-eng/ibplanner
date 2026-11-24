@@ -62,8 +62,8 @@ test('se monta en el Home despues de las tareas propuestas', () => {
   assert.ok(tp > 0 && mk > tp && mk - tp < 200);
 });
 
-test('version 5.83', () => {
-  assert.ok(html.includes("window.LBP_VERSION = '5.83'"));
+test('version 5.84', () => {
+  assert.ok(html.includes("window.LBP_VERSION = '5.84'"));
 });
 
 test('muestra el nombre del color si viene (Mango guarda codigos)', () => {

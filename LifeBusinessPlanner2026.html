@@ -22,7 +22,7 @@
 <script>
 (function() {
   // ── Version ──────────────────────────────────────────────────────────────
-  window.LBP_VERSION = '5.83';
+  window.LBP_VERSION = '5.84';
 
   // ── PWA Install prompt ───────────────────────────────────────────────────
   window._installPrompt = null;
@@ -1449,13 +1449,26 @@
   // Se parte en pedazos: /alarms/batch FUSIONA por alarmId, no reemplaza, asi
   // que varios pedazos son seguros. Van de a uno, en orden, porque el tope de
   // keepalive es una cuota COMPARTIDA entre las peticiones en vuelo.
+  // Lo ultimo que se subio de cada alarma EN ESTA CARGA. La app baja de la nube
+  // cada 60 s y, cuando los datos vienen de alla, el efecto vuelve a agendar
+  // TODO: medido el 24-nov, el celular subia 658 alarmas cada minuto en 4
+  // pedazos, ~8 escrituras de KV por minuto y mas de 11.000 al dia contra un
+  // limite de 1.000. Se marca despues de que el envio sale bien, no antes: si
+  // falla, la proxima vuelta reintenta. Vive en memoria, asi que recargar
+  // re-sube todo y cura cualquier diferencia con la nube.
+  var _ultimoLote = {};
+  function _firmaAlarma(a) {
+    return a.triggerAt + '|' + a.title + '|' + a.body + '|' + (a.vibration || 'long')
+      + '|' + (a.ir ? a.ir.ruta + ':' + a.ir.refId : '');
+  }
   function _flushCloudAlarms() {
     var _TOPE_LOTE = 50000;   // margen comodo bajo los 64 KB de keepalive
     _cloudAlarmFlushTimer = null;
     var syncKey = localStorage.getItem('lbp_sync_key');
     if (!syncKey || !window.LBP_WORKER_URL || _cloudAlarmBuffer.length === 0) { _cloudAlarmBuffer = []; return; }
-    var alarms = _cloudAlarmBuffer.slice();
+    var alarms = _cloudAlarmBuffer.filter(function(a) { return _ultimoLote[a.alarmId] !== _firmaAlarma(a); });
     _cloudAlarmBuffer = [];
+    if (!alarms.length) return;   // nada cambio desde la ultima subida
     var equipo = (window._lbpEquipo ? window._lbpEquipo().id : '');
     var version = String(window.LBP_VERSION || '');
     var pedazos = [], actual = [], bytes = 0;
@@ -1484,7 +1497,11 @@
         // sigue viva unos segundos, y sin tope de tamano.
       }).then(function(r) {
         if (!r) console.warn('[LBP] Cloud alarm batch: network error,', parte.length, 'alarms');
-        else if (r.ok) console.log('[LBP] Cloud alarm batch OK, count:', parte.length);
+        else if (r.ok) {
+          // Recien ahora: lo que no llego, se reintenta en la proxima vuelta.
+          parte.forEach(function(a) { _ultimoLote[a.alarmId] = _firmaAlarma(a); });
+          console.log('[LBP] Cloud alarm batch OK, count:', parte.length);
+        }
         else console.warn('[LBP] Cloud alarm batch failed, HTTP:', r.status);
         return _mandar();
       }).catch(function(e) { console.error('[LBP] Cloud alarm batch error:', e); return _mandar(); });
