@@ -95,3 +95,31 @@ test('la app manda su version en el latido', () => {
   assert.match(bloque, /v:\s*(String\()?window\.LBP_VERSION/,
     'el latido no dice que version corre: ese dato es el que faltaba para auditar');
 });
+
+// ── El re-envio no puede BORRAR lo que no sabe ─────────────────────────────
+// Medido el 24-nov con los dos equipos ya en la v5.80: las 201 alarmas tenian
+// `ir: null` EXPLICITO, no ausente. O sea que las escribio un cliente actual
+// mandando destino vacio: el re-envio de /alarm lee `lbp_pending_alarms`, y las
+// entradas que quedaron de versiones anteriores no tienen destino. El lote lo
+// ponia bien y el primer cambio de app lo borraba.
+
+test('un re-envio SIN destino no borra el que ya estaba', async () => {
+  const kv = kvFalso({ 'data:k_uno': '{}' });
+  await postear(kv, '/alarms/batch', { syncKey: 'k_uno',
+    alarms: [{ alarmId: 'a1', triggerAt: AHORA + 3600000, title: 'T', body: 'B', ir: IR }] });
+  // La cola local vieja no tiene destino: manda null.
+  await postear(kv, '/alarm', { syncKey: 'k_uno', alarmId: 'a1', triggerAt: AHORA + 3600000,
+    title: 'T', body: 'B', ir: null });
+  assert.deepEqual(alarmas(kv)[0].ir, IR,
+    'un re-envio sin destino borro el que habia: es exactamente lo que paso en produccion');
+});
+
+test('un re-envio CON destino si lo actualiza', async () => {
+  const kv = kvFalso({ 'data:k_uno': '{}' });
+  await postear(kv, '/alarm', { syncKey: 'k_uno', alarmId: 'a1', triggerAt: AHORA + 3600000,
+    title: 'T', body: 'B', ir: { ruta: 'tasks', refId: 'viejo' } });
+  await postear(kv, '/alarm', { syncKey: 'k_uno', alarmId: 'a1', triggerAt: AHORA + 3600000,
+    title: 'T', body: 'B', ir: { ruta: 'meetings', refId: 'nuevo' } });
+  assert.deepEqual(alarmas(kv)[0].ir, { ruta: 'meetings', refId: 'nuevo' },
+    'conservar el viejo no puede impedir actualizarlo');
+});

@@ -194,12 +194,20 @@ async function handleRequest(request, env) {
         return json({ ok: true, ignorada: 'vencida' });
       }
       const alarms = JSON.parse(await env.LBP_KV.get(`alarms:${syncKey}`) || '[]');
+      // Una actualizacion PARCIAL no puede borrar un campo que no conoce. Este
+      // camino es el re-envio que hace la app al volver al frente, leyendo la
+      // cola local: las entradas que quedaron de versiones anteriores no traen
+      // destino, y mandaban ir:null encima del que habia puesto el lote. Medido
+      // el 24-nov con los dos equipos ya en la v5.80: 201 alarmas con ir null
+      // EXPLICITO, o sea escrito por aca.
+      const previa = alarms.find(a => a && a.alarmId === alarmId);
+      const irFinal = ir || (previa && previa.ir) || null;
       const filtered = alarms.filter(a => a.alarmId !== alarmId && a.triggerAt > Date.now() - VENTANA_ALARMA_MS);
       // `ir` tambien por ESTE camino: la app re-sube las alarmas una por una
       // cada vez que vuelve al frente (upsert, v4.92). Sin esto, ese re-envio
       // reconstruia la alarma con campos fijos y borraba el destino que habia
       // escrito el lote, en silencio. Medido el 24-nov: 201 alarmas, 0 con destino.
-      filtered.push({ alarmId, triggerAt, title, body, vibration: vibration || 'long', ir: ir || null });
+      filtered.push({ alarmId, triggerAt, title, body, vibration: vibration || 'long', ir: irFinal });
       await env.LBP_KV.put(`alarms:${syncKey}`, JSON.stringify(filtered), { expirationTtl: 60 * 60 * 24 * 365 });
       await registerSyncKey(env, syncKey);
       return json({ ok: true });
