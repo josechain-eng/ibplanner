@@ -356,3 +356,71 @@ test('tareasDecididas o asisDecididos que no son array no tumban el chequeo', as
       'con ' + JSON.stringify(mal) + ' en el blob el chequeo horario se cayo EN SILENCIO');
   }
 });
+
+// ── La ventana de dos minutos hace el trabajo UNA vez ───────────────────────
+// Medido en produccion el 24-nov con wrangler tail: los minutos 40 y 41 costaron
+// 1,58 s y 3,37 s de reloj, casi todo leer y parsear el blob. El push ya no se
+// repetia (lo deduplica asis_dicho) pero el TRABAJO se hacia completo dos veces.
+
+const CHK = (hora) => 'asis_chk:' + HOY + ':' + hora;
+
+// Cuenta cuantas veces se lee el blob, que es lo caro.
+function contarBlob(kv) {
+  const orig = kv.get.bind(kv);
+  const cuenta = { n: 0 };
+  kv.get = async (k) => { if (k === 'data:' + KEY) cuenta.n++; return orig(k); };
+  return cuenta;
+}
+
+test('los dos minutos de la ventana leen el blob UNA sola vez', async () => {
+  const kv = mundo();
+  const c = contarBlob(kv);
+  const r1 = await correr(kv, bo(10, 40));
+  const r2 = await correr(kv, bo(10, 41));
+  assert.equal(r1.push.length, 1, 'el primer minuto no aviso');
+  assert.equal(r2.push.length, 0, 'el segundo minuto volvio a avisar');
+  assert.equal(c.n, 1, 'leyo el blob ' + c.n + ' veces: el segundo minuto rehizo el trabajo');
+  assert.deepEqual(kv._lists, [], 'el cron no puede llamar a KV.list');
+});
+
+test('la marca de la hora se guarda con TTL', async () => {
+  const kv = mundo();
+  await correr(kv, bo(10, 40));
+  assert.ok(kv._map.has(CHK(10)), 'no quedo marca de que la hora ya corrio');
+  assert.ok(kv._opts.get(CHK(10)).expirationTtl > 0, 'la marca de la hora se guardo sin TTL');
+});
+
+test('la hora siguiente vuelve a correr', async () => {
+  // La marca es por HORA, no por dia: si no, el chequeo moriria tras el primero.
+  const kv = mundo({ extra: { [CHK(10)]: '1' } });
+  const c = contarBlob(kv);
+  await correr(kv, bo(11, 40));
+  assert.equal(c.n, 1, 'la marca de las 10 callo tambien a las 11');
+  assert.ok(kv._map.has(CHK(11)));
+});
+
+test('fuera de hora no deja marca', async () => {
+  // A las 23 no corre; si marcara, el dia siguiente a esa hora tampoco correria.
+  const kv = mundo({ ms: bo(23, 40) });
+  await correr(kv, bo(23, 40));
+  assert.equal(kv._map.has(CHK(23)), false, 'marco una hora en la que ni siquiera corre');
+});
+
+test('si el primer minuto se cae, el segundo REINTENTA', async () => {
+  // Esta es la razon de ser de la ventana de dos minutos, y es por lo que la
+  // marca se escribe DESPUES de correr y no antes: escribirla antes dejaria la
+  // hora sin aviso cada vez que el primer tick falla.
+  const kv = mundo();
+  const put = kv.put.bind(kv);
+  let romper = true;
+  kv.put = async (k, v, o) => {
+    if (romper && k.indexOf('asis_dicho:') === 0) { romper = false; throw new Error('kv caido'); }
+    return put(k, v, o);
+  };
+  const r1 = await correr(kv, bo(10, 40));
+  assert.equal(r1.push.length, 0, 'aviso pese a que el KV se cayo');
+  assert.equal(kv._map.has(CHK(10)), false, 'marco la hora aunque la corrida se cayo');
+  const r2 = await correr(kv, bo(10, 41));
+  assert.equal(r2.push.length, 1, 'el segundo minuto no reintento: la hora se perdio');
+  assert.ok(kv._map.has(CHK(10)));
+});

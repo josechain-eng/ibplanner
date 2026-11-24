@@ -2670,6 +2670,7 @@ function _asisRecortar(items) {
 // ---------------------------------------------------------------------------
 const ASIS_TTL = 48 * 3600;            // la entrada del dia vive 2 dias
 const ASIS_MARK_TTL = 3 * 86400;       // la marca de pasada, 3 dias
+const ASIS_CHK_TTL = 2 * 3600;         // la marca de "esta hora ya se chequeo", 2 h
 const ASIS_SENAL_TTL = 72 * 3600;      // el mismo TTL con que la escribe el vigilante
 const ASIS_MAX_HILOS = 25;             // hilos de correo que entran en UNA llamada
 const ASIS_CORTE_MSG = 400;            // caracteres del mensaje mas nuevo de cada hilo
@@ -2891,6 +2892,24 @@ async function _asisLineasDuras(env, nowMs) {
   const horaBo = new Date(now - 4 * 3600 * 1000).getUTCHours();
   if (horaBo < 7 || horaBo > 21) return salida;
   const fecha = _hoyBolivia(now);
+  // La ventana es de DOS minutos (40 y 41) para que un tick perdido no se coma el
+  // aviso de esa hora. Sin esta marca el trabajo se hacia COMPLETO las dos veces:
+  // medido en produccion el 24-nov con wrangler tail, 1,58 s y 3,37 s de reloj,
+  // casi todo leer y parsear el blob.
+  // La marca se escribe DESPUES de correr, no antes: si el primer tick se cae, el
+  // segundo tiene que poder reintentar, que es la razon de ser de la ventana.
+  // Escribirla antes --como hace la pasada-- aqui no protegeria nada, porque
+  // repetir el trabajo es seguro: el push lo deduplica asis_dicho.
+  const marcaChk = 'asis_chk:' + fecha + ':' + horaBo;
+  try { if (await env.LBP_KV.get(marcaChk)) return salida; }
+  catch (e) { /* si no se puede leer la marca, mejor correr de mas que callarse */ }
+  const hecho = await _asisLineasDurasCorrer(env, now, fecha, horaBo, salida);
+  try { await env.LBP_KV.put(marcaChk, String(now), { expirationTtl: ASIS_CHK_TTL }); }
+  catch (e) { /* sin marca el otro minuto repite el trabajo: molesto, no grave */ }
+  return hecho;
+}
+
+async function _asisLineasDurasCorrer(env, now, fecha, horaBo, salida) {
   const pasada = horaBo < 18 ? 'manana' : 'tarde';
 
   const elegido = await _asisBlobElegido(env);
