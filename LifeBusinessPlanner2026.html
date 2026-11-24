@@ -22,7 +22,7 @@
 <script>
 (function() {
   // ── Version ──────────────────────────────────────────────────────────────
-  window.LBP_VERSION = '5.81';
+  window.LBP_VERSION = '5.82';
 
   // ── PWA Install prompt ───────────────────────────────────────────────────
   window._installPrompt = null;
@@ -1442,24 +1442,49 @@
   // and flushes them in ONE request instead of one request per alarm.
   var _cloudAlarmBuffer = [];
   var _cloudAlarmFlushTimer = null;
+  // Tope de `keepalive`: 64 KB. Con 658 alarmas el cuerpo pasa los 170 KB y el
+  // envio FALLA EN SILENCIO: medido en la consola de Pepe el 24-nov-2026, y por
+  // eso las alarmas de la nube las venia escribiendo solo el re-envio de a una
+  // (visibilitychange) y ninguna llevaba destino. Misma trampa que la v5.06.
+  // Se parte en pedazos: /alarms/batch FUSIONA por alarmId, no reemplaza, asi
+  // que varios pedazos son seguros. Van de a uno, en orden, porque el tope de
+  // keepalive es una cuota COMPARTIDA entre las peticiones en vuelo.
   function _flushCloudAlarms() {
+    var _TOPE_LOTE = 50000;   // margen comodo bajo los 64 KB de keepalive
     _cloudAlarmFlushTimer = null;
     var syncKey = localStorage.getItem('lbp_sync_key');
     if (!syncKey || !window.LBP_WORKER_URL || _cloudAlarmBuffer.length === 0) { _cloudAlarmBuffer = []; return; }
     var alarms = _cloudAlarmBuffer.slice();
     _cloudAlarmBuffer = [];
-    console.log('[LBP] Flushing', alarms.length, 'alarms to cloud in one batch');
-    _workerFetch('/alarms/batch', {
-      method: 'POST',
-      headers: {'Content-Type':'application/json'},
-      // equipo y version para el diagnostico del worker (lote_log)
-      body: JSON.stringify({syncKey: syncKey, alarms: alarms, equipo: (window._lbpEquipo?window._lbpEquipo().id:''), v: String(window.LBP_VERSION||'')}),
-      keepalive: true  // sobrevive al backgrounding/cierre de la app (crítico en Samsung)
-    }).then(function(r) {
-      if (!r) console.warn('[LBP] Cloud alarm batch: network error');
-      else if (r.ok) console.log('[LBP] Cloud alarm batch OK, count:', alarms.length);
-      else console.warn('[LBP] Cloud alarm batch failed, HTTP:', r.status);
-    }).catch(function(e) { console.error('[LBP] Cloud alarm batch error:', e); });
+    var equipo = (window._lbpEquipo ? window._lbpEquipo().id : '');
+    var version = String(window.LBP_VERSION || '');
+    var pedazos = [], actual = [], bytes = 0;
+    for (var _i = 0; _i < alarms.length; _i++) {
+      var _b = JSON.stringify(alarms[_i]).length + 1;
+      // Una alarma sola mas grande que el tope se manda igual: mejor intentarlo
+      // y que falle a la vista que no mandarla nunca.
+      if (actual.length && bytes + _b > _TOPE_LOTE) { pedazos.push(actual); actual = []; bytes = 0; }
+      actual.push(alarms[_i]); bytes += _b;
+    }
+    if (actual.length) pedazos.push(actual);
+    console.log('[LBP] Flushing', alarms.length, 'alarms to cloud in', pedazos.length, 'batch(es)');
+    var _p = 0;
+    var _mandar = function() {
+      if (_p >= pedazos.length) return Promise.resolve();
+      var parte = pedazos[_p++];
+      return _workerFetch('/alarms/batch', {
+        method: 'POST',
+        headers: {'Content-Type':'application/json'},
+        body: JSON.stringify({syncKey: syncKey, alarms: parte, equipo: equipo, v: version}),
+        keepalive: true  // sobrevive al backgrounding/cierre de la app (critico en Samsung)
+      }).then(function(r) {
+        if (!r) console.warn('[LBP] Cloud alarm batch: network error,', parte.length, 'alarms');
+        else if (r.ok) console.log('[LBP] Cloud alarm batch OK, count:', parte.length);
+        else console.warn('[LBP] Cloud alarm batch failed, HTTP:', r.status);
+        return _mandar();
+      }).catch(function(e) { console.error('[LBP] Cloud alarm batch error:', e); return _mandar(); });
+    };
+    return _mandar();
   }
   window._cloudScheduleAlarm = function(alarmId, triggerAt, title, body, vibration, ir) {
     var syncKey = localStorage.getItem('lbp_sync_key');
