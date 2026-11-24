@@ -2716,10 +2716,13 @@ const ASIS_SP = 'Eres el asistente proactivo de LB Planner, la app de Pepe (gere
   '- Si el contexto dice que no se pudo leer el correo, no afirmes nada sobre correo.\n' +
   '- Maximo 5 items. "titulo", "porque" y "accion" son UNA linea cada uno, cortos, en la taquigrafia de Pepe.\n' +
   '- "ruta" es una de: tasks, projects, meetings, clients, imports. "refId" es el id de la entidad si la hay, ' +
-  'o vacio. Si el item viene de una senal, usa el id de la senal tal cual.\n\n' +
+  'o vacio. Si el item viene de una senal, usa el id de la senal tal cual.\n' +
+  '- Si UN item resume VARIAS senales (por ejemplo cuatro despachos en una linea), pone los ids de TODAS ' +
+  'esas senales en "cubre". Sin eso el chequeo horario las vuelve a nombrar de a una un rato despues y ' +
+  'Pepe recibe dos avisos que dicen lo mismo.\n\n' +
   'Responde SOLO con JSON, sin texto antes ni despues:\n' +
   '{"items":[{"id":"...","urgencia":"ya|hoy|puede_esperar","titulo":"...","porque":"...","accion":"...",' +
-  '"ruta":"tasks|projects|meetings|clients|imports","refId":"..."}]}\n' +
+  '"ruta":"tasks|projects|meetings|clients|imports","refId":"...","cubre":["id de senal", "..."]}]}\n' +
   'Si no hay nada que valga la pena: {"items":[]}.';
 
 // La UNICA regla para elegir la sync key del asistente: el blob con _cloudSaveTime
@@ -3215,6 +3218,10 @@ async function correrAsistente(env, pasada, nowMs, forzar) {
                ruta: s.ruta, refId: s.refId || '', tipo: s.tipo, dias: s.dias };
     });
   } else {
+    // Los ids que el detector produjo en ESTA corrida: "cubre" solo puede
+    // nombrar estos. Si no, el modelo podria callar una senal que nunca vio.
+    const idsSenal = {};
+    senales.forEach(function (s2) { if (s2 && s2.id) idsSenal[String(s2.id)] = 1; });
     items = crudos.filter(function (x) {
       // Un "porque" vacio descalifica el item: sin dato verificable no se dice.
       // Lo "generico" lo pide el prompt; aca solo se mide lo que se puede medir.
@@ -3233,6 +3240,11 @@ async function correrAsistente(env, pasada, nowMs, forzar) {
         accion: String(x.accion || '').trim().slice(0, 160),
         ruta: ASIS_RUTAS.indexOf(String(x.ruta)) >= 0 ? String(x.ruta) : '',
         refId: String(x.refId || '').trim().slice(0, 80),
+        // Las senales que ESTE item resume. Se marcan junto con el item, asi el
+        // chequeo horario no las vuelve a nombrar de a una.
+        cubre: (Array.isArray(x.cubre) ? x.cubre : []).map(String)
+          .filter(function (c) { return Object.prototype.hasOwnProperty.call(idsSenal, c); })
+          .slice(0, 12),
       };
     });
   }
@@ -3266,11 +3278,16 @@ async function correrAsistente(env, pasada, nowMs, forzar) {
     // chequeo horario pueda decirlo es recuperacion, no repeticion.
     if (enviados) {
       for (const x of recortados) {
-        const id = String((x && x.id) || '');
-        if (!id) continue;
-        try { await env.LBP_KV.put('asis_dicho:' + id + ':' + fecha + ':' + pasada,
-          String(now), { expirationTtl: ASIS_MARK_TTL }); }
-        catch (e) { /* sin marca el chequeo horario repite una vez: no vale tumbar la pasada */ }
+        // El id del item Y las senales que resume: el 24-nov el modelo junto
+        // cuatro despachos en una linea con un solo refId y el chequeo horario
+        // los nombro de a uno tres minutos despues.
+        const ids = [String((x && x.id) || '')].concat(Array.isArray(x && x.cubre) ? x.cubre : []);
+        for (const id of ids) {
+          if (!id) continue;
+          try { await env.LBP_KV.put('asis_dicho:' + String(id) + ':' + fecha + ':' + pasada,
+            String(now), { expirationTtl: ASIS_MARK_TTL }); }
+          catch (e) { /* sin marca el chequeo horario repite una vez: no vale tumbar la pasada */ }
+        }
       }
     }
   }

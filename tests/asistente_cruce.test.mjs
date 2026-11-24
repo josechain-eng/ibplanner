@@ -175,3 +175,58 @@ test('si el push de la pasada falla entero, el chequeo horario SI puede decirlo'
     ['asis_dicho:aduana_i1:' + HOY + ':manana'],
     'la marca del chequeo horario (que la escribe ANTES de enviar) es la unica que queda');
 });
+
+// ── Una linea que resume varios despachos ──────────────────────────────────
+// Medido en produccion el 24-nov: el modelo junto cuatro despachos en
+// "Boss+Hugo julio y marzo: Bs 5,03 M" --una sola linea, un solo refId-- y tres
+// minutos despues el chequeo horario los nombro de a uno, porque para el
+// detector son cuatro senales y solo una quedo marcada. Por eso el modelo
+// declara en "cubre" que senales resume cada item.
+
+function mundoVarios(saveTime, cuantos) {
+  const imports = [];
+  for (let i = 1; i <= cuantos; i++) {
+    imports.push({ id: 'i' + i, limiteAduana: '2026-11-25', status: 'EN_TRANSITO', season: 'FA26' });
+  }
+  return kvFalso({
+    synckeys_registry: JSON.stringify(['k_uno']),
+    dailyinfo_v2: JSON.stringify({ updatedAt: Date.UTC(2100, 0, 1), bcb: { venta: 11.8 }, bcbFecha: HOY }),
+    'data:k_uno': JSON.stringify({ _cloudSaveTime: saveTime, imports: imports }),
+    'subs:k_uno': JSON.stringify([SUB]),
+  });
+}
+
+test('una linea que resume cuatro despachos no se vuelve a decir pieza por pieza', async () => {
+  const kv = mundoVarios(Date.UTC(...DIA, 10, 0), 4);
+  const agrupado = [{ id: 'grupo_aduana', urgencia: 'ya',
+    titulo: 'Cuatro despachos vencen manana', porque: 'los cuatro con limite el 2026-11-25',
+    accion: 'fijar fecha unica', ruta: 'imports', refId: 'i1',
+    cubre: ['aduana_i1', 'aduana_i2', 'aduana_i3', 'aduana_i4'] }];
+  const push = await horaCompleta(kv, 12, [JSON_OK(agrupado)]);
+  assert.equal(push.length, 1,
+    'salieron ' + push.length + ' push: el chequeo horario repitio lo que la linea ya resumia');
+  for (const s of ['aduana_i1', 'aduana_i2', 'aduana_i3', 'aduana_i4']) {
+    assert.ok(kv._map.has('asis_dicho:' + s + ':' + HOY + ':manana'), 'no quedo marcada ' + s);
+  }
+});
+
+test('un id inventado en "cubre" no calla a una senal de verdad', async () => {
+  // El modelo no puede silenciar algo que no se le mostro: solo valen los ids
+  // que el detector produjo en ESTA corrida.
+  const kv = mundoVarios(Date.UTC(...DIA, 10, 0), 2);
+  const miente = [{ id: 'grupo', urgencia: 'ya', titulo: 'Un despacho vence manana',
+    porque: 'limite 2026-11-25', accion: 'pagar', ruta: 'imports', refId: 'i1',
+    cubre: ['aduana_i1', 'aduana_inventada'] }];
+  const push = await horaCompleta(kv, 12, [JSON_OK(miente)]);
+  assert.equal(push.length, 2, 'el id inventado callo al despacho i2, que nadie habia nombrado');
+  assert.equal(kv._map.has('asis_dicho:aduana_inventada:' + HOY + ':manana'), false,
+    'escribio una marca de un id que no existe');
+});
+
+test('sin "cubre" se porta como siempre', async () => {
+  const kv = mundoVarios(Date.UTC(...DIA, 10, 0), 1);
+  const push = await horaCompleta(kv, 12, [JSON_OK([{ id: 'aduana_i1', urgencia: 'ya',
+    titulo: 'Aduana vence manana', porque: 'limite 2026-11-25', accion: 'pagar',
+    ruta: 'imports', refId: 'i1' }])]);
+  assert.equal(push.length, 1);
+});

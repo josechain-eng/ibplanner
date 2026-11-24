@@ -35,18 +35,33 @@ self.addEventListener('fetch', function(e) {
   var url;
   try { url = new URL(req.url); } catch (_) { return; }
 
-  // (1) Navegación / documento HTML → stale-while-revalidate: sirve el HTML cacheado
-  //     al instante (rápido + OFFLINE) y lo refresca en 2º plano cuando hay red.
+  // (1) Navegación / documento HTML → RED PRIMERO, copia guardada como respaldo.
+  //     Antes era stale-while-revalidate: servía la copia al instante y refrescaba
+  //     por detrás, así que la PRIMERA carga después de un despliegue daba la
+  //     versión ANTERIOR y hacía falta cargar dos veces. Medido el 24-nov-2026
+  //     contra el sitio publicado: devolvió la v5.69 teniendo la v5.79 en el
+  //     servidor. No era cosmético: las alarmas se re-registraron con código viejo
+  //     y quedaron sin destino, y nadie podía saberlo mirando la app.
+  //     El tope de 4 s existe porque la Mac vive en el wifi del mall: sin él, una
+  //     red lenta dejaría la app en blanco esperando. Offline sigue abriendo — es
+  //     justo el caso en que se usa la copia.
   if (req.mode === 'navigate' || (url.origin === self.location.origin && url.pathname.indexOf('.html') !== -1)) {
     e.respondWith(caches.open(SHELL_CACHE).then(function(cache) {
-      return cache.match(req).then(function(hit) {
-        return hit || cache.match('LifeBusinessPlanner2026.html');
-      }).then(function(cached) {
-        var net = fetch(req).then(function(resp) {
-          if (resp && resp.ok) cache.put('LifeBusinessPlanner2026.html', resp.clone());
-          return resp;
-        }).catch(function() { return cached; });
-        return cached || net;
+      var guardada = function() {
+        return cache.match(req).then(function(hit) {
+          return hit || cache.match('LifeBusinessPlanner2026.html');
+        });
+      };
+      // Un 503 NO se guarda: pisaría la copia buena con una página de error.
+      var red = fetch(req).then(function(resp) {
+        if (resp && resp.ok) cache.put('LifeBusinessPlanner2026.html', resp.clone());
+        return resp;
+      });
+      var tope = new Promise(function(res) { setTimeout(function() { res(null); }, 4000); });
+      return Promise.race([red.catch(function() { return null; }), tope]).then(function(resp) {
+        if (resp) return resp;
+        // La red falló o tardó demasiado: la copia, y si no hay, lo que diga la red.
+        return guardada().then(function(c) { return c || red; });
       });
     }));
     return;
