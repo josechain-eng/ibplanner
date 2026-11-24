@@ -965,6 +965,41 @@ async function handleRequest(request, env) {
       }
     }
 
+    // POST /latido  ->  la app dice "estoy viva" y hasta donde subio. Pocos bytes,
+    // NO el blob. Lo lee _asisFrescura; ver el comentario de ASIS_LATIDO_TTL.
+    if (p === '/latido' && request.method === 'POST') {
+      let cuerpo = null;
+      try { cuerpo = JSON.parse(await request.text()); } catch (e) { return json({ error: 'json invalido' }, 400); }
+      const syncKey = cuerpo && typeof cuerpo.syncKey === 'string' ? cuerpo.syncKey : '';
+      if (!syncKey) return json({ error: 'missing key' }, 400);
+      if (!(await _syncKeyValida(env, syncKey))) return json({ error: 'invalid key' }, 401);
+      const ahora = Date.now();
+      const equipo = String(cuerpo.equipo && typeof cuerpo.equipo === 'string' ? cuerpo.equipo : 'sin-equipo').slice(0, 40);
+      let ls = Number(cuerpo.lastSave) || 0;
+      // Un reloj adelantado NO puede dejar al asistente callado para siempre
+      // diciendo "hay cambios sin subir".
+      if (ls > ahora + ASIS_LATIDO_FUTURO_MS) ls = 0;
+      const claveLat = 'asis_latido:' + syncKey;
+      let reg = {};
+      try {
+        const raw = await env.LBP_KV.get(claveLat);
+        const p2 = raw ? JSON.parse(raw) : null;
+        if (p2 && typeof p2 === 'object' && !Array.isArray(p2)) reg = p2;
+      } catch (e) { reg = {}; }
+      reg[equipo] = { t: ahora, lastSave: ls };
+      // Se olvidan los equipos sin senales en 3 dias: un lastSave rancio de un
+      // equipo que ya no existe callaria al asistente sin remedio.
+      const nombres = Object.keys(reg)
+        .filter((n) => ahora - (Number(reg[n] && reg[n].t) || 0) <= ASIS_LATIDO_VIVO_MS)
+        .sort((a, b) => (Number(reg[b].t) || 0) - (Number(reg[a].t) || 0))
+        .slice(0, ASIS_LATIDO_MAX);
+      const limpio = {};
+      for (const n of nombres) limpio[n] = reg[n];
+      try { await env.LBP_KV.put(claveLat, JSON.stringify(limpio), { expirationTtl: ASIS_LATIDO_TTL }); }
+      catch (e) { return json({ ok: false, error: 'kv' }, 500); }
+      return json({ ok: true, equipos: nombres.length });
+    }
+
     // POST /asistente/senal  ->  el vigilante de las esperas deposita hallazgos para el asistente.
     // Cabecera X-Asis-Key = secreto ASIS_KEY (sin sync key: hay un solo usuario). Cuerpo
     // {hallazgos:[{que, detalle, desde}]}, que se guarda tal cual: correrAsistente lo sabe leer.
@@ -2543,6 +2578,19 @@ const ASIS_MAX_HILOS = 25;             // hilos de correo que entran en UNA llam
 const ASIS_CORTE_MSG = 400;            // caracteres del mensaje mas nuevo de cada hilo
 const ASIS_SENAL_MAX = 4096;           // tope de asis_senal: mas que eso se ignora
 const ASIS_BLOB_VIEJO_MS = 18 * 3600 * 1000;
+// El latido: la app avisa que esta viva y hasta donde subio (POST /latido), en
+// pocos bytes y NO el blob de 4 MB. Existe porque el blob se sube SOLO cuando
+// Pepe edita algo (el efecto del store se saltea el primer montaje a proposito):
+// medido el 24-nov-2026, abrir la app dos veces no movio _cloudSaveTime y la
+// pasada se nego a correr con datos que eran correctos. Un dia sin editar no es
+// lo mismo que una sincronizacion rota, y sin latido no se distinguen.
+const ASIS_LATIDO_TTL = 7 * 86400;              // el registro de latidos vive 7 dias
+const ASIS_LATIDO_VIVO_MS = 3 * 86400 * 1000;   // un equipo sin senales en 3 dias se olvida
+const ASIS_LATIDO_MAX = 8;                      // tope de equipos guardados
+// La app escribe lbp_last_save al EDITAR, antes del debounce de 2 s y del POST:
+// sin tolerancia, editar un minuto antes de la pasada la callaria.
+const ASIS_LATIDO_TOLERANCIA_MS = 3 * 60 * 1000;
+const ASIS_LATIDO_FUTURO_MS = 5 * 60 * 1000;    // un lastSave mas adelantado que esto se descarta
 const ASIS_CORREO_VIEJO_MS = 36 * 3600 * 1000;
 const ASIS_PUSH_ITEMS = 3;             // items que se nombran en el cuerpo del push
 const ASIS_MAX_EXCLUIDOS = 200;        // ids decididos que entran al prompt (el filtro es completo)
@@ -2696,6 +2744,50 @@ async function _asisEnviarPush(env, syncKey, now, titulo, cuerpo, alarmId, pasad
 // despierte a Pepe; la marca asis_dicho:<id>:<fecha>:<pasada> va ANTES del envio
 // (los dos disparos de la ventana de 2 minutos no mandan dos push) y la pasada
 // parte el dia a las 18:00, asi un item dicho de manana puede volver de tarde.
+// Dice si el blob se puede creer, cruzando su antiguedad con el latido.
+// Tres casos que la regla vieja (solo la hora del blob) confundia:
+//  - no edito nada: el blob de ayer es un retrato CORRECTO -> corre.
+//  - no abrio la app: nadie puede decir si sigue siendo correcto -> se calla.
+//  - guardo cambios que no llegaron a la nube: el blob miente aunque sea
+//    reciente -> se calla y lo dice. Esto antes NO se detectaba: el blob estuvo
+//    congelado seis dias (v5.06, sendBeacon de 64 KB contra 4 MB) sin aviso.
+// La regla es MONOTONA respecto de la vieja: con un blob fresco y nada pendiente
+// nunca se calla, asi que el latido solo puede destrabar casos, no trabarlos.
+async function _asisFrescura(env, syncKey, blobMs, nowMs) {
+  const now = nowMs || Date.now();
+  let reg = null;
+  try {
+    const raw = await env.LBP_KV.get('asis_latido:' + syncKey);
+    const p = raw ? JSON.parse(raw) : null;
+    if (p && typeof p === 'object' && !Array.isArray(p)) reg = p;
+  } catch (e) { reg = null; }   // un latido ilegible cae a la regla del blob
+  let vivo = 0, pendiente = 0;
+  for (const nombre of Object.keys(reg || {})) {
+    const e = reg[nombre] || {};
+    const t = Number(e.t) || 0;
+    // Un equipo dormido no habla del estado de hoy: ni lo certifica ni lo desmiente.
+    if (now - t > ASIS_LATIDO_VIVO_MS) continue;
+    if (now - t <= ASIS_BLOB_VIEJO_MS && t > vivo) vivo = t;
+    const ls = Number(e.lastSave) || 0;
+    if (ls - blobMs > ASIS_LATIDO_TOLERANCIA_MS && ls > pendiente) pendiente = ls;
+  }
+  if (pendiente) {
+    return { viejos: true, aviso: 'DATOS SIN SUBIR: la app guardo cambios a las '
+      + _asisHoraBolivia(pendiente) + ' que no llegaron a la nube; abrila y revisa la sincronizacion' };
+  }
+  if (now - blobMs <= ASIS_BLOB_VIEJO_MS) return { viejos: false, aviso: '' };
+  if (vivo) return { viejos: false, aviso: '' };
+  return { viejos: true, aviso: 'DATOS VIEJOS: los datos de la app son del '
+    + _hoyBolivia(blobMs) + '; abri la app para sincronizar' };
+}
+
+// HH:MM en hora de Bolivia (UTC-4 todo el ano). Local, nunca toISOString.
+function _asisHoraBolivia(ms) {
+  const d = new Date(ms - 4 * 3600 * 1000);
+  const dd = (n) => (n < 10 ? '0' : '') + n;
+  return dd(d.getUTCHours()) + ':' + dd(d.getUTCMinutes());
+}
+
 async function _asisLineasDuras(env, nowMs) {
   const now = nowMs || Date.now();
   const salida = { dichos: [] };
@@ -2707,9 +2799,10 @@ async function _asisLineasDuras(env, nowMs) {
   const elegido = await _asisBlobElegido(env);
   const syncKey = elegido.syncKey, data = elegido.data;
   if (!data) return salida;
-  // Con datos de hace mas de 18 h el despacho puede estar ya resuelto: se calla,
-  // igual que la pasada (y el aviso de "datos viejos" ya lo da la pasada).
-  if (now - elegido.blobMs > ASIS_BLOB_VIEJO_MS) return salida;
+  // MISMA regla que la pasada (_asisFrescura): con datos que no se pueden creer
+  // el despacho puede estar ya resuelto, asi que se calla. El aviso lo da la
+  // pasada; el chequeo horario solo decide si suena o no.
+  if ((await _asisFrescura(env, syncKey, elegido.blobMs, now)).viejos) return salida;
 
   // Lo que Pepe ya decidio, con la misma regla que la pasada.
   const excluidos = {};
@@ -2808,9 +2901,9 @@ async function correrAsistente(env, pasada, nowMs, forzar) {
   // estuvo congelado seis dias sin que nadie lo notara (v5.06, sendBeacon de
   // 64 KB contra un blob de 4 MB); con datos de hace tres dias el asistente
   // afirmaria "vencida hace tres dias" sobre tareas ya cerradas.
-  if (now - blobMs > ASIS_BLOB_VIEJO_MS) {
-    const aviso = 'DATOS VIEJOS: los datos de la app son del ' + _hoyBolivia(blobMs)
-      + '; abri la app para sincronizar';
+  const frescura = await _asisFrescura(env, syncKey, blobMs, now);
+  if (frescura.viejos) {
+    const aviso = frescura.aviso;
     // La entrada del dia es UNA sola para las dos pasadas, asi que este camino
     // NO puede escribir items: [] encima de lo que escribio la pasada anterior.
     // Pasa de verdad: si Pepe sincroniza a las 23:00 de Bolivia, a las 12:20 el

@@ -93,8 +93,8 @@ test('se monta en el Home justo despues de la tarjeta del briefing', () => {
   assert.ok(montaje - siguiente < 1200, 'se monto lejos de la tarjeta del briefing');
 });
 
-test('version 5.75', () => {
-  assert.ok(html.includes("window.LBP_VERSION = '5.75'"));
+test('version 5.76', () => {
+  assert.ok(html.includes("window.LBP_VERSION = '5.76'"));
 });
 
 test('deshacer reescribe la entrada como revocada, sin marca de borrado ni tratadas pegada', () => {

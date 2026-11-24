@@ -204,3 +204,94 @@ despues de una semana de uso.
 - **Ya, y viene de antes de esta rama:** el worker `life-planner` tiene un
   secreto cuyo **nombre** es el **valor** de una API key de OpenAI
   (`sk-proj-…`). Rotar en OpenAI y borrarlo.
+
+---
+
+# Apéndice del 24-nov-2026: el latido (v5.76)
+
+Esto se escribió **después de desplegar la v5.75 y verla funcionar en vivo**, y
+corrige un defecto de diseño que el despliegue dejó a la vista.
+
+## Lo que se vio
+
+Forzando la pasada real: `blob de la app del 2026-11-23: sin modelo y sin push`.
+Pepe abrió la app dos veces, con recarga dura, y el blob **siguió marcado el día
+anterior**. Medido: `_cloudSaveTime` quedó en `23-nov 12:14`.
+
+La causa está en la app y es deliberada: el efecto del store que sube el blob
+**se saltea el primer montaje** (si no, abrir la app con `localStorage` vacío
+pisaría la copia de la nube con `INITIAL_DATA`) y también se saltea las
+actualizaciones que vienen de una bajada. O sea: **el blob se sube sólo cuando
+Pepe edita algo.** Abrir la app no lo mueve.
+
+## Por qué importa
+
+`ASIS_BLOB_VIEJO_MS` (18 h) se escribió para detectar que **la sincronización se
+rompió** — el caso real de la v5.06, donde `sendBeacon` con tope de 64 KB contra
+un blob de 4 MB dejó el blob congelado seis días sin que nadie lo notara. Pero
+medía otra cosa: la hora del último guardado. Y esa hora se mueve con las
+ediciones, no con el uso.
+
+Dos consecuencias, las dos malas:
+
+1. **Un día sin editar calla al asistente.** Un fin de semana, un día de viaje, o
+   simplemente una mañana cuya última edición fue antes de las 14:20 del día
+   anterior. Y el blob de ayer, si no editó nada, es un retrato **correcto**.
+2. **Una subida fallida con blob reciente no se detectaba.** Blob de 2 h + push
+   roto = el asistente hablaba sobre datos a los que les faltaban las ediciones
+   de la última hora, con total confianza. Es exactamente el fallo que la guardia
+   decía cubrir, y no cubría.
+
+## La decisión
+
+**La app manda un latido** (`POST /latido`): unas decenas de bytes, nunca el
+blob, con `{syncKey, equipo, lastSave}`, donde `lastSave` es `lbp_last_save` —
+la hora del último guardado **intentado**. El worker cruza ese número con el
+`_cloudSaveTime` que tiene en la nube, y así separa tres casos que antes eran uno:
+
+| Qué pasó | Cómo se ve | Qué hace |
+|---|---|---|
+| No editó nada | blob viejo, equipo vivo, `lastSave <= blob` | **corre**: el blob es correcto |
+| No abrió la app | blob viejo, ningún equipo vivo | se calla: nadie puede certificarlo |
+| Guardó y no subió | `lastSave > blob` + tolerancia | se calla **y lo dice** |
+
+La regla es **monótona** respecto de la vieja: con blob fresco y nada pendiente
+nunca se calla, así que el latido sólo puede destrabar casos, nunca trabarlos.
+Eso es a propósito: un cambio que pudiera callar al asistente en casos nuevos
+sería peor que el problema que arregla.
+
+Se late **al cargar, al volver al frente** (con freno de 10 min) **y al fallar una
+subida** (forzado, sin freno). Ese tercer punto es el que vuelve precisa la
+detección: sin él, el `lastSave` guardado sería el del último latido y no el del
+guardado que falló.
+
+## Decisiones con su costo si están mal
+
+- **`lastSave` es la hora del último guardado intentado, no un contador de
+  ediciones.** La app ya la escribe (`lbp_last_save`), y vale exactamente el
+  `_cloudSaveTime` que se estampa en el blob: iguales = la nube tiene todo.
+  *Si está mal:* un cambio de esa semántica en la app rompe la detección en
+  silencio. Hay prueba que fija la correspondencia.
+- **Tolerancia de 3 minutos.** La app escribe `lbp_last_save` al **editar**,
+  antes del debounce de 2 s y del POST. *Si está mal (muy baja):* editar un
+  minuto antes de la pasada la callaría. Probado por mutación.
+- **Un equipo sin señales en 3 días se olvida**, al leer y al guardar.
+  *Si está mal:* un equipo retirado con una subida fallida dejaría al asistente
+  callado **para siempre** diciendo «hay cambios sin subir». Es el peor fallo
+  posible de este cambio y por eso tiene dos guardias y dos pruebas.
+- **Un `lastSave` más de 5 min en el futuro se descarta.** *Si está mal:* un reloj
+  adelantado produce el mismo silencio permanente.
+- **Sin registro de latido se usa la regla vieja.** Compatibilidad: un equipo con
+  la app vieja no late. *Si está mal:* nada; es el comportamiento de ayer.
+- **El chequeo horario usa la misma función.** *Si está mal:* las dos superficies
+  discreparían y una línea dura sonaría sobre datos que la pasada rechazó.
+
+## Verificación
+
+15 pruebas nuevas del worker + 10 de la app (657 en total, 0 fallas). **Las 15
+mutaciones** —una por rama: pendiente ignorado, app viva ignorada, equipo dormido
+contado, sin tolerancia, sin tope de futuro, chequeo con la regla vieja, endpoint
+sin validar la key, y 7 de la app— ponen la suite en rojo. La suscripción de push
+de las pruebas usa una llave ECDH **real**: con bytes inventados el cifrado falla,
+el worker se traga el error y «no sonó» daba verde por la razón equivocada. Se
+encontró así, antes de implementar.

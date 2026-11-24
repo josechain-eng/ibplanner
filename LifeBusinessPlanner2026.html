@@ -22,7 +22,7 @@
 <script>
 (function() {
   // ── Version ──────────────────────────────────────────────────────────────
-  window.LBP_VERSION = '5.75';
+  window.LBP_VERSION = '5.76';
 
   // ── PWA Install prompt ───────────────────────────────────────────────────
   window._installPrompt = null;
@@ -1350,7 +1350,13 @@
           method: 'POST',
           headers: {'Content-Type':'application/json'},
           body: JSON.stringify({syncKey: syncKey, data: stamped, equipo: window._lbpEquipo()})
-        }).then(function(r){ console.log('[LBP SYNC] Push result:', r && r.status); });
+        }).then(function(r){
+          console.log('[LBP SYNC] Push result:', r && r.status);
+          // Subida fallida: avisar YA, sin esperar el freno de 10 min. Es la
+          // unica senal de que la nube quedo atras, y el asistente la necesita
+          // para callarse en vez de hablar sobre un blob incompleto.
+          if ((!r || !r.ok) && window._lbpLatido) window._lbpLatido(true);
+        });
       };
       console.log('[LBP SYNC] Pulling cloud before push...');
       _workerFetch('/sync?key=' + encodeURIComponent(syncKey))
@@ -1392,6 +1398,36 @@
     // Un fetch normal en visibilitychange:hidden alcanza a completar porque la página
     // sigue viva en segundo plano unos segundos.
     fetch(window.LBP_WORKER_URL + '/sync', { method: 'POST', headers: {'Content-Type':'application/json'}, body: payload }).catch(function(){});
+  };
+
+  // ── Latido: "estoy viva y subi hasta aqui" ───────────────────────────────
+  // El blob de 4 MB se sube SOLO cuando se edita algo (el efecto del store se
+  // saltea el primer montaje a proposito, o abrir la app con localStorage vacio
+  // pisaria la copia de la nube). Medido el 24-nov-2026: abrir la app dos veces
+  // no movio _cloudSaveTime y el asistente se nego a correr con datos que eran
+  // correctos. Esto manda unas decenas de bytes --nunca el blob-- con la hora
+  // del ultimo guardado intentado: el worker cruza ese numero con lo que tiene
+  // en la nube y asi distingue "no edito nada" (confiable) de "guardo cambios
+  // que no llegaron" (que antes no se notaba: el blob estuvo congelado seis dias
+  // en la v5.06 sin que nadie lo viera).
+  window._lbpLatido = function(forzar) {
+    var syncKey = localStorage.getItem('lbp_sync_key');
+    if (!syncKey || !window.LBP_WORKER_URL) return;
+    var cada = 10 * 60 * 1000;
+    var ahora = Date.now();
+    // Sin el freno, cada ida y vuelta a la app mandaria uno. `forzar` lo saltea:
+    // lo usa el fallo de subida, que es justo lo que hay que avisar enseguida.
+    if (!forzar && window._lbpLatidoUltimo && (ahora - window._lbpLatidoUltimo) < cada) return;
+    window._lbpLatidoUltimo = ahora;
+    _workerFetch('/latido', {
+      method: 'POST',
+      headers: {'Content-Type':'application/json'},
+      body: JSON.stringify({
+        syncKey: syncKey,
+        equipo: window._lbpEquipo(),
+        lastSave: Number(localStorage.getItem('lbp_last_save')) || 0
+      })
+    });
   };
 
   // Batch-buffered cloud alarm scheduler — collects all alarms from a scheduleAlarms run
@@ -1691,9 +1727,13 @@
     if (document.visibilityState === 'visible' && window._cloudPull && localStorage.getItem('lbp_worker_url') && !_syncTimer) {
       window._cloudPull(null, false);
     }
+    if (document.visibilityState === 'visible' && window._lbpLatido) window._lbpLatido();
   });
 
-  window.addEventListener('load', function() { window._cloudPull(null, false); }); // pull on first load
+  window.addEventListener('load', function() {
+    window._cloudPull(null, false);                        // pull on first load
+    if (window._lbpLatido) window._lbpLatido(true);        // y avisar que esta viva
+  });
 })();
 </script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/react/18.2.0/umd/react.production.min.js"></script>
