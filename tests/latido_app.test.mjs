@@ -44,21 +44,21 @@ const cuerpoDe = (e) => JSON.parse(e.opts.body);
 
 test('manda la sync key, el equipo y el ultimo guardado, por POST a /latido', () => {
   const m = montar();
-  m.win._lbpEquipo = () => 'mac-de-pepe';
+  m.win._lbpEquipo = () => ({ id: 'a1b2c3', nombre: 'Chrome en Mac' });
   m.latir();
   assert.equal(m.enviados.length, 1);
   assert.equal(m.enviados[0].ruta, '/latido');
   assert.equal(m.enviados[0].opts.method, 'POST');
   const c = cuerpoDe(m.enviados[0]);
   assert.equal(c.syncKey, 'k_uno');
-  assert.equal(c.equipo, 'mac-de-pepe');
+  assert.equal(c.equipo, 'a1b2c3', 'manda el objeto entero en vez del id');
   assert.equal(c.lastSave, 1700000000000);
 });
 
 test('NO manda el blob: el cuerpo son unas decenas de bytes', () => {
   // La razon de existir del latido es no subir 4 MB para decir "estoy viva".
   const m = montar();
-  m.win._lbpEquipo = () => 'mac';
+  m.win._lbpEquipo = () => ({ id: 'a1b2c3', nombre: 'Chrome en Mac' });
   m.latir();
   const bytes = Buffer.byteLength(m.enviados[0].opts.body);
   assert.ok(bytes < 300, 'el cuerpo del latido pesa ' + bytes + ' bytes');
@@ -67,14 +67,14 @@ test('NO manda el blob: el cuerpo son unas decenas de bytes', () => {
 
 test('sin lastSave guardado manda 0, no null ni NaN', () => {
   const m = montar({ store: { lbp_last_save: null } });
-  m.win._lbpEquipo = () => 'mac';
+  m.win._lbpEquipo = () => ({ id: 'a1b2c3', nombre: 'Chrome en Mac' });
   m.latir();
   assert.equal(cuerpoDe(m.enviados[0]).lastSave, 0);
 });
 
 test('el freno: dos latidos seguidos mandan uno solo', () => {
   const m = montar();
-  m.win._lbpEquipo = () => 'mac';
+  m.win._lbpEquipo = () => ({ id: 'a1b2c3', nombre: 'Chrome en Mac' });
   m.latir();
   m.latir();
   assert.equal(m.enviados.length, 1, 'mando dos latidos seguidos');
@@ -82,7 +82,7 @@ test('el freno: dos latidos seguidos mandan uno solo', () => {
 
 test('pasados los 10 minutos vuelve a mandar', () => {
   const m = montar();
-  m.win._lbpEquipo = () => 'mac';
+  m.win._lbpEquipo = () => ({ id: 'a1b2c3', nombre: 'Chrome en Mac' });
   m.latir();
   m.avanzar(11 * 60 * 1000);
   m.latir();
@@ -91,7 +91,7 @@ test('pasados los 10 minutos vuelve a mandar', () => {
 
 test('forzar saltea el freno (lo usa el fallo de subida)', () => {
   const m = montar();
-  m.win._lbpEquipo = () => 'mac';
+  m.win._lbpEquipo = () => ({ id: 'a1b2c3', nombre: 'Chrome en Mac' });
   m.latir();
   m.latir(true);
   assert.equal(m.enviados.length, 2, 'forzar no saltea el freno');
@@ -99,14 +99,14 @@ test('forzar saltea el freno (lo usa el fallo de subida)', () => {
 
 test('sin URL del worker no manda nada y no tira', () => {
   const m = montar({ url: '' });
-  m.win._lbpEquipo = () => 'mac';
+  m.win._lbpEquipo = () => ({ id: 'a1b2c3', nombre: 'Chrome en Mac' });
   m.latir();
   assert.equal(m.enviados.length, 0);
 });
 
 test('sin sync key no manda nada', () => {
   const m = montar({ store: { lbp_sync_key: null } });
-  m.win._lbpEquipo = () => 'mac';
+  m.win._lbpEquipo = () => ({ id: 'a1b2c3', nombre: 'Chrome en Mac' });
   m.latir();
   assert.equal(m.enviados.length, 0);
 });

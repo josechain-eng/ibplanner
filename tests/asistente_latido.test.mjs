@@ -297,3 +297,49 @@ test('chequeo horario: con cambios sin subir no suena', async () => {
   const r = await correr(kv, CHEQUEO, []);
   assert.equal(r.push.length, 0, 'sono sobre un blob al que le faltan cambios');
 });
+
+// ───────────────────────────────────────────────────────────────────────────
+// 4. La identidad del equipo
+// ───────────────────────────────────────────────────────────────────────────
+// window._lbpEquipo() devuelve {id, nombre}, NO un texto. Visto en vivo el
+// 24-nov-2026: el primer latido real entro como "sin-equipo". Con un casillero
+// unico el latido de la Mac pisa el del celular, y si el celular tenia cambios
+// sin subir esa senal se borra: el asistente vuelve a creerle a un blob
+// incompleto, que es exactamente la carrera que el mapa por equipo evita.
+// La app ya manda el id, pero el worker tiene que aceptar las DOS formas: los
+// equipos que sigan en la v5.76 mandan el objeto hasta que se actualicen.
+
+test('acepta el objeto {id, nombre} y guarda bajo el id', async () => {
+  const kv = mundo({ blobMs: MANANA - 2 * H });
+  await postLatido(kv, { syncKey: 'k_uno', equipo: { id: 'a1b2c3', nombre: 'Chrome en Mac' }, lastSave: 1 });
+  const reg = JSON.parse(kv._map.get('asis_latido:k_uno'));
+  assert.deepEqual(Object.keys(reg), ['a1b2c3']);
+});
+
+test('dos equipos distintos NO se pisan (ni como objeto ni como texto)', async () => {
+  const kv = mundo({ blobMs: MANANA - 2 * H });
+  await postLatido(kv, { syncKey: 'k_uno', equipo: { id: 'mac1', nombre: 'Mac' }, lastSave: MANANA - 3 * H }, MANANA - 5 * M);
+  await postLatido(kv, { syncKey: 'k_uno', equipo: 'cel9', lastSave: MANANA - 4 * H }, MANANA);
+  const reg = JSON.parse(kv._map.get('asis_latido:k_uno'));
+  assert.deepEqual(Object.keys(reg).sort(), ['cel9', 'mac1'], 'un equipo piso al otro');
+});
+
+test('el pendiente del celular sobrevive al latido de la Mac', async () => {
+  // El dano concreto del casillero unico: el celular avisa que tiene cambios
+  // sin subir, la Mac late despues y la pasada vuelve a hablar sobre el blob
+  // incompleto. Con casilleros separados, el aviso del celular manda.
+  const kv = mundo({ blobMs: MANANA - 2 * H, data: DATOS });
+  await postLatido(kv, { syncKey: 'k_uno', equipo: { id: 'cel9' }, lastSave: MANANA - 20 * M }, MANANA - 4 * M);
+  await postLatido(kv, { syncKey: 'k_uno', equipo: { id: 'mac1' }, lastSave: MANANA - 2 * H }, MANANA - 2 * M);
+  const r = await correr(kv, MANANA, []);
+  assert.equal(r.llamadas.length, 0, 'el latido de la Mac borro el pendiente del celular');
+  assert.match(entrada(kv).summary, /SIN SUBIR/);
+});
+
+test('un equipo con forma rara cae al nombre fijo y no tumba el latido', async () => {
+  const kv = mundo({ blobMs: MANANA - 2 * H });
+  const r = await postLatido(kv, { syncKey: 'k_uno', equipo: { nombre: 'sin id' }, lastSave: 1 });
+  assert.equal(r.status, 200);
+  const reg = JSON.parse(kv._map.get('asis_latido:k_uno'));
+  assert.deepEqual(Object.keys(reg), ['sin-equipo']);
+});

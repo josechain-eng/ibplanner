@@ -974,7 +974,14 @@ async function handleRequest(request, env) {
       if (!syncKey) return json({ error: 'missing key' }, 400);
       if (!(await _syncKeyValida(env, syncKey))) return json({ error: 'invalid key' }, 401);
       const ahora = Date.now();
-      const equipo = String(cuerpo.equipo && typeof cuerpo.equipo === 'string' ? cuerpo.equipo : 'sin-equipo').slice(0, 40);
+      // window._lbpEquipo() devuelve {id, nombre}, no un texto: la v5.76 mandaba
+      // el objeto entero y TODO caia en un casillero unico, donde el latido de un
+      // equipo pisa al otro (y borra un "cambios sin subir" ajeno). Se aceptan las
+      // dos formas mientras queden equipos sin actualizar.
+      const eq = cuerpo.equipo;
+      const idEq = typeof eq === 'string' ? eq
+        : (eq && typeof eq === 'object' && typeof eq.id === 'string' ? eq.id : '');
+      const equipo = String(idEq || 'sin-equipo').slice(0, 40);
       let ls = Number(cuerpo.lastSave) || 0;
       // Un reloj adelantado NO puede dejar al asistente callado para siempre
       // diciendo "hay cambios sin subir".
