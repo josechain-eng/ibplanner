@@ -37,6 +37,7 @@ function cargarSW(opts) {
   const o = opts || {};
   const cache = cacheFalso(o.cache);
   const pedidos = [];
+  const llamadas = [];
   const listeners = {};
   const self = {
     addEventListener: (t, f) => { (listeners[t] = listeners[t] || []).push(f); },
@@ -47,8 +48,9 @@ function cargarSW(opts) {
   };
   const caches = { open: async () => cache, keys: async () => ['lbp-shell-v1'],
                    match: async (r) => cache.match(r), delete: async () => true };
-  const fetchFalso = async (req) => {
+  const fetchFalso = async (req, init) => {
     pedidos.push(String(req && req.url ? req.url : req));
+    llamadas.push({ arg: req, init: init });
     if (o.red === 'caida') throw new Error('sin red');
     if (o.red === 'lenta') { await new Promise((r) => setTimeout(r, o.demora || 9000)); }
     return new Response(o.cuerpo === undefined ? 'HTML DE LA RED' : o.cuerpo,
@@ -64,7 +66,7 @@ function cargarSW(opts) {
     for (const f of (listeners.fetch || [])) f(e);
     return resp;
   };
-  return { cache, pedidos, pedir };
+  return { cache, pedidos, llamadas, pedir };
 }
 
 const texto = async (p) => (p ? (await p).text() : '(no respondio)');
@@ -120,4 +122,26 @@ test('React del CDN sigue saliendo del cache, sin pedirlo a la red', async () =>
   const sw = cargarSW({ cache: { 'react.production.min.js': 'REACT GUARDADO' } });
   assert.equal(await texto(sw.pedir(url, 'no-cors')), 'REACT GUARDADO');
   assert.deepEqual(sw.pedidos, [], 'salio a la red por algo que ya tenia guardado');
+});
+
+test('el HTML se pide REVALIDANDO, no de la cache del navegador', async () => {
+  // GitHub Pages manda cache-control: max-age=600. Sin revalidar, ir a la red
+  // primero no alcanza: el navegador puede servir una copia de hasta 10 minutos.
+  // Medido el 24-nov: la app seguia en la v5.82 con la v5.83 ya publicada.
+  const sw = cargarSW({ cache: { 'LifeBusinessPlanner2026.html': 'HTML VIEJO' } });
+  await texto(sw.pedir(APP));
+  const html = sw.llamadas.filter((l) => String(l.arg && l.arg.url ? l.arg.url : l.arg).indexOf('.html') >= 0);
+  assert.ok(html.length > 0, 'no pidio el HTML a la red');
+  assert.equal(html[0].init && html[0].init.cache, 'no-cache',
+    'pide el HTML sin revalidar: una copia de hasta 10 minutos puede ganarle al despliegue');
+});
+
+test('no se construye un Request a partir del de navegacion', async () => {
+  // fetch(requestDeNavegacion, init) tira en varios navegadores: "Cannot
+  // construct a Request with a Request whose mode is navigate". Se pide por URL.
+  const sw = cargarSW({ cache: { 'LifeBusinessPlanner2026.html': 'HTML VIEJO' } });
+  await texto(sw.pedir(APP));
+  const primera = sw.llamadas[0];
+  assert.equal(typeof primera.arg, 'string',
+    'le pasa el Request de navegacion a fetch junto con init: eso revienta en el navegador');
 });

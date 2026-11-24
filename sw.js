@@ -53,7 +53,15 @@ self.addEventListener('fetch', function(e) {
         });
       };
       // Un 503 NO se guarda: pisaría la copia buena con una página de error.
-      var red = fetch(req).then(function(resp) {
+      // `cache: 'no-cache'` = revalidar SIEMPRE contra el servidor (un 304 si no
+      // cambio, que es barato). GitHub Pages manda max-age=600: sin esto, ir a
+      // la red primero no alcanza porque el navegador puede servir una copia de
+      // hasta 10 minutos. Medido el 24-nov: la app seguia en la v5.82 con la
+      // v5.83 ya publicada.
+      // Se pide por URL y no con `req`: construir un Request a partir de uno de
+      // navegacion tira "Cannot construct a Request with a Request whose mode is
+      // navigate" en varios navegadores.
+      var red = fetch(req.url, { cache: 'no-cache', credentials: 'same-origin' }).then(function(resp) {
         if (resp && resp.ok) cache.put('LifeBusinessPlanner2026.html', resp.clone());
         return resp;
       });
