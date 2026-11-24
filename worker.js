@@ -3425,7 +3425,8 @@ async function scheduledHandler(event, env) {
           let enviados = 0, fallados = 0;
           for (const sub of subs) {
             try {
-              await sendPush(sub, { title: alarm.title, body: alarm.body, alarmId: alarm.alarmId, vibration: alarm.vibration || 'long' });
+              // `ir` = a donde lleva el click; el service worker lo lee de aqui.
+              await sendPush(sub, { title: alarm.title, body: alarm.body, alarmId: alarm.alarmId, vibration: alarm.vibration || 'long', ir: alarm.ir });
               enviados++;
             } catch (e) {
               fallados++;

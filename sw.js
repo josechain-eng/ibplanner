@@ -82,7 +82,7 @@ function urlB64ToUint8Array(b64) {
   return arr;
 }
 
-function showAlarm(title, body, tag, vibration) {
+function showAlarm(title, body, tag, vibration, ir) {
   var vPattern = vibration === 'verylong'
     ? [1200, 300, 1200, 300, 1500]
     : [600, 150, 600, 150, 1000];
@@ -92,7 +92,9 @@ function showAlarm(title, body, tag, vibration) {
     requireInteraction: true,
     vibrate: vPattern,
     silent: false,
-    data: { tag: tag, vibration: vibration },
+    // `ir` = {ruta, refId}: a donde lleva el click. Sin esto la notificacion
+    // solo abria la app y el usuario tenia que buscar el item a mano.
+    data: { tag: tag, vibration: vibration, ir: ir || null },
     // Adding actions signals to Android that this is interactive/important,
     // which increases the chance of a heads-up (banner) notification
     actions: [
@@ -126,11 +128,11 @@ self.addEventListener('push', function(e) {
         }
         return broadcast
           .then(function() { return cache.put(firedUrl, new Response(String(Date.now()))); })
-          .then(function() { return showAlarm(data.title || 'Reminder', data.body || '', tag, data.vibration || 'long'); });
+          .then(function() { return showAlarm(data.title || 'Reminder', data.body || '', tag, data.vibration || 'long', data.ir); });
       });
     }).catch(function() {
       // Cache unavailable — fall back to always showing
-      return showAlarm(data.title || 'Reminder', data.body || '', tag, data.vibration || 'long');
+      return showAlarm(data.title || 'Reminder', data.body || '', tag, data.vibration || 'long', data.ir);
     })
   );
 });
@@ -230,14 +232,14 @@ self.addEventListener('pushsubscriptionchange', function(e) {
 });
 
 // ── SW-side setTimeout alarms (backup for when app is open) ────
-function scheduleOne(alarmId, triggerAt, title, body, vibration) {
+function scheduleOne(alarmId, triggerAt, title, body, vibration, ir) {
   if (_timers[alarmId]) clearTimeout(_timers[alarmId]);
   var delay = triggerAt - Date.now();
   if (delay <= 0) {
-    showAlarm(title, body, 'lbp_' + alarmId, vibration);
+    showAlarm(title, body, 'lbp_' + alarmId, vibration, ir);
   } else if (delay < 86400000) {
     _timers[alarmId] = setTimeout(function() {
-      showAlarm(title, body, 'lbp_' + alarmId, vibration);
+      showAlarm(title, body, 'lbp_' + alarmId, vibration, ir);
       delete _timers[alarmId];
     }, delay);
   }
@@ -248,7 +250,7 @@ self.addEventListener('message', function(e) {
 
   // ── Page asks SW to show a notification (reliable from background) ──
   if (d.type === 'SHOW_NOTIFICATION') {
-    e.waitUntil(showAlarm(d.title, d.body, d.tag, d.vibration));
+    e.waitUntil(showAlarm(d.title, d.body, d.tag, d.vibration, d.ir));
     return;
   }
 
@@ -266,13 +268,13 @@ self.addEventListener('message', function(e) {
     var now = Date.now();
     (d.alarms || []).forEach(function(a) {
       if (a.triggerAt > now && !_timers[a.alarmId])
-        scheduleOne(a.alarmId, a.triggerAt, a.title, a.body, a.vibration);
+        scheduleOne(a.alarmId, a.triggerAt, a.title, a.body, a.vibration, a.ir);
     });
     if (e.source) e.source.postMessage({ type: 'KEEPALIVE_ACK' });
     return;
   }
   if (d.type === 'SCHEDULE_ALARM') {
-    scheduleOne(d.alarmId, d.triggerAt, d.title, d.body, d.vibration);
+    scheduleOne(d.alarmId, d.triggerAt, d.title, d.body, d.vibration, d.ir);
     return;
   }
   if (d.type === 'CANCEL_ALARM') {
@@ -291,7 +293,7 @@ self.addEventListener('message', function(e) {
             var fkey = 'm_' + a.alarmId;
             if (fired.indexOf(fkey) !== -1) return;  // ya mostrada antes → no repetir
             return fc.put(new Request('https://lbp.local/fired/' + encodeURIComponent(fkey)), new Response(String(now2)))
-              .then(function() { return showAlarm(a.title, '(Missed) ' + a.body, 'lbp_' + a.alarmId, a.vibration); });
+              .then(function() { return showAlarm(a.title, '(Missed) ' + a.body, 'lbp_' + a.alarmId, a.vibration, a.ir); });
           } else if (a.triggerAt > now2) { scheduleOne(a.alarmId, a.triggerAt, a.title, a.body, a.vibration); }
         }));
       });
@@ -328,10 +330,25 @@ self.addEventListener('notificationclick', function(e) {
     }
   }
   if (e.action === 'dismiss') return;
+  // A donde lleva el click. Antes esto solo enfocaba o abria la app y nada mas:
+  // "si le doy click a la notificacion solo me lleva a la app" (24-nov-2026).
+  // La ruta puede venir del payload de un push, o sea de la red, asi que se
+  // filtra aqui a letras minusculas y la app la vuelve a validar contra su lista
+  // de pantallas. Con la app ABIERTA no alcanza con enfocar: hay que avisarle que
+  // navegue, porque no se vuelve a cargar y no hay URL que leer.
+  var _d = e.notification.data || {};
+  var _ir = _d.ir && /^[a-z]+$/.test(String(_d.ir.ruta || '')) ? _d.ir : null;
+  var _ref = _ir ? String(_ir.refId || '').slice(0, 64) : '';
   e.waitUntil(
     self.clients.matchAll({ type: 'window', includeUncontrolled: true }).then(function(cs) {
-      if (cs.length) return cs[0].focus();
-      return self.clients.openWindow(self.registration.scope);
+      if (cs.length) {
+        if (_ir) { try { cs[0].postMessage({ type: 'LBP_IR', ir: { ruta: _ir.ruta, refId: _ref } }); } catch (_e) {} }
+        return cs[0].focus();
+      }
+      var url = self.registration.scope;
+      if (_ir) url += (url.indexOf('?') < 0 ? '?' : '&') + 'ir=' + encodeURIComponent(_ir.ruta)
+                      + (_ref ? '&ref=' + encodeURIComponent(_ref) : '');
+      return self.clients.openWindow(url);
     })
   );
 });

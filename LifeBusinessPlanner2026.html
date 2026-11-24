@@ -22,7 +22,7 @@
 <script>
 (function() {
   // ── Version ──────────────────────────────────────────────────────────────
-  window.LBP_VERSION = '5.78';
+  window.LBP_VERSION = '5.79';
 
   // ── PWA Install prompt ───────────────────────────────────────────────────
   window._installPrompt = null;
@@ -1457,7 +1457,7 @@
       else console.warn('[LBP] Cloud alarm batch failed, HTTP:', r.status);
     }).catch(function(e) { console.error('[LBP] Cloud alarm batch error:', e); });
   }
-  window._cloudScheduleAlarm = function(alarmId, triggerAt, title, body, vibration) {
+  window._cloudScheduleAlarm = function(alarmId, triggerAt, title, body, vibration, ir) {
     var syncKey = localStorage.getItem('lbp_sync_key');
     if (!syncKey || !window.LBP_WORKER_URL) {
       console.warn('[LBP] _cloudScheduleAlarm skipped — missing syncKey or workerUrl');
@@ -1465,7 +1465,7 @@
     }
     // Deduplicate by alarmId (last write wins)
     _cloudAlarmBuffer = _cloudAlarmBuffer.filter(function(a){ return a.alarmId !== alarmId; });
-    _cloudAlarmBuffer.push({ alarmId: alarmId, triggerAt: triggerAt, title: title, body: body, vibration: vibration || 'long' });
+    _cloudAlarmBuffer.push({ alarmId: alarmId, triggerAt: triggerAt, title: title, body: body, vibration: vibration || 'long', ir: ir || null });
     if (_cloudAlarmFlushTimer) clearTimeout(_cloudAlarmFlushTimer);
     _cloudAlarmFlushTimer = setTimeout(_flushCloudAlarms, 800);
   };
@@ -1739,6 +1739,7 @@
     window._cloudPull(null, false);                        // pull on first load
     if (window._lbpLatido) window._lbpLatido(true);        // y avisar que esta viva
   });
+
 })();
 </script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/react/18.2.0/umd/react.production.min.js"></script>
@@ -3845,6 +3846,60 @@ window._lbpAsisHayQueRefrescar = function(entrada, nowMs) {
 // puede nombrar una tarea que ya se borro. Sin entidad no hay tilde (cerraria
 // nada) y sin ruta no hay a donde ir (navigate('') deja la app en blanco).
 window._LBP_ASIS_RUTAS = { tasks: 1, projects: 1, meetings: 1, clients: 1, imports: 1 };
+
+// ── Ir a un ITEM, no a una pantalla ──────────────────────────────────────
+// Pepe, 24-nov-2026: "si le doy click a la notificacion solo me lleva a la app
+// y nada mas" y "le doy click al resultado de la busqueda y me lleva a la
+// ventana de tareas, no a la tarea en si". Las dos son el mismo hueco.
+// _LBP_IR_RUTAS: pantallas que el router conoce. La ruta puede venir del payload
+// de un push --o sea de la red-- y navigate('') deja la app EN BLANCO, asi que
+// nada navega sin estar en esta lista.
+window._LBP_IR_RUTAS = { tasks: 1, goals: 1, projects: 1, journal: 1, routines: 1,
+                         habits: 1, meetings: 1, documents: 1, clients: 1, imports: 1 };
+// _LBP_IR_ABRE: las que ademas saben ABRIR el item, porque consumen
+// _lbpPendingEdit al montarse. Ese mecanismo ya existia; solo lo usaban los
+// gestos del Home. A las otras se las deja sin _lbpPendingEdit: seria basura
+// que nadie limpia.
+window._LBP_IR_ABRE = { tasks: 1, goals: 1, projects: 1, journal: 1, routines: 1,
+                        habits: 1, meetings: 1, documents: 1 };
+window._lbpIr = function(ir) {
+  var d = ir || {};
+  var ruta = String(d.ruta || '');
+  if (!Object.prototype.hasOwnProperty.call(window._LBP_IR_RUTAS, ruta)) return false;
+  var refId = String(d.refId || '');
+  if (refId && Object.prototype.hasOwnProperty.call(window._LBP_IR_ABRE, ruta)) {
+    window._lbpPendingEdit = { type: ruta, id: refId };
+  }
+  window._lbpIrPendiente = { ruta: ruta, refId: refId };
+  // La app ya puede estar montada (notificacion tocada con la app abierta) o
+  // montarse recien ahora (abierta desde cero): el evento cubre el primer caso y
+  // _lbpIrPendiente el segundo, que lo lee el efecto al montar.
+  window.dispatchEvent(new Event('lbp_ir'));
+  return true;
+};
+
+// ── Las dos puertas por donde entra un destino ────────────────────────────
+// VAN DESPUES de _lbpIr a proposito: estaban en un <script> anterior, donde
+// window._lbpIr todavia no existia, y el try/catch se tragaba el TypeError en
+// silencio. La app abria en el Dashboard como si nada.
+// (a) La app se abrio DESDE la notificacion: el destino viene en la URL. Se
+//     limpia de la barra para que un refresco no vuelva a saltar al mismo item.
+try {
+  var _lbpQS = new URLSearchParams(location.search);
+  if (_lbpQS.get('ir')) {
+    window._lbpIr({ ruta: _lbpQS.get('ir'), refId: _lbpQS.get('ref') || '' });
+    _lbpQS.delete('ir'); _lbpQS.delete('ref');
+    history.replaceState(history.state, '',
+      location.pathname + (_lbpQS.toString() ? '?' + _lbpQS.toString() : '') + location.hash);
+  }
+} catch (_e) {}
+// (b) La app ya estaba abierta: enfocar no alcanza, el service worker avisa.
+if (navigator.serviceWorker) {
+  navigator.serviceWorker.addEventListener('message', function(e) {
+    var d = e.data || {};
+    if (d.type === 'LBP_IR' && window._lbpIr) window._lbpIr(d.ir);
+  });
+}
 window._lbpAsisDestino = function(item, data) {
   var it = item || {}, d = data || {};
   var ruta = String(it.ruta || '');
@@ -5165,25 +5220,27 @@ var playAlarmSound = function playAlarmSound(sound) {
 };
 
 // Helper: send alarm to SW for background delivery
-var _postAlarmToSW = function(alarmId, triggerAt, title, body, vibration) {
+var _postAlarmToSW = function(alarmId, triggerAt, title, body, vibration, ir) {
   var vib = vibration || 'long';
   try {
     var pending = JSON.parse(localStorage.getItem('lbp_pending_alarms') || '[]');
     pending = pending.filter(function(a) { return a.alarmId !== alarmId; });
-    pending.push({alarmId: alarmId, triggerAt: triggerAt, title: title, body: body, vibration: vib});
+    // `ir` tambien en la cola local: de aqui sale la repesca "(Missed)", que es
+    // la que mas se ve cuando el telefono tuvo la app cerrada.
+    pending.push({alarmId: alarmId, triggerAt: triggerAt, title: title, body: body, vibration: vib, ir: ir || null});
     localStorage.setItem('lbp_pending_alarms', JSON.stringify(pending));
   } catch(_e) {}
   if ('serviceWorker' in navigator) {
     navigator.serviceWorker.ready.then(function(reg) {
       if (reg.active) {
-        reg.active.postMessage({type:'SCHEDULE_ALARM', alarmId:alarmId, triggerAt:triggerAt, title:title, body:body, vibration:vib});
+        reg.active.postMessage({type:'SCHEDULE_ALARM', alarmId:alarmId, triggerAt:triggerAt, title:title, body:body, vibration:vib, ir:ir||null});
       }
     }).catch(function(){});
   }
   // Note: cloud scheduling (_cloudScheduleAlarm) is called by scheduleAlarms, not here
 };
 
-var _fireNotification = function(title, body, tag, vibration) {
+var _fireNotification = function(title, body, tag, vibration, ir) {
   // Page-side vibrate (works when page is active)
   var vPat = (vibration === 'verylong') ? [1200,300,1200,300,1500] : [600,150,600,150,1000];
   navigator.vibrate && navigator.vibrate(vPat);
@@ -5191,7 +5248,7 @@ var _fireNotification = function(title, body, tag, vibration) {
     navigator.serviceWorker.ready.then(function(reg) {
       if (reg.active) {
         // Tell the SW to show the notification — reliable even when page is backgrounded
-        reg.active.postMessage({type:'SHOW_NOTIFICATION', title:title, body:body, tag:tag, vibration:vibration});
+        reg.active.postMessage({type:'SHOW_NOTIFICATION', title:title, body:body, tag:tag, vibration:vibration, ir:ir||null});
       } else {
         return reg.showNotification("🔔 " + title, {body:body, requireInteraction:true, tag:tag});
       }
@@ -5206,6 +5263,11 @@ var _fireNotification = function(title, body, tag, vibration) {
 };
 
 // Helper: schedule alarms for entities
+// Tipo de alarma -> pantalla. Solo pantallas que el router conoce; las que no
+// estan (medications, householdTasks, workouts) no tienen a donde ir y su
+// notificacion se porta como antes.
+window._LBP_ALARMA_RUTA = { tasks: 'tasks', goals: 'goals', projects: 'projects', subtask: 'projects',
+  journal: 'journal', routines: 'routines', habits: 'habits', meetings: 'meetings' };
 var _ALARM_TYPE_LABELS = {tasks:'Task', goals:'Goal', projects:'Project', subtask:'Subtask', journal:'Journal entry', routines:'Routine', habits:'Habit', medications:'Medication', householdTasks:'Household task', workouts:'Workout', meetings:'Meeting'};
 // La nota del recordatorio es un dato EXTRA. Si repite el nombre de la entidad no
 // aporta nada y la notificacion sale con el titulo dos veces ('Competencia entre
@@ -5406,14 +5468,18 @@ var scheduleAlarms = function scheduleAlarms(entities, type, addToast) {
       ? (entityName ? entityName + ' · ' + _nota : _nota)
       : (entityName ? entityName + ' · ' + typeLabel + ' reminder' : typeLabel + ' reminder');
     var alarmId = (entity.id || uid()) + '_' + alarmMs;
+    // A donde lleva tocar esta notificacion. Sin ruta conocida va `null` y la
+    // notificacion se porta como siempre (abre la app y nada mas).
+    var _rutaIr = window._LBP_ALARMA_RUTA[type] || '';
+    var _ir = (_rutaIr && entity.id) ? { ruta: _rutaIr, refId: String(entity.id) } : null;
     console.log('[LBP] scheduleAlarms: found alarm "' + title + '" in ' + Math.round(diff/60000) + 'min, cloud=' + (!!window.LBP_WORKER_URL) + ', syncKey=' + (!!localStorage.getItem('lbp_sync_key')));
     // ── Always register with Cloudflare (fires even weeks away) ──
-    if (window._cloudScheduleAlarm) window._cloudScheduleAlarm(alarmId, alarmMs, title, body, alarm.vibration);
+    if (window._cloudScheduleAlarm) window._cloudScheduleAlarm(alarmId, alarmMs, title, body, alarm.vibration, _ir);
     // Recurrencia: agenda TODAS las próximas ocurrencias futuras en la nube,
     // así dispara cada día/semana/mes aunque la app esté cerrada.
     if (_rec !== 'once' && _occ.length > 1 && window._cloudScheduleAlarm) {
       for (var _oi = 1; _oi < _occ.length; _oi++) {
-        window._cloudScheduleAlarm((entity.id || alarmId) + '_' + _occ[_oi], _occ[_oi], title, body, alarm.vibration);
+        window._cloudScheduleAlarm((entity.id || alarmId) + '_' + _occ[_oi], _occ[_oi], title, body, alarm.vibration, _ir);
       }
     }
     // Register each reminder as a separate cloud alarm so they fire even when app is sleeping
@@ -5421,14 +5487,14 @@ var scheduleAlarms = function scheduleAlarms(entities, type, addToast) {
       alarm.repeatIntervals.forEach(function(mins, idx) {
         var rId = alarmId + '_r' + (idx + 1);
         var rAt = alarmMs + mins * 60000;
-        if (window._cloudScheduleAlarm) window._cloudScheduleAlarm(rId, rAt, title, body + ' (recordatorio +' + mins + 'min)', alarm.vibration);
+        if (window._cloudScheduleAlarm) window._cloudScheduleAlarm(rId, rAt, title, body + ' (recordatorio +' + mins + 'min)', alarm.vibration, _ir);
         // Also add to SW pending so local missed-detection fires reminders if cloud fails
-        if (rAt > nowMs) _postAlarmToSW(rId, rAt, title, body + ' (recordatorio +' + mins + 'min)', alarm.vibration);
+        if (rAt > nowMs) _postAlarmToSW(rId, rAt, title, body + ' (recordatorio +' + mins + 'min)', alarm.vibration, _ir);
       });
     }
     // ── SW + local fallback only for alarms within 24h ──
     if (diff <= oneDayMs) {
-      _postAlarmToSW(alarmId, alarmMs, title, body, alarm.vibration);
+      _postAlarmToSW(alarmId, alarmMs, title, body, alarm.vibration, _ir);
       (function(_canonKey) {
         setTimeout(function () {
           if (!window._lbpFiredSet) window._lbpFiredSet = new Set();
@@ -5445,7 +5511,7 @@ var scheduleAlarms = function scheduleAlarms(entities, type, addToast) {
             });
           }
           if ('Notification' in window && Notification.permission === 'granted') {
-            _fireNotification(title, body, 'lbp_' + alarmId, alarm.vibration);
+            _fireNotification(title, body, 'lbp_' + alarmId, alarm.vibration, _ir);
             try {
               var _alog = JSON.parse(localStorage.getItem('lbp_alarm_log') || '[]');
               _alog.unshift({ title: title, body: body, time: new Date().toISOString() });
@@ -19323,7 +19389,12 @@ var SearchScreen = function(_ref_s){
       active&&results.length===0&&/*#__PURE__*/React.createElement('div',{style:{color:'var(--text-dim)',textAlign:'center',padding:'30px 0',fontSize:14}},'No results found.'),
       results.map(function(r,i){
         var c=tC[r.label]||'#9C68D6';
-        return /*#__PURE__*/React.createElement('div',{key:r.id||i,onClick:function(){navigate(r.route);},style:{background:'var(--card)',border:'1px solid var(--border)',borderRadius:10,padding:'10px 14px',marginBottom:8,cursor:'pointer',display:'flex',alignItems:'flex-start',gap:10}},
+        return /*#__PURE__*/React.createElement('div',{key:r.id||i,onClick:function(){
+          // Abrir el ITEM, no solo la pantalla: "me lleva a la ventana de tareas
+          // y no a la tarea en si" (24-nov-2026). r.route ya es el mismo nombre
+          // que usa _lbpPendingEdit ('tasks', 'projects', ...).
+          if(r.id&&window._LBP_IR_ABRE&&window._LBP_IR_ABRE[r.route])window._lbpPendingEdit={type:r.route,id:r.id};
+          navigate(r.route);},style:{background:'var(--card)',border:'1px solid var(--border)',borderRadius:10,padding:'10px 14px',marginBottom:8,cursor:'pointer',display:'flex',alignItems:'flex-start',gap:10}},
           /*#__PURE__*/React.createElement('span',{style:{background:c+'20',color:c,border:'1px solid '+c+'40',borderRadius:6,padding:'2px 7px',fontSize:11,fontWeight:700,whiteSpace:'nowrap',flexShrink:0}},r.label),
           /*#__PURE__*/React.createElement('div',{style:{flex:1,minWidth:0}},
             /*#__PURE__*/React.createElement('div',{style:{fontWeight:600,fontSize:13,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}},r.title),
@@ -21464,7 +21535,7 @@ var App = function App() {
     return function() { cancelarEspera(); clearInterval(ivO); };
   }, [_outlookListo]);
 
-  var fireAlarmOnce = useCallback(function (title, body, current, total, intervalMin, sound, vibration, alarmId) {
+  var fireAlarmOnce = useCallback(function (title, body, current, total, intervalMin, sound, vibration, alarmId, ir) {
     setActiveAlarm({ title: title, body: body, current: current, total: total });
     addToast({
       id: uid(),
@@ -21477,7 +21548,7 @@ var App = function App() {
     var _ntag = 'lbp_' + (alarmId || Date.now());
     if ('Notification' in window && Notification.permission === 'granted') {
       // Use SW-backed notification so it shows even when page is backgrounded
-      _fireNotification(title, body, _ntag, vibration);
+      _fireNotification(title, body, _ntag, vibration, ir);
       try {
         var _log = JSON.parse(localStorage.getItem('lbp_alarm_log') || '[]');
         _log.unshift({ title: title, body: body, time: new Date().toISOString() });
@@ -21542,14 +21613,17 @@ var App = function App() {
               var rIntervals = Array.isArray(al.repeatIntervals) ? al.repeatIntervals : null;
               var rCnt = rIntervals ? rIntervals.length : (al.repeatCount || 0);
               var rMin = al.repeatInterval || 5;
-              fireAlarmOnce(title, body, 0, rCnt, rMin, al.sound, al.vibration, _alarmId);
+              // A donde lleva tocarla, igual que en las alarmas de la nube.
+              var _irEnVivo = (window._LBP_ALARMA_RUTA[key] && entity.id)
+                ? { ruta: window._LBP_ALARMA_RUTA[key], refId: String(entity.id) } : null;
+              fireAlarmOnce(title, body, 0, rCnt, rMin, al.sound, al.vibration, _alarmId, _irEnVivo);
               for (var i = 0; i < rCnt; i++) {
                 (function (idx) {
                   var delay = rIntervals ? rIntervals[idx] * 60000 : (idx + 1) * rMin * 60000;
                   return setTimeout(function () {
                     // Mismo id que registra la nube (alarmId + '_r' + n) para que las
                     // dos copias del mismo repique caigan en una sola notificacion.
-                    return fireAlarmOnce(title, body, idx + 1, rCnt, rIntervals ? rIntervals[idx] : rMin, al.sound, al.vibration, _alarmId + '_r' + (idx + 1));
+                    return fireAlarmOnce(title, body, idx + 1, rCnt, rIntervals ? rIntervals[idx] : rMin, al.sound, al.vibration, _alarmId + '_r' + (idx + 1), _irEnVivo);
                   }, delay);
                 })(i);
               }
@@ -21651,6 +21725,21 @@ var App = function App() {
     setPage(p);
     setDrawerOpen(false);
   }, []);
+  // El destino que dejo _lbpIr (una notificacion tocada, o ?ir= en la URL).
+  // `aplicar()` corre tambien al montar: cuando la app se abre DESDE la
+  // notificacion, _lbpIr ya disparo el evento antes de que React existiera, y
+  // sin esto el destino se perderia.
+  useEffect(function() {
+    var aplicar = function() {
+      var d = window._lbpIrPendiente;
+      if (!d || !d.ruta) return;
+      window._lbpIrPendiente = null;
+      navigate(d.ruta);
+    };
+    window.addEventListener('lbp_ir', aplicar);
+    aplicar();
+    return function() { window.removeEventListener('lbp_ir', aplicar); };
+  }, [navigate]);
   useEffect(function() {
     // Seed initial history entry so first back press goes to 'home' not exits
     history.replaceState({lbpRoute: 'home'}, '', '');
