@@ -55,3 +55,37 @@ test('worker.js sigue siendo ASCII puro', () => {
   const malos = [...worker].filter(c => c.charCodeAt(0) > 126 || c.charCodeAt(0) < 9);
   assert.equal(malos.length, 0, 'aparecieron ' + malos.length + ' caracteres no ASCII');
 });
+
+// ── La lista de secretos del wrangler.toml es la checklist pre-deploy ──────
+// Existe porque un `wrangler deploy` ya borro dos secretos del dashboard: el
+// comentario es lo que se revisa antes de desplegar. Un secreto que el worker
+// lee y la lista no nombra es el mismo accidente otra vez.
+test('wrangler.toml nombra todos los secretos que el worker lee', () => {
+  const toml = fs.readFileSync(path.join(raiz, 'wrangler.toml'), 'utf8');
+  const i = toml.indexOf('Secrets esperados');
+  assert.ok(i > 0, 'no encuentro la lista de secretos esperados');
+  // Se leen los nombres de la LISTA, que termina en el primer punto. Lo que venga
+  // despues es prosa que explica para que sirve alguno: una mencion ahi no es
+  // estar en la checklist, y tomarla como tal dejaba esta prueba sin poder fallar
+  // (mutacion Minor5-M1: se saco ASIS_KEY de la lista y la prueba siguio verde).
+  const desde = toml.indexOf(':', i) + 1;
+  const hasta = toml.indexOf('.', desde);
+  assert.ok(hasta > desde, 'la lista de secretos tiene que terminar en un punto');
+  const checklist = new Set(toml.slice(desde, hasta).match(/[A-Z][A-Z0-9_]{2,}/g) || []);
+  // Los secretos que el worker busca en env, menos los bindings de KV/R2/servicio.
+  const leidos = new Set((worker.match(/env\.[A-Z][A-Z0-9_]+/g) || [])
+    .map((m) => m.slice(4))
+    .filter((n) => ['LBP_KV', 'LBP_R2', 'BRIEFING_SERVICE', 'BRIEFING_URL'].indexOf(n) < 0));
+  assert.ok(leidos.has('ASIS_KEY'), 'la prueba no mide nada si el worker ya no lee ASIS_KEY');
+  for (const n of leidos) {
+    assert.ok(checklist.has(n), 'el secreto ' + n + ' no esta en la checklist del wrangler.toml');
+  }
+});
+
+test('wrangler.toml conserva el cron de cada minuto y no declara [vars]', () => {
+  const toml = fs.readFileSync(path.join(raiz, 'wrangler.toml'), 'utf8');
+  assert.ok(toml.includes('crons = ["* * * * *"]'),
+    'sin el cron de cada minuto el deploy lo borra y mueren las alarmas');
+  assert.ok(!/^\s*\[vars\]/m.test(toml),
+    'un [vars] aca reemplaza el conjunto de vars del worker y borra las del dashboard');
+});

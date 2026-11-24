@@ -6,3 +6,6 @@ LBPlanner Backup/
 # Scratch de los skills de superpowers (ledger, briefs, paquetes de revision)
 .superpowers/
 .worktrees/
+
+# Copias temporales que escriben los arneses de prueba al cargar el worker
+tests/.worker_*.mjs

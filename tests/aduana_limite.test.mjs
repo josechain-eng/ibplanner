@@ -108,7 +108,10 @@ test('el aviso de aduana va por delante en Home', () => {
   assert.ok(i > 0, 'no encuentro el bloque de avisos de aduana');
   assert.ok(html.includes('alerts=_adu.concat(alerts);'),
     'los avisos de aduana tienen que ir ADELANTE: la lista se corta en 5');
-  const corte = html.indexOf('alerts.slice(0,5)');
+  // v5.75: el bloque del Home normaliza a `filas` las dos ramas (asistente y
+  // Alertas) antes de cortar, asi que el corte se llama filas.slice(0,5). Lo que
+  // se mide sigue siendo lo mismo: el corte es a 5 y esta despues del bloque.
+  const corte = html.indexOf('filas.slice(0,5)');
   assert.ok(corte > i, 'el bloque tiene que estar antes del corte');
   assert.ok(html.includes("if(d===null||d>7)return;"), 'el aviso tiene que mirar solo los proximos 7 dias');
 });

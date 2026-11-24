@@ -22,7 +22,7 @@
 <script>
 (function() {
   // ── Version ──────────────────────────────────────────────────────────────
-  window.LBP_VERSION = '5.73';
+  window.LBP_VERSION = '5.78';
 
   // ── PWA Install prompt ───────────────────────────────────────────────────
   window._installPrompt = null;
@@ -153,6 +153,137 @@
     };
     return [corrido(-48, 'Carnaval'), corrido(-47, 'Carnaval'),
             corrido(-2, 'Viernes Santo'), corrido(60, 'Corpus Christi')];
+  };
+  // Unica definicion de «dia habil»: ni sabado, ni domingo, ni feriado boliviano
+  // (los cat:'feriado' fijos de _LBP_EVENTS mas los movibles DEL ANIO mirado).
+  // La lista de cada anio se arma una vez. 'weekdays' (habitos y metas) NO usa
+  // esto: sigue salteando solo el fin de semana.
+  window._lbpEsDiaHabil = function(d) {
+    var cache = window._lbpEsDiaHabil._cache || (window._lbpEsDiaHabil._cache = {});
+    var dow = d.getDay();
+    if (dow === 0 || dow === 6) return false;
+    var anio = d.getFullYear();
+    if (!cache[anio]) {
+      var fijos = (window._LBP_EVENTS || []).filter(function(e) { return e.cat === 'feriado'; });
+      cache[anio] = fijos.concat(
+        window._LBP_FERIADOS_MOVILES ? window._LBP_FERIADOS_MOVILES(anio) : []);
+    }
+    var m = d.getMonth() + 1, dia = d.getDate();
+    return !cache[anio].some(function(e) { return e.m === m && e.d === dia; });
+  };
+  // Las tareas del correo ya aceptadas nacieron con alarma 'once' (suena una vez y
+  // se olvidan). Las pasa a 'weekdays2'. Idempotente; sin cambios devuelve el MISMO
+  // array (convencion de _mergeCloudData). NO toca updatedAt: _stampUpdatedAt lo
+  // sella al ver que alarm.recurrence difiere de la nube. Quien la llama decide
+  // CUANDO correr (ver el efecto de App: una sola vez por dispositivo).
+  // Medianoche del 23-nov-2026 en Bolivia (UTC-4), el dia que salio v5.74. Toda
+  // tarea tocada despues de este instante se considera decidida por el usuario.
+  var LBP_CORTE_V574 = 1795406400000;
+  window._lbpMigrarAlarmasCorreo = function(tasks) {
+    if (!Array.isArray(tasks)) return { tasks: tasks, cambiadas: 0 };
+    var cambiadas = 0;
+    var out = tasks.map(function(t) {
+      if (!t || !Array.isArray(t.tags) || t.tags.indexOf('Correo') < 0) return t;
+      if (t.status === 'DONE' || t.status === 'CANCELLED' || t.status === 'ARCHIVED') return t;
+      var al = t.alarm;
+      if (!al || !al.enabled || !al.datetime) return t;
+      if ((al.recurrence || 'once') !== 'once') return t;
+      // Nunca convertir una tarea que el usuario toco DESPUES de que salio esta version:
+      // si la puso en 'once' a proposito en otro equipo, este no puede deshacerselo.
+      // El marcador es por dispositivo, asi que sin esto el segundo equipo que migra
+      // revierte la decision del primero y la empuja.
+      if (t.updatedAt && t.updatedAt > LBP_CORTE_V574) return t;
+      cambiadas++;
+      return Object.assign({}, t, { alarm: Object.assign({}, al, { recurrence: 'weekdays2' }) });
+    });
+    return { tasks: cambiadas ? out : tasks, cambiadas: cambiadas };
+  };
+  // Las seis reglas de alerta del Home, como datos (sin closures: `route` es la
+  // pantalla a la que navega el clic; el render arma el onClick). Ya devuelve la
+  // lista ordenada: primero aduana por dias ascendente, despues el resto en el
+  // orden de las reglas. `taskId` solo en las dos reglas de tarea.
+  // Unico cambio de comportamiento respecto al JSX original: el limite de la
+  // regla 1b sube de 14 a 60 dias. `data` puede venir incompleto (dispositivo
+  // nuevo antes de su primer pull): cada lista se protege con || [].
+  window._lbpAlertas = function(data, nowMs) {
+    data = data || {};
+    var now = nowMs;
+    var alerts = [];
+    // 1a. Today's fired alarms: alarm fired today, task still open
+    (data.tasks||[]).forEach(function(t){
+      if(t.status==='DONE')return;
+      if(!t.alarm||!t.alarm.enabled||!t.alarm.datetime)return;
+      var ms=new Date(t.alarm.datetime).getTime();
+      var days=Math.floor((now-ms)/86400000);
+      if(ms<now&&days===0){
+        var hoursAgo=Math.floor((now-ms)/3600000);
+        alerts.push({id:'today_'+t.id,icon:'🔔',color:'#F59E0B',
+          msg:'"'+t.title.slice(0,35)+'" — alarma de hoy'+(hoursAgo>0?' (hace '+hoursAgo+'h)':'')+' sin completar',
+          route:'tasks',taskId:t.id});
+      }
+    });
+    // 1b. Stale alarms: task alarm fired 1-60 days ago, still open
+    (data.tasks||[]).forEach(function(t){
+      if(t.status==='DONE')return;
+      if(!t.alarm||!t.alarm.enabled||!t.alarm.datetime)return;
+      var ms=new Date(t.alarm.datetime).getTime();
+      var days=Math.floor((now-ms)/86400000);
+      if(ms<now&&days>=1&&days<=60){
+        alerts.push({id:'stale_'+t.id,icon:'⏰',color:'#ef4444',
+          msg:'"'+t.title.slice(0,35)+'" — alarma de hace '+days+' día'+(days>1?'s':'')+' sin completar',
+          route:'tasks',taskId:t.id});
+      }
+    });
+    // 2. Meeting follow-up: meetings from yesterday with no tasks created after
+    var _yd=new Date(now-86400000);var yesterday=_yd.getFullYear()+'-'+String(_yd.getMonth()+1).padStart(2,'0')+'-'+String(_yd.getDate()).padStart(2,'0');
+    (data.meetings||[]).forEach(function(m){
+      if(m.date!==yesterday)return;
+      var mStart=new Date(m.date+'T'+(m.startTime||'00:00')).getTime();
+      var hasTask=(data.tasks||[]).some(function(t){return t.createdAt&&t.createdAt>mStart;});
+      if(!hasTask){
+        alerts.push({id:'followup_'+m.id,icon:'📋',color:'#f59e0b',
+          msg:'"'+m.title.slice(0,35)+'" de ayer — sin tareas de seguimiento',
+          route:'meetings'});
+      }
+    });
+    // 3. Projects stagnant > 10 days
+    (data.projects||[]).forEach(function(p){
+      if(['DONE','ON_HOLD','PAUSED'].includes(p.status))return;
+      var last=p.updatedAt||p.createdAt||0;
+      if(last&&(now-last)/86400000>10){
+        alerts.push({id:'proj_'+p.id,icon:'📁',color:'#8b5cf6',
+          msg:'"'+p.name.slice(0,35)+'" — sin actividad en '+Math.floor((now-last)/86400000)+' días',
+          route:'projects'});
+      }
+    });
+    // 4. Clients neglected > 30 days
+    (data.clients||[]).forEach(function(c){
+      if(!['ACTIVE','CLIENT'].includes(c.status))return;
+      var cm=(data.meetings||[]).filter(function(m){return m.clientId===c.id;});
+      var lastMs=cm.length?Math.max.apply(null,cm.map(function(m){return new Date(m.date).getTime();})):(c.createdAt||0);
+      if(lastMs&&(now-lastMs)/86400000>30){
+        alerts.push({id:'client_'+c.id,icon:'👥',color:'#6366f1',
+          msg:'"'+(c.name||c.company||'').slice(0,30)+'" — '+Math.floor((now-lastMs)/86400000)+' días sin reunión',
+          route:'clients'});
+      }
+    });
+    // 5. Despachos con fecha limite en aduana. Van ADELANTE de las demas porque
+    // la lista del Home se corta en 5 y una multa de aduana pesa mas que una
+    // alarma vieja sin tildar (5-nov-2026).
+    var _adu=[];
+    (data.imports||[]).forEach(function(imp){
+      var d=_impDiasLimite(imp);
+      if(d===null||d>7)return;
+      var ci=(data.clients||[]).find(function(x){return x.id===imp.clientId;});
+      var marca=ci?(ci.businessName||ci.name):'Sin asignar';
+      var trib=_impNum(imp.tributos);
+      _adu.push({id:'aduana_'+imp.id,icon:d<0?'🛑':'🏛',color:d<=0?'#ef4444':'#FF9800',
+        msg:marca+' '+(imp.season||'despacho')+' — aduana '+_impLimiteTexto(d)+(trib?' · Bs '+Math.round(trib).toLocaleString():''),
+        route:'imports',_d:d});
+    });
+    _adu.sort(function(a,b){return a._d-b._d;});
+    if(_adu.length) alerts=_adu.concat(alerts);
+    return alerts;
   };
   // Devuelve eventos en los próximos `months` meses (por defecto 3), ordenados por fecha.
   window._lbpUpcomingEvents = function(fromDate, months) {
@@ -1024,7 +1155,17 @@
     // tareasDecididas: lista de objetos con `id` (el hiloId), la condicion que el merge exige.
     'tareasDecididas',
     // mktDecididas: decisiones de la tarjeta de propuestas de marketing (v5.73), lista con `id`.
-    'mktDecididas'];
+    'mktDecididas',
+    // asisDecididos: las decisiones por item del asistente ({id, decision, ts}).
+    // Entra aca y NO en las lapidas (_deletedIds) por el mismo motivo ya MEDIDO en
+    // tareasDecididas: con lapida, _mergeTombstones toma el maximo por id y nunca
+    // deja desaparecer la clave, asi que la decision SIGUIENTE sobre ese id se
+    // perdia 30 dias. Deshacer escribe decision:'revocada', que el worker ya trata
+    // como sin decidir.
+    // Un equipo en v5.74 no tiene esta clave: el merge la lee como lista vacia y
+    // apendea las decisiones del otro lado, asi que no borra ni revive nada.
+    // mktDecididas comparte el motivo: su "deshacer" tambien escribe 'revocada'.
+    'asisDecididos'];
 
   // Prune deletion tombstones older than 30 days to keep the blob lean
   // Exposed on window so the React component script (separate <script> tag) can call it
@@ -1212,7 +1353,13 @@
           method: 'POST',
           headers: {'Content-Type':'application/json'},
           body: JSON.stringify({syncKey: syncKey, data: stamped, equipo: window._lbpEquipo()})
-        }).then(function(r){ console.log('[LBP SYNC] Push result:', r && r.status); });
+        }).then(function(r){
+          console.log('[LBP SYNC] Push result:', r && r.status);
+          // Subida fallida: avisar YA, sin esperar el freno de 10 min. Es la
+          // unica senal de que la nube quedo atras, y el asistente la necesita
+          // para callarse en vez de hablar sobre un blob incompleto.
+          if ((!r || !r.ok) && window._lbpLatido) window._lbpLatido(true);
+        });
       };
       console.log('[LBP SYNC] Pulling cloud before push...');
       _workerFetch('/sync?key=' + encodeURIComponent(syncKey))
@@ -1254,6 +1401,38 @@
     // Un fetch normal en visibilitychange:hidden alcanza a completar porque la página
     // sigue viva en segundo plano unos segundos.
     fetch(window.LBP_WORKER_URL + '/sync', { method: 'POST', headers: {'Content-Type':'application/json'}, body: payload }).catch(function(){});
+  };
+
+  // ── Latido: "estoy viva y subi hasta aqui" ───────────────────────────────
+  // El blob de 4 MB se sube SOLO cuando se edita algo (el efecto del store se
+  // saltea el primer montaje a proposito, o abrir la app con localStorage vacio
+  // pisaria la copia de la nube). Medido el 24-nov-2026: abrir la app dos veces
+  // no movio _cloudSaveTime y el asistente se nego a correr con datos que eran
+  // correctos. Esto manda unas decenas de bytes --nunca el blob-- con la hora
+  // del ultimo guardado intentado: el worker cruza ese numero con lo que tiene
+  // en la nube y asi distingue "no edito nada" (confiable) de "guardo cambios
+  // que no llegaron" (que antes no se notaba: el blob estuvo congelado seis dias
+  // en la v5.06 sin que nadie lo viera).
+  window._lbpLatido = function(forzar) {
+    var syncKey = localStorage.getItem('lbp_sync_key');
+    if (!syncKey || !window.LBP_WORKER_URL) return;
+    var cada = 10 * 60 * 1000;
+    var ahora = Date.now();
+    // Sin el freno, cada ida y vuelta a la app mandaria uno. `forzar` lo saltea:
+    // lo usa el fallo de subida, que es justo lo que hay que avisar enseguida.
+    if (!forzar && window._lbpLatidoUltimo && (ahora - window._lbpLatidoUltimo) < cada) return;
+    window._lbpLatidoUltimo = ahora;
+    _workerFetch('/latido', {
+      method: 'POST',
+      headers: {'Content-Type':'application/json'},
+      body: JSON.stringify({
+        syncKey: syncKey,
+        // El ID, no el objeto: es la clave del casillero por equipo en el worker
+        // (vive en localStorage, asi que distingue perfiles y navegadores).
+        equipo: window._lbpEquipo().id,
+        lastSave: Number(localStorage.getItem('lbp_last_save')) || 0
+      })
+    });
   };
 
   // Batch-buffered cloud alarm scheduler — collects all alarms from a scheduleAlarms run
@@ -1553,9 +1732,13 @@
     if (document.visibilityState === 'visible' && window._cloudPull && localStorage.getItem('lbp_worker_url') && !_syncTimer) {
       window._cloudPull(null, false);
     }
+    if (document.visibilityState === 'visible' && window._lbpLatido) window._lbpLatido();
   });
 
-  window.addEventListener('load', function() { window._cloudPull(null, false); }); // pull on first load
+  window.addEventListener('load', function() {
+    window._cloudPull(null, false);                        // pull on first load
+    if (window._lbpLatido) window._lbpLatido(true);        // y avisar que esta viva
+  });
 })();
 </script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/react/18.2.0/umd/react.production.min.js"></script>
@@ -3551,19 +3734,9 @@ window._outlookPull = function(setDataFn) {
 window._tpProximoDiaHabil = function(ymd) {
   var p = String(ymd).split('-');
   var d = new Date(+p[0], +p[1] - 1, +p[2], 12, 0, 0);
-  var fijos = (window._LBP_EVENTS || []).filter(function(e) { return e.cat === 'feriado'; });
-  var cache = {};
-  var feriadosDe = function(anio) {
-    if (!cache[anio]) cache[anio] = fijos.concat(
-      window._LBP_FERIADOS_MOVILES ? window._LBP_FERIADOS_MOVILES(anio) : []);
-    return cache[anio];
-  };
   for (var i = 0; i < 366; i++) {
     d.setDate(d.getDate() + 1);
-    var dow = d.getDay();
-    if (dow === 0 || dow === 6) continue;
-    var esFeriado = feriadosDe(d.getFullYear()).some(function(e) { return e.m === d.getMonth() + 1 && e.d === d.getDate(); });
-    if (!esFeriado) break;
+    if (window._lbpEsDiaHabil(d)) break;
   }
   return d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' +
          String(d.getDate()).padStart(2, '0');
@@ -3583,6 +3756,133 @@ window._tpHoraAlarma = function(data, ymd, extra) {
   };
   while (ocupadas[ymd + 'T' + hhmm(min)] && min < 23 * 60 + 55) min += 5;
   return ymd + 'T' + hhmm(min);
+};
+// ── El asistente proactivo en la app (v5.75) ──────────────────────────────
+// Como se ve cada urgencia. El worker ya cae a 'puede_esperar' cuando el modelo
+// inventa un valor, pero una entrada vieja de KV puede traer cualquier cosa. La
+// busqueda usa hasOwnProperty y no `in`: con `in`, "constructor" pasaria.
+window._LBP_ASIS_URG = {
+  ya:            { ic: '🔴', c: '#ef4444' },
+  hoy:           { ic: '🟠', c: '#F59E0B' },
+  puede_esperar: { ic: '⚪', c: '#9CA3AF' }
+};
+window._lbpAsisUrg = function(u) {
+  var k = String(u || '');
+  return Object.prototype.hasOwnProperty.call(window._LBP_ASIS_URG, k)
+    ? window._LBP_ASIS_URG[k] : window._LBP_ASIS_URG.puede_esperar;
+};
+// La entrada del asistente se presenta SOLO si es de hoy en hora LOCAL y queda
+// algo sin decidir. Bolivia es UTC-4 todo el anio: comparada en UTC, la entrada
+// de la pasada de las 18:10 deja de ser "de hoy" a las 20:00, y la ventana se
+// vaciaria cada noche --cayendo a la lista vieja de Alertas-- sin que se vea por
+// que. La fecha se arma con getFullYear/getMonth/getDate (_fechaLocal), NUNCA con
+// toISOString(), que es el bug que arrastra la tarjeta del briefing.
+// `de` es la hora de `generado` y va siempre, fresca o no, para que la ventana
+// diga de cuando es: una entrada de la pasada de la maniana no se puede presentar
+// a las 20:00 como recien hecha.
+// `decididas` es opcional (data.asisDecididos): 'revocada' cuenta como sin
+// decidir, la misma regla que usa el worker.
+// `deHoy` y `fresca` son DOS cosas distintas y hacen falta las dos: `deHoy` dice
+// que la entrada es de hoy, haya o no items, y `fresca` que ademas queda algo
+// pendiente. Con un solo estado, decidir el ultimo item devolvia la pantalla a
+// `_lbpAlertas` --la lista cruda de treinta-- en el momento exacto en que Pepe
+// termino de despejar el asistente. Quien manda la superficie es `deHoy`.
+window._lbpAsisFrescos = function(entrada, nowMs, decididas) {
+  var e = entrada || {};
+  var ya = {};
+  (Array.isArray(decididas) ? decididas : []).forEach(function(d) {
+    if (d && d.id && d.decision !== 'revocada') ya[String(d.id)] = true;
+  });
+  // Sin id no hay con que decidirlo y sin titulo no hay nada que leer.
+  var pintables = (Array.isArray(e.items) ? e.items : []).filter(function(x) {
+    return x && String(x.id || '') && String(x.titulo || '').trim();
+  });
+  var items = pintables.filter(function(x) { return !ya[String(x.id)]; });
+  var g = new Date(e.generado);
+  var valida = e.generado != null && !isNaN(g.getTime());
+  var de = valida ? ('0' + g.getHours()).slice(-2) + ':' + ('0' + g.getMinutes()).slice(-2) : '';
+  // `datosViejos` (la pasada se nego a llamar al modelo porque el blob de la nube
+  // tiene mas de 18 h) NO puede gobernar la superficie: si gobernara, el bloque
+  // diria "al dia", la ventana afirmaria que Pepe decidio todo y _lbpAlertas
+  // --que corre sobre el blob LOCAL, que si esta fresco-- quedaria tapado. Es el
+  // unico estado que se excluye: en `sinModelo` y en `cegado` los items son
+  // reales (los del detector, con urgencia y exclusiones aplicadas) y mandan.
+  var deHoy = valida && !e.datosViejos && _fechaLocal(g) === _fechaLocal(new Date(nowMs));
+  var fresca = deHoy && items.length > 0;
+  // `todoDecidido` separa los dos motivos por los que la lista queda vacia: que
+  // el los decidio todos (y entonces se le puede decir), o que no habia nada que
+  // valga la pena --el dia tranquilo que el diseno espera comun-- y entonces
+  // afirmarle que decidio todo es afirmar lo que no paso.
+  var todoDecidido = pintables.length > 0 && items.length === 0;
+  return { items: items, fresca: fresca, deHoy: deHoy, de: de, todoDecidido: todoDecidido };
+};
+// Cual de las dos pasadas del dia ya corrio, en hora LOCAL (la manana a las 8:20,
+// la tarde a las 18:10; nada de toISOString, que despues de las 20:00 de Bolivia
+// ya es otro dia). Devuelve '' antes de la primera.
+window._lbpAsisPasadaEsperada = function(nowMs) {
+  var d = new Date(nowMs);
+  var min = d.getHours() * 60 + d.getMinutes();
+  if (min >= 18 * 60 + 10) return 'tarde';
+  if (min >= 8 * 60 + 20) return 'manana';
+  return '';
+};
+// Si lo que ya se tiene quedo viejo: no hay nada, es de otro dia, o la pasada de
+// la tarde ya corrio y lo que hay es de la manana. El efecto de la tarjeta corre
+// UNA sola vez ([]): en Android el push remonta la PWA y se vuelve a pedir solo,
+// pero en la Mac con la pestania abierta desde la manana no, y entonces el push
+// decia una cosa y el bloque seguia mostrando la lista de las 8:20.
+window._lbpAsisHayQueRefrescar = function(entrada, nowMs) {
+  var e = entrada;
+  if (!e || e.generado == null) return true;
+  var g = new Date(e.generado);
+  if (isNaN(g.getTime())) return true;
+  if (_fechaLocal(g) !== _fechaLocal(new Date(nowMs))) return true;
+  if (window._lbpAsisPasadaEsperada(nowMs) === 'tarde' && e.pasada !== 'tarde') return true;
+  return false;
+};
+// A que puede llevar un item. El worker acota `ruta` a esta lista blanca, pero
+// una entrada vieja de KV puede traer otra cosa; y `refId` NO lo valida nadie:
+// puede nombrar una tarea que ya se borro. Sin entidad no hay tilde (cerraria
+// nada) y sin ruta no hay a donde ir (navigate('') deja la app en blanco).
+window._LBP_ASIS_RUTAS = { tasks: 1, projects: 1, meetings: 1, clients: 1, imports: 1 };
+window._lbpAsisDestino = function(item, data) {
+  var it = item || {}, d = data || {};
+  var ruta = String(it.ruta || '');
+  if (!Object.prototype.hasOwnProperty.call(window._LBP_ASIS_RUTAS, ruta)) {
+    return { tarea: null, ruta: '' };
+  }
+  var refId = String(it.refId || '');
+  var tarea = null;
+  if (ruta === 'tasks' && refId) {
+    (d.tasks || []).forEach(function(t) { if (!tarea && t && t.id === refId) tarea = t; });
+  }
+  return { tarea: tarea, ruta: ruta };
+};
+// Una decision por item del asistente, en data.asisDecididos: {id, decision, ts}
+// con decision 'listo' | 'no' | 'revocada'. La entrada se REEMPLAZA (una sola por
+// id), igual que en _tpAplicar, y no se sella ninguna lapida.
+// asisDecididos SIEMPRE sale array: el chequeo horario del worker hace .forEach
+// sobre esta lista con solo `|| []` de proteccion (worker.js:2596 y 2736), y un
+// objeto o un texto ahi lo hace tirar; su propio try/catch se traga entonces el
+// chequeo entero EN SILENCIO. Las entradas sin id se descartan al paso.
+window._LBP_ASIS_DECISIONES = { listo: 1, no: 1, revocada: 1 };
+window._lbpAsisDecidir = function(data, itemId, decision) {
+  var d = data || {};
+  var lista = (Array.isArray(d.asisDecididos) ? d.asisDecididos : []).filter(function(x) {
+    return x && x.id;
+  });
+  var id = String(itemId || '');
+  var dec = String(decision || '');
+  // La poda es la MISMA que ya usa tareasDecididas (_tpPodarDecididas: una sola
+  // entrada por id, nada de mas de 180 dias). Sin ella asisDecididos solo crecia,
+  // dentro de un blob sincronizado que ya pesa ~4,6 MB. No se inventa una segunda
+  // regla de poda: se reusa la que existe.
+  if (!id || !Object.prototype.hasOwnProperty.call(window._LBP_ASIS_DECISIONES, dec)) {
+    return Object.assign({}, d, { asisDecididos: window._tpPodarDecididas(lista) });
+  }
+  lista = lista.filter(function(x) { return String(x.id) !== id; });
+  lista.push({ id: id, decision: dec, ts: Date.now() });
+  return Object.assign({}, d, { asisDecididos: window._tpPodarDecididas(lista) });
 };
 // Saca las propuestas que ya tienen decision (aceptada o descartada).
 window._tpFiltrar = function(propuestas, decididas) {
@@ -3656,7 +3956,7 @@ window._tpAplicar = function(data, decisiones, extra) {
       status: 'INBOX', priority: 'MEDIUM', dueDate: dueDate,
       clientId: (cli && cli.id) || '',
       category: 'Work', tags: ['Correo'], createdAt: ts,
-      alarm: { enabled: true, datetime: datetime, recurrence: 'once',
+      alarm: { enabled: true, datetime: datetime, recurrence: 'weekdays2',
                customInterval: 1, customUnit: 'days', label: 'Tarea propuesta',
                repeatCount: 0, repeatInterval: 5, repeatIntervals: null,
                sound: 'bell', vibration: 'long' }
@@ -3733,6 +4033,7 @@ var AlarmPanel = function AlarmPanel(_ref8) {
     weekly: 'Weekly',
     monthly: 'Monthly',
     weekdays: 'Weekdays (Mon–Fri)',
+    weekdays2: 'Every 2 weekdays',
     custom: 'Custom interval'
   };
   return /*#__PURE__*/React.createElement("div", {
@@ -4994,6 +5295,7 @@ function _futureOccurrences(baseIso, rec, alarm, nowMs) {
     else if (rec === 'weekly') d.setDate(d.getDate() + 7);
     else if (rec === 'monthly') d.setMonth(d.getMonth() + 1);
     else if (rec === 'weekdays') { do { d.setDate(d.getDate() + 1); } while (d.getDay() === 0 || d.getDay() === 6); }
+    else if (rec === 'weekdays2') { for (var k = 0; k < 2; k++) { do { d.setDate(d.getDate() + 1); } while (!window._lbpEsDiaHabil(d)); } }
     else if (rec === 'custom') {
       if (unit === 'hours') d.setHours(d.getHours() + interval);
       else if (unit === 'weeks') d.setDate(d.getDate() + 7 * interval);
@@ -5002,6 +5304,7 @@ function _futureOccurrences(baseIso, rec, alarm, nowMs) {
     } else { d.setTime(horizon + 1); }
   }
   if (rec === 'weekdays') { while (d.getDay() === 0 || d.getDay() === 6) d.setDate(d.getDate() + 1); }
+  if (rec === 'weekdays2') { var gh = 0; while (!window._lbpEsDiaHabil(d) && gh++ < 400) d.setDate(d.getDate() + 1); }
   while (d.getTime() < nowMs && guard < 6000) { step(); guard++; }
   while (d.getTime() <= horizon && out.length < maxN && guard < 6000) { out.push(d.getTime()); step(); guard++; }
   return out;
@@ -5031,10 +5334,12 @@ function _recentOccurrence(baseIso, rec, alarm, nowMs) {
   // monthly / weekdays / custom-months → stepping (pocas iteraciones)
   var d = new Date(baseMs), prev = baseMs, guard = 0;
   if (rec === 'weekdays') { while (d.getDay() === 0 || d.getDay() === 6) d.setDate(d.getDate() + 1); prev = d.getTime(); }
+  if (rec === 'weekdays2') { var gh = 0; while (!window._lbpEsDiaHabil(d) && gh++ < 400) d.setDate(d.getDate() + 1); prev = d.getTime(); }
   while (d.getTime() <= nowMs && guard < 20000) {
     prev = d.getTime();
     if (rec === 'monthly') d.setMonth(d.getMonth() + 1);
     else if (rec === 'weekdays') { do { d.setDate(d.getDate() + 1); } while (d.getDay() === 0 || d.getDay() === 6); }
+    else if (rec === 'weekdays2') { for (var k = 0; k < 2; k++) { do { d.setDate(d.getDate() + 1); } while (!window._lbpEsDiaHabil(d)); } }
     else if (rec === 'custom' && unit === 'months') d.setMonth(d.getMonth() + interval);
     else d.setDate(d.getDate() + 1);
     guard++;
@@ -5316,6 +5621,12 @@ var HomeScreen = function HomeScreen(_ref14) {
       });
     });
   };
+  // Una decision del asistente va al BLOB (no a KV) para que viaje entre el
+  // celular y la Mac por el mismo sync de siempre.
+  var _asisDecidir = function(id, decision) {
+    if (!window._lbpAsisDecidir) return;
+    setData(function(d) { return window._lbpAsisDecidir(d, id, decision); });
+  };
   var toggleHabit = function toggleHabit(habitId) {
     var existing = habitEntries.find(function (e) {
       return e.habitId === habitId && e.date === todayStr;
@@ -5363,6 +5674,7 @@ var HomeScreen = function HomeScreen(_ref14) {
   var _useStateHAT = useState('tasks'), _useStateHAT2 = _slicedToArray(_useStateHAT, 2), alarmEditType = _useStateHAT2[0], setAlarmEditType = _useStateHAT2[1];
   var _useStateHAF = useState(defaultAlarm()), _useStateHAF2 = _slicedToArray(_useStateHAF, 2), alarmForm = _useStateHAF2[0], setAlarmForm = _useStateHAF2[1];
   var _haDA1=useState(true),_haDA2=_slicedToArray(_haDA1,2),alertsVisible=_haDA2[0],setAlertsVisible=_haDA2[1];
+  var _haTD1=useState(false),_haTD2=_slicedToArray(_haTD1,2),alertasTodas=_haTD2[0],setAlertasTodas=_haTD2[1];
   var _fhV1=useState(true),_fhV2=_slicedToArray(_fhV1,2),fhVisible=_fhV2[0],setFhVisible=_fhV2[1];
   var _etLA=useState(false),_etLB=_slicedToArray(_etLA,2),etLoad=_etLB[0],setEtLoad=_etLB[1];
   var _etLC=useState(null),_etLD=_slicedToArray(_etLC,2),etModal=_etLD[0],setEtModal=_etLD[1];
@@ -5376,6 +5688,7 @@ var HomeScreen = function HomeScreen(_ref14) {
   var _useStateSAP = useState(false), _useStateSAP2 = _slicedToArray(_useStateSAP, 2), showAllPriorities = _useStateSAP2[0], setShowAllPriorities = _useStateSAP2[1];
   var _swipe = useRef({ x: null, y: null, did: false });
   var _brfA=useState(null),_brfB=_slicedToArray(_brfA,2),brfData=_brfB[0],setBrfData=_brfB[1];
+  var _asisA=useState(null),_asisB=_slicedToArray(_asisA,2),asisEntrada=_asisB[0],setAsisEntrada=_asisB[1];
   var _brfC=useState(false),_brfD=_slicedToArray(_brfC,2),brfOpen=_brfD[0],setBrfOpen=_brfD[1];
   var _brfE=useState(false),_brfF=_slicedToArray(_brfE,2),brfLoad=_brfF[0],setBrfLoad=_brfF[1];
   var _brfG=useState(null),_brfH=_slicedToArray(_brfG,2),brfSummary=_brfH[0],setBrfSummary=_brfH[1];
@@ -5402,18 +5715,62 @@ var HomeScreen = function HomeScreen(_ref14) {
         if(j&&!j.error){setDiData(j);try{localStorage.setItem('lbp_dailyinfo3',JSON.stringify({data:j,fetchedAt:Date.now()}));}catch(e){}}
       }).catch(function(){});
   },[]);
+  /*TARJETA_ASIS*/
   useEffect(function(){
     if(!window.LBP_WORKER_URL)return;
     var sk=localStorage.getItem('lbp_sync_key');
     if(!sk)return;
-    var today=new Date().toISOString().slice(0,10);
-    setBrfLoad(true);
-    fetch(window.LBP_WORKER_URL+'/briefing-ai?key='+encodeURIComponent(sk)+'&date='+today)
-      .then(function(r){return r.ok?r.json():null;})
-      .then(function(d){if(d&&d.ready&&d.briefing){try{setBrfData(JSON.parse(d.briefing));}catch(e){}}})
-      .catch(function(){})
-      .finally(function(){setBrfLoad(false);});
+    // `ultima` vive en el CIERRE y no en el estado: este efecto corre una sola vez
+    // ([]), asi que leer `asisEntrada` de arriba lo dejaria congelado en null y
+    // cada foco volveria a pedir aunque ya estuviera al dia.
+    var ultima=null,pidiendo=false;
+    var traer=function(){
+      if(pidiendo)return;
+      pidiendo=true;
+      // La fecha va en hora LOCAL. Con toISOString() --que es lo que hacia esta
+      // tarjeta-- despues de las 20:00 de Bolivia se pedia la fecha de MANIANA, y
+      // el worker guarda por fecha de Bolivia: no volvia nada y la tarjeta quedaba
+      // en blanco todas las noches.
+      var today=_fechaLocal(new Date());
+      setBrfLoad(true);
+      return fetch(window.LBP_WORKER_URL+'/asistente?key='+encodeURIComponent(sk)+'&date='+today)
+        .then(function(r){return r&&r.ok?r.json():null;})
+        .then(function(j){
+          if(j&&j.ready&&j.entrada){
+            ultima=j.entrada;
+            setAsisEntrada(j.entrada);
+            // El renderizador de la tarjeta ya pinta `summary` como lineas y la
+            // primera linea del asistente es el TC: no hace falta reescribirlo.
+            // _asis marca el ORIGEN de lo que pinta la tarjeta, y de ahi sale el
+            // titulo: no puede decir "Briefing" sobre el summary del asistente.
+            if(j.entrada.summary)setBrfData({summary:j.entrada.summary,generated:j.entrada.generado,_asis:true});
+            return null;
+          }
+          // Sin entrada del asistente queda el briefing viejo como red.
+          return fetch(window.LBP_WORKER_URL+'/briefing-ai?key='+encodeURIComponent(sk)+'&date='+today)
+            .then(function(r){return r&&r.ok?r.json():null;})
+            .then(function(d){if(d&&d.ready&&d.briefing){try{setBrfData(JSON.parse(d.briefing));}catch(e){}}});
+        })
+        .catch(function(){})
+        .finally(function(){pidiendo=false;setBrfLoad(false);});
+    };
+    traer();
+    // Al volver a la pestania se re-pide SOLO si lo que hay quedo viejo. En la Mac
+    // la pestania queda abierta desde la manana y el efecto no volvia a correr: el
+    // push de las 18:10 decia una cosa y el bloque seguia en la lista de las 8:20.
+    var alVolver=function(){
+      if(typeof document!=='undefined'&&document.visibilityState==='hidden')return;
+      if(!window._lbpAsisHayQueRefrescar(ultima,Date.now()))return;
+      traer();
+    };
+    if(typeof document!=='undefined'&&document.addEventListener)document.addEventListener('visibilitychange',alVolver);
+    if(window.addEventListener)window.addEventListener('focus',alVolver);
+    return function(){
+      if(typeof document!=='undefined'&&document.removeEventListener)document.removeEventListener('visibilitychange',alVolver);
+      if(window.removeEventListener)window.removeEventListener('focus',alVolver);
+    };
   },[]);
+  /*FIN_TARJETA_ASIS*/
   var _brfK=useState([]),_brfL=_slicedToArray(_brfK,2),brfRecs=_brfL[0],setBrfRecs=_brfL[1];
   // Operational AI briefing: analyzes data, detects inaction patterns, returns summary + actionable recommendations
   var _genBrfSummary=function(){
@@ -5706,7 +6063,8 @@ var HomeScreen = function HomeScreen(_ref14) {
   /*#__PURE__*/React.createElement("div",{style:{margin:'12px 24px 0',background:'rgba(156,104,214,.12)',border:'1px solid rgba(156,104,214,.35)',borderRadius:14,overflow:'hidden'}},
     /*#__PURE__*/React.createElement("div",{onClick:function(){setBrfOpen(function(v){return!v;});},style:{display:'flex',alignItems:'center',justifyContent:'space-between',padding:'10px 14px',cursor:'pointer'}},
       /*#__PURE__*/React.createElement("div",{style:{display:'flex',alignItems:'center',gap:8}},
-        /*#__PURE__*/React.createElement("span",{style:{fontSize:13,fontWeight:700,color:'var(--purple-light)'}},"\uD83C\uDF05 Briefing del d\u00eda"),
+        /*#__PURE__*/React.createElement("span",{style:{fontSize:13,fontWeight:700,color:'var(--purple-light)'}},
+          (brfData&&brfData._asis)?"\uD83E\uDD16 Asistente del d\u00eda":"\uD83C\uDF05 Briefing del d\u00eda"),
         brfRecs.length>0&&/*#__PURE__*/React.createElement("span",{style:{fontSize:10,fontWeight:700,background:'#F59E0B',color:'#000',borderRadius:10,padding:'1px 6px'}},brfRecs.filter(function(r){return r.priority==='URGENTE';}).length>0?'\uD83D\uDD34 '+brfRecs.filter(function(r){return r.priority==='URGENTE';}).length+' urgente'+(brfRecs.filter(function(r){return r.priority==='URGENTE';}).length>1?'s':''):brfRecs.length+' alertas')
       ),
       /*#__PURE__*/React.createElement("div",{style:{display:'flex',alignItems:'center',gap:8}},
@@ -5913,94 +6271,36 @@ var HomeScreen = function HomeScreen(_ref14) {
   ),
     alertsVisible && /*#__PURE__*/React.createElement("div", {style:{marginBottom:14}},
     (function(){
-      var now=Date.now();
-      var alerts=[];
-      // 1a. Today's fired alarms: alarm fired today, task still open
-      (data.tasks||[]).forEach(function(t){
-        if(t.status==='DONE')return;
-        if(!t.alarm||!t.alarm.enabled||!t.alarm.datetime)return;
-        var ms=new Date(t.alarm.datetime).getTime();
-        var days=Math.floor((now-ms)/86400000);
-        if(ms<now&&days===0){
-          var hoursAgo=Math.floor((now-ms)/3600000);
-          alerts.push({id:'today_'+t.id,icon:'🔔',color:'#F59E0B',
-            msg:'"'+t.title.slice(0,35)+'" — alarma de hoy'+(hoursAgo>0?' (hace '+hoursAgo+'h)':'')+' sin completar',
-            action:function(){navigate('tasks');}});
-        }
-      });
-      // 1b. Stale alarms: task alarm fired 1-14 days ago, still open
-      (data.tasks||[]).forEach(function(t){
-        if(t.status==='DONE')return;
-        if(!t.alarm||!t.alarm.enabled||!t.alarm.datetime)return;
-        var ms=new Date(t.alarm.datetime).getTime();
-        var days=Math.floor((now-ms)/86400000);
-        if(ms<now&&days>=1&&days<=14){
-          alerts.push({id:'stale_'+t.id,icon:'⏰',color:'#ef4444',
-            msg:'"'+t.title.slice(0,35)+'" — alarma de hace '+days+' día'+(days>1?'s':'')+' sin completar',
-            action:function(){navigate('tasks');}});
-        }
-      });
-      // 2. Meeting follow-up: meetings from yesterday with no tasks created after
-      var _yd=new Date(now-86400000);var yesterday=_yd.getFullYear()+'-'+String(_yd.getMonth()+1).padStart(2,'0')+'-'+String(_yd.getDate()).padStart(2,'0');
-      (data.meetings||[]).forEach(function(m){
-        if(m.date!==yesterday)return;
-        var mStart=new Date(m.date+'T'+(m.startTime||'00:00')).getTime();
-        var hasTask=(data.tasks||[]).some(function(t){return t.createdAt&&t.createdAt>mStart;});
-        if(!hasTask){
-          alerts.push({id:'followup_'+m.id,icon:'📋',color:'#f59e0b',
-            msg:'"'+m.title.slice(0,35)+'" de ayer — sin tareas de seguimiento',
-            action:function(){navigate('meetings');}});
-        }
-      });
-      // 3. Projects stagnant > 10 days
-      (data.projects||[]).forEach(function(p){
-        if(['DONE','ON_HOLD','PAUSED'].includes(p.status))return;
-        var last=p.updatedAt||p.createdAt||0;
-        if(last&&(now-last)/86400000>10){
-          alerts.push({id:'proj_'+p.id,icon:'📁',color:'#8b5cf6',
-            msg:'"'+p.name.slice(0,35)+'" — sin actividad en '+Math.floor((now-last)/86400000)+' días',
-            action:function(){navigate('projects');}});
-        }
-      });
-      // 4. Clients neglected > 30 days
-      (data.clients||[]).forEach(function(c){
-        if(!['ACTIVE','CLIENT'].includes(c.status))return;
-        var cm=(data.meetings||[]).filter(function(m){return m.clientId===c.id;});
-        var lastMs=cm.length?Math.max.apply(null,cm.map(function(m){return new Date(m.date).getTime();})):(c.createdAt||0);
-        if(lastMs&&(now-lastMs)/86400000>30){
-          alerts.push({id:'client_'+c.id,icon:'👥',color:'#6366f1',
-            msg:'"'+(c.name||c.company||'').slice(0,30)+'" — '+Math.floor((now-lastMs)/86400000)+' días sin reunión',
-            action:function(){navigate('clients');}});
-        }
-      });
-      // 5. Despachos con fecha limite en aduana. Van ADELANTE de las demas
-      // porque la lista se corta en 5 (ver el slice de mas abajo) y una multa
-      // de aduana pesa mas que una alarma vieja sin tildar (5-nov-2026).
-      var _adu=[];
-      (data.imports||[]).forEach(function(imp){
-        var d=_impDiasLimite(imp);
-        if(d===null||d>7)return;
-        var ci=(data.clients||[]).find(function(x){return x.id===imp.clientId;});
-        var marca=ci?(ci.businessName||ci.name):'Sin asignar';
-        var trib=_impNum(imp.tributos);
-        _adu.push({id:'aduana_'+imp.id,icon:d<0?'🛑':'🏛',color:d<=0?'#ef4444':'#FF9800',
-          msg:marca+' '+(imp.season||'despacho')+' — aduana '+_impLimiteTexto(d)+(trib?' · Bs '+Math.round(trib).toLocaleString():''),
-          action:function(){navigate('imports');},_d:d});
-      });
-      _adu.sort(function(a,b){return a._d-b._d;});
-      if(_adu.length) alerts=_adu.concat(alerts);
-      if(!alerts.length)return null;
-      return /*#__PURE__*/React.createElement('div',{style:{background:'rgba(239,68,68,0.06)',border:'1px solid rgba(239,68,68,0.2)',borderRadius:12,padding:'10px 12px'}},
+      // Con entrada fresca del asistente manda el asistente; si no --sin worker,
+      // sin key, entrada de ayer o todo decidido-- queda _lbpAlertas, que no se
+      // toca. Las dos ramas se normalizan a filas {id,icon,texto,color,route} para
+      // que el encabezado y la lista sean los mismos. Solo las filas de Alertas
+      // llevan `route`: la fila del asistente abre la ventana, donde esta el porque.
+      var _ahora=Date.now();
+      var fr=window._lbpAsisFrescos?window._lbpAsisFrescos(asisEntrada,_ahora,data.asisDecididos):{items:[],fresca:false,deHoy:false,de:''};
+      // Manda `deHoy`, no `fresca`: con la entrada de hoy ya decidida entera el
+      // bloque dice "al dia" y NO vuelve a la lista cruda de _lbpAlertas.
+      var filas=fr.deHoy
+        ? fr.items.map(function(x){var u=window._lbpAsisUrg(x.urgencia);return {id:x.id,icon:u.ic,texto:x.titulo,color:u.c,route:''};})
+        : (window._lbpAlertas?window._lbpAlertas(data,_ahora):[]).map(function(a){return {id:a.id,icon:a.icon,texto:a.msg,color:a.color,route:a.route};});
+      if(!fr.deHoy&&!filas.length)return null;
+      var _alDia=fr.deHoy&&!filas.length;
+      var _tit=fr.deHoy?('🤖 Asistente '+(_alDia?'— al día ›':'('+filas.length+') ›')):('🚨 Alertas ('+filas.length+') ›');
+      var _bg=fr.deHoy?'rgba(156,104,214,0.06)':'rgba(239,68,68,0.06)';
+      var _bd=fr.deHoy?'rgba(156,104,214,0.25)':'rgba(239,68,68,0.2)';
+      var _fil=fr.deHoy?'rgba(156,104,214,0.12)':'rgba(239,68,68,0.1)';
+      var _col=fr.deHoy?'var(--purple-light)':'#ef4444';
+      return /*#__PURE__*/React.createElement('div',{style:{background:_bg,border:'1px solid '+_bd,borderRadius:12,padding:'10px 12px'}},
         /*#__PURE__*/React.createElement('div',{style:{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:8}},
-          /*#__PURE__*/React.createElement('span',{style:{fontSize:12,fontWeight:700,color:'#ef4444'}},'🚨 Alertas ('+alerts.length+')'),
+          /*#__PURE__*/React.createElement('span',{onClick:function(){setAlertasTodas(true);},style:{fontSize:12,fontWeight:700,color:_col,cursor:'pointer',flex:1}},_tit),
           /*#__PURE__*/React.createElement('button',{onClick:function(){setAlertsVisible(false);},style:{background:'none',border:'none',color:'var(--text-dim)',cursor:'pointer',fontSize:14}},'×')
         ),
-        alerts.slice(0,5).map(function(a){
+        filas.slice(0,5).map(function(a){
           return /*#__PURE__*/React.createElement('div',{key:a.id,
-            style:{display:'flex',alignItems:'center',gap:8,padding:'5px 0',borderBottom:'1px solid rgba(239,68,68,0.1)',cursor:'pointer'},
-            onClick:a.action},
+            style:{display:'flex',alignItems:'center',gap:8,padding:'5px 0',borderBottom:'1px solid '+_fil,cursor:'pointer'},
+            onClick:function(){ if(a.route){navigate(a.route);} else {setAlertasTodas(true);} }},
             /*#__PURE__*/React.createElement('span',{style:{fontSize:14,flexShrink:0}},a.icon),
-            /*#__PURE__*/React.createElement('span',{style:{fontSize:11,color:'var(--text)',flex:1}},a.msg),
+            /*#__PURE__*/React.createElement('span',{style:{fontSize:11,color:'var(--text)',flex:1}},a.texto),
             /*#__PURE__*/React.createElement('span',{style:{fontSize:10,color:a.color,fontWeight:600,flexShrink:0}},'→')
           );
         })
@@ -6408,8 +6708,122 @@ fhVisible&&(data.clients||[]).filter(function(c){var hasFr=(data.clients||[]).so
       /*#__PURE__*/React.createElement("div", {style:{whiteSpace:"pre-wrap",fontSize:13}}, viewMeeting.notes)
     )
   )),
+alertasTodas && /*VENTANA_ALERTAS*/ (function(){
+    var _ahora=Date.now();
+    var fr=window._lbpAsisFrescos?window._lbpAsisFrescos(asisEntrada,_ahora,data.asisDecididos):{items:[],fresca:false,deHoy:false,de:''};
+    // `deHoy`, no `fresca`: con todo decidido la ventana muestra el estado "al
+    // dia" --que conserva la linea del TC, lo unico que Pepe valora de aca-- y
+    // no la lista cruda de _lbpAlertas, que es lo contrario de lo que gano.
+    if(fr.deHoy){
+      // De CUANDO es la entrada, arriba y siempre: la pasada y la hora local de
+      // `generado`. Una entrada de la pasada de la maniana no se puede leer a las
+      // 20:00 como si fuera recien hecha.
+      var _pas=(asisEntrada&&asisEntrada.pasada)==='tarde'?'de la tarde':'de la ma\u00F1ana';
+      var _subt='Pasada '+_pas+(fr.de?' \u00B7 '+fr.de:'')
+        +((asisEntrada&&asisEntrada.tc!=null)?' \u00B7 TC Bs '+Number(asisEntrada.tc).toFixed(2):'');
+      var _avisos=[];
+      if(asisEntrada&&asisEntrada.cegado)_avisos.push('Sin correo de hoy \u2014 abr\u00ED Outlook');
+      if(asisEntrada&&asisEntrada.sinModelo)_avisos.push('La IA no respondi\u00F3: va la lista del detector');
+      // Con `datosViejos` la ventana ya cae a _lbpAlertas (fr.deHoy es falso),
+      // pero si la entrada se mostrara por cualquier otro motivo el motivo tiene
+      // que estar A LA VISTA y no escondido dentro de `summary`.
+      if(asisEntrada&&asisEntrada.datosViejos)_avisos.push('Datos de la app viejos \u2014 abr\u00ED la app para sincronizar');
+      var _alDia=!fr.items.length;
+      // "ya decidiste todo lo de hoy" es verdad SOLO cuando de verdad los decidio
+      // todos. Con la lista vacia por un dia tranquilo, la frase afirma lo que no
+      // paso, que es el anti-objetivo del diseno.
+      var _vacio=/*COPIA_VACIA*/(fr.todoDecidido?"\u2713 Nada pendiente: ya decidiste todo lo de hoy.":"Nada que valga la pena ahora.")/*FIN_COPIA_VACIA*/;
+      return /*#__PURE__*/React.createElement(Modal, {
+        title: "\uD83E\uDD16 Asistente " + (_alDia ? "\u2014 al d\u00EDa" : "(" + fr.items.length + ")"),
+        onClose: function() { setAlertasTodas(false); }
+      },
+        /*#__PURE__*/React.createElement("div", {style:{fontSize:11,color:'var(--text-dim)',marginBottom:_avisos.length?4:8}}, _subt),
+        _avisos.length?/*#__PURE__*/React.createElement("div", {style:{fontSize:11,color:'#F59E0B',marginBottom:8}}, _avisos.join(' \u00B7 ')):null,
+        _alDia?/*#__PURE__*/React.createElement("div", {style:{fontSize:13,color:'var(--text-dim)',padding:'18px 0',textAlign:'center',lineHeight:1.5}},
+          _vacio):
+        /*#__PURE__*/React.createElement("div", {style:{maxHeight:'60vh',overflowY:'auto',WebkitOverflowScrolling:'touch'}},
+          fr.items.map(/*FILA_ASIS*/function(x){
+            var u=window._lbpAsisUrg(x.urgencia);
+            // refId no lo valida el worker: si no resuelve una tarea NO hay tilde
+            // (cerraria nada) y sin ruta no hay a donde navegar.
+            var dest=window._lbpAsisDestino(x,data);
+            return /*#__PURE__*/React.createElement("div", {key:x.id,
+              style:{display:'flex',alignItems:'flex-start',gap:8,padding:'10px 0',borderBottom:'1px solid var(--border)'}},
+              dest.tarea && /*#__PURE__*/React.createElement("button", {
+                title:'Marcar la tarea como hecha',
+                'aria-label':'Marcar la tarea como hecha',
+                onClick: function() { completeTask(dest.tarea.id); _asisDecidir(x.id, 'listo'); },
+                style:{flexShrink:0,minWidth:44,minHeight:44,padding:0,display:'flex',alignItems:'center',justifyContent:'center',background:'transparent',border:'none',cursor:'pointer'}
+              }, /*#__PURE__*/React.createElement("span", {
+                style:{width:30,height:30,borderRadius:'50%',border:'1px solid #22c55e',background:'rgba(34,197,94,0.12)',color:'#22c55e',fontSize:15,display:'flex',alignItems:'center',justifyContent:'center'}
+              }, "\u2713")),
+              /*#__PURE__*/React.createElement("div", {style:{flex:1,minWidth:0}},
+                /*#__PURE__*/React.createElement("div", {
+                  style:{display:'flex',alignItems:'center',gap:6,cursor:(dest.tarea||dest.ruta)?'pointer':'default'},
+                  onClick: function() {
+                    if (dest.tarea) { setViewTask(dest.tarea); }
+                    else if (dest.ruta) { setAlertasTodas(false); navigate(dest.ruta); }
+                  }},
+                  /*#__PURE__*/React.createElement("span", {style:{fontSize:12,flexShrink:0}}, u.ic),
+                  /*#__PURE__*/React.createElement("span", {style:{fontSize:13,fontWeight:600,color:'var(--text)',flex:1,minWidth:0}}, x.titulo),
+                  (dest.tarea||dest.ruta)?/*#__PURE__*/React.createElement("span", {style:{fontSize:11,color:u.c,fontWeight:600,flexShrink:0}}, "\u2192"):null
+                ),
+                x.porque?/*#__PURE__*/React.createElement("div", {style:{fontSize:11,color:'var(--text-dim)',marginTop:3,lineHeight:1.4}}, x.porque):null,
+                x.accion?/*#__PURE__*/React.createElement("div", {style:{fontSize:11,color:u.c,marginTop:3,lineHeight:1.4}}, '\u2192 '+x.accion):null,
+                /*#__PURE__*/React.createElement("div", {style:{display:'flex',flexWrap:'wrap',gap:8,marginTop:7}},
+                  // El tilde redondo YA es el "listo" cuando hay tarea: cierra la
+                  // tarea y decide. Sin tarea no hay tilde, y entonces va el boton.
+                  dest.tarea?null:/*#__PURE__*/React.createElement("button", {
+                    onClick: function() { _asisDecidir(x.id, 'listo'); },
+                    style:{minHeight:44,padding:'0 12px',borderRadius:8,border:'1px solid #22c55e',background:'rgba(34,197,94,0.12)',color:'#22c55e',fontSize:12,cursor:'pointer'}
+                  }, "\u2713 Listo"),
+                  /*#__PURE__*/React.createElement("button", {
+                    onClick: function() { _asisDecidir(x.id, 'no'); },
+                    style:{minHeight:44,padding:'0 12px',borderRadius:8,border:'1px solid var(--border)',background:'transparent',color:'var(--text-dim)',fontSize:12,cursor:'pointer'}
+                  }, "No me interesa")
+                )
+              )
+            );
+          }/*FIN_FILA_ASIS*/)
+        )
+      );
+    }
+    var todas=window._lbpAlertas?window._lbpAlertas(data,_ahora):[];
+    return /*#__PURE__*/React.createElement(Modal, {
+      title: "🚨 Alertas (" + todas.length + ")",
+      onClose: function() { setAlertasTodas(false); }
+    },
+      todas.length === 0 && /*#__PURE__*/React.createElement("div", {style:{fontSize:13,color:'var(--text-dim)',padding:'12px 0',textAlign:'center'}}, "Sin alertas"),
+      /*#__PURE__*/React.createElement("div", {style:{maxHeight:'60vh',overflowY:'auto',WebkitOverflowScrolling:'touch'}},
+        todas.map(function(a){
+          var tarea = a.taskId ? (data.tasks||[]).find(function(t){ return t.id === a.taskId; }) : null;
+          return /*#__PURE__*/React.createElement("div", {key:a.id,
+            style:{display:'flex',alignItems:'center',gap:8,padding:'8px 0',borderBottom:'1px solid rgba(239,68,68,0.15)'}},
+            a.taskId && /*#__PURE__*/React.createElement("button", {
+              title:'Marcar como hecha',
+              'aria-label':'Marcar como hecha',
+              onClick: function() { completeTask(a.taskId); },
+              style:{flexShrink:0,minWidth:44,minHeight:44,padding:0,display:'flex',alignItems:'center',justifyContent:'center',background:'transparent',border:'none',cursor:'pointer'}
+            }, /*#__PURE__*/React.createElement("span", {
+              style:{width:30,height:30,borderRadius:'50%',border:'1px solid #22c55e',background:'rgba(34,197,94,0.12)',color:'#22c55e',fontSize:15,display:'flex',alignItems:'center',justifyContent:'center'}
+            }, "✓")),
+            /*#__PURE__*/React.createElement("div", {
+              style:{display:'flex',alignItems:'center',gap:8,flex:1,minWidth:0,cursor:'pointer'},
+              onClick: function() {
+                if (a.taskId && tarea) { setViewTask(tarea); }
+                else { setAlertasTodas(false); navigate(a.route); }
+              }},
+              /*#__PURE__*/React.createElement("span", {style:{fontSize:16,flexShrink:0}}, a.icon),
+              /*#__PURE__*/React.createElement("span", {style:{fontSize:12,color:'var(--text)',flex:1}}, a.msg),
+              /*#__PURE__*/React.createElement("span", {style:{fontSize:11,color:a.color,fontWeight:600,flexShrink:0}}, "→")
+            )
+          );
+        })
+      )
+    );
+  })() /*FIN_VENTANA_ALERTAS*/,
   viewTask && /*#__PURE__*/React.createElement(Modal, {
-    title: "\uD83D\uDCCB " + (viewTask.title || "Task"),
+    title: "📋 " + (viewTask.title || "Task"),
     onClose: function() { setViewTask(null); },
     footer: /*#__PURE__*/React.createElement(React.Fragment, null,
       viewTask.status !== 'DONE' && /*#__PURE__*/React.createElement("button", {
@@ -18164,7 +18578,7 @@ var VoiceAssistant = function VoiceAssistant(props) {
     return p ? p.id : '';
   };
   // El checklist va al HTML que ya entiende el editor (y que la app sabe tildar).
-  var REC_VALIDAS = ['once','daily','weekly','monthly','weekdays'];
+  var REC_VALIDAS = ['once','daily','weekly','monthly','weekdays','weekdays2'];
   var _esc = function(t){ return String(t).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); };
   var mkDescripcion = function(desc, lista){
     var html = desc ? '<div>'+_esc(desc)+'</div>' : '';
@@ -20942,6 +21356,34 @@ var App = function App() {
     window.addEventListener('lbp_cloud_sync', onCloudSync);
     return function() { window.removeEventListener('lbp_cloud_sync', onCloudSync); };
   }, []);
+
+  // Migracion UNICA POR DISPOSITIVO: las tareas del correo ya aceptadas (alarma
+  // 'once') pasan a 'weekdays2'. La marca lbp_migr_alarmas_correo es solo local (no
+  // se sincroniza a proposito): una vez puesta, el efecto no vuelve a convertir y
+  // las ediciones manuales del usuario (volver a 'once', apagarla) se respetan.
+  // No corre hasta que la primera lectura de la nube termino: con datos vacios o
+  // viejos marcaria como hecha una migracion que no convirtio nada.
+  var _migTick = useState(0), _migN = _migTick[0], _migSet = _migTick[1];
+  useEffect(function() {
+    if (!data || !window._lbpMigrarAlarmasCorreo) return;
+    try { if (localStorage.getItem('lbp_migr_alarmas_correo')) return; }
+    catch(_e) { return; } // sin localStorage: mejor no migrar que migrar en cada render
+    var nube = false;
+    try { nube = !!localStorage.getItem('lbp_worker_url'); } catch(_e2) {}
+    if (!window._lbpCloudPullDone && nube) {
+      // el flag no es estado de React: reintento corto hasta que la lectura termine
+      var _t = setTimeout(function() { _migSet(function(n) { return n + 1; }); }, 1500);
+      return function() { clearTimeout(_t); };
+    }
+    var r = window._lbpMigrarAlarmasCorreo(data.tasks);
+    if (r.cambiadas > 0) {
+      setData(function(prev) {
+        var m = window._lbpMigrarAlarmasCorreo(prev.tasks);
+        return m.cambiadas > 0 ? Object.assign({}, prev, { tasks: m.tasks }) : prev;
+      });
+    }
+    try { localStorage.setItem('lbp_migr_alarmas_correo', '1'); } catch(_e3) {}
+  }, [data && data.tasks, _migN]);
 
   // Auto-pull from cloud every 5 minutes (desktop keeps data fresh without manual refresh)
   useEffect(function() {
