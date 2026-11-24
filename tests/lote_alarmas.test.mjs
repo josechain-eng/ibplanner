@@ -118,3 +118,13 @@ test('el buffer queda vacio despues de mandar', async () => {
   await m.correr();
   assert.equal(m.estado.buffer.length, 0);
 });
+
+test('el lote NO usa keepalive', async () => {
+  // Su tope de 64 KB es acumulativo mientras la peticion sigue viva: con pedazos
+  // de 50 KB, medido el 24-nov, entraron el primero y el ultimo y los tres del
+  // medio dieron "network error". Misma conclusion que la v5.06 con el blob.
+  const m = montar(658);
+  await m.correr();
+  const con = m.envios.filter((e) => e.opts.keepalive);
+  assert.equal(con.length, 0, con.length + ' pedazos van con keepalive y van a fallar');
+});

@@ -22,7 +22,7 @@
 <script>
 (function() {
   // ── Version ──────────────────────────────────────────────────────────────
-  window.LBP_VERSION = '5.82';
+  window.LBP_VERSION = '5.83';
 
   // ── PWA Install prompt ───────────────────────────────────────────────────
   window._installPrompt = null;
@@ -1476,7 +1476,12 @@
         method: 'POST',
         headers: {'Content-Type':'application/json'},
         body: JSON.stringify({syncKey: syncKey, alarms: parte, equipo: equipo, v: version}),
-        keepalive: true  // sobrevive al backgrounding/cierre de la app (critico en Samsung)
+        // SIN keepalive, a proposito. Su tope de 64 KB es acumulativo mientras la
+        // peticion sigue viva: medido el 24-nov, con pedazos de 50 KB entraron el
+        // primero y el ultimo y los tres del medio dieron "network error". Es la
+        // misma conclusion a la que llego la v5.06 con el blob de 4 MB: un fetch
+        // normal en visibilitychange:hidden alcanza a completar porque la pagina
+        // sigue viva unos segundos, y sin tope de tamano.
       }).then(function(r) {
         if (!r) console.warn('[LBP] Cloud alarm batch: network error,', parte.length, 'alarms');
         else if (r.ok) console.log('[LBP] Cloud alarm batch OK, count:', parte.length);
