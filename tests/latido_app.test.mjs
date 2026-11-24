@@ -62,7 +62,7 @@ test('NO manda el blob: el cuerpo son unas decenas de bytes', () => {
   m.latir();
   const bytes = Buffer.byteLength(m.enviados[0].opts.body);
   assert.ok(bytes < 300, 'el cuerpo del latido pesa ' + bytes + ' bytes');
-  assert.deepEqual(Object.keys(cuerpoDe(m.enviados[0])).sort(), ['equipo', 'lastSave', 'syncKey']);
+  assert.deepEqual(Object.keys(cuerpoDe(m.enviados[0])).sort(), ['equipo', 'lastSave', 'syncKey', 'v']);
 });
 
 test('sin lastSave guardado manda 0, no null ni NaN', () => {

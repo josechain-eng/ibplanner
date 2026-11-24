@@ -187,7 +187,7 @@ async function handleRequest(request, env) {
 
     // POST /alarm  \u2192  schedule an alarm (single, kept for compatibility)
     if (p === '/alarm' && request.method === 'POST') {
-      const { syncKey, alarmId, triggerAt, title, body, vibration } = await request.json();
+      const { syncKey, alarmId, triggerAt, title, body, vibration, ir } = await request.json();
       if (!syncKey) return json({ error: 'missing syncKey' }, 400);
       // Misma regla que /alarms/batch: no se guarda lo que ya no se puede disparar.
       if (typeof triggerAt !== 'number' || triggerAt <= Date.now() - VENTANA_ALARMA_MS) {
@@ -195,7 +195,11 @@ async function handleRequest(request, env) {
       }
       const alarms = JSON.parse(await env.LBP_KV.get(`alarms:${syncKey}`) || '[]');
       const filtered = alarms.filter(a => a.alarmId !== alarmId && a.triggerAt > Date.now() - VENTANA_ALARMA_MS);
-      filtered.push({ alarmId, triggerAt, title, body, vibration: vibration || 'long' });
+      // `ir` tambien por ESTE camino: la app re-sube las alarmas una por una
+      // cada vez que vuelve al frente (upsert, v4.92). Sin esto, ese re-envio
+      // reconstruia la alarma con campos fijos y borraba el destino que habia
+      // escrito el lote, en silencio. Medido el 24-nov: 201 alarmas, 0 con destino.
+      filtered.push({ alarmId, triggerAt, title, body, vibration: vibration || 'long', ir: ir || null });
       await env.LBP_KV.put(`alarms:${syncKey}`, JSON.stringify(filtered), { expirationTtl: 60 * 60 * 24 * 365 });
       await registerSyncKey(env, syncKey);
       return json({ ok: true });
@@ -1070,7 +1074,7 @@ async function handleRequest(request, env) {
         const p2 = raw ? JSON.parse(raw) : null;
         if (p2 && typeof p2 === 'object' && !Array.isArray(p2)) reg = p2;
       } catch (e) { reg = {}; }
-      reg[equipo] = { t: ahora, lastSave: ls };
+      reg[equipo] = { t: ahora, lastSave: ls, v: String(cuerpo.v || '').slice(0, 16) };
       // Se olvidan los equipos sin senales en 3 dias: un lastSave rancio de un
       // equipo que ya no existe callaria al asistente sin remedio.
       const nombres = Object.keys(reg)

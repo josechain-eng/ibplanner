@@ -22,7 +22,7 @@
 <script>
 (function() {
   // ── Version ──────────────────────────────────────────────────────────────
-  window.LBP_VERSION = '5.79';
+  window.LBP_VERSION = '5.80';
 
   // ── PWA Install prompt ───────────────────────────────────────────────────
   window._installPrompt = null;
@@ -1430,7 +1430,10 @@
         // El ID, no el objeto: es la clave del casillero por equipo en el worker
         // (vive en localStorage, asi que distingue perfiles y navegadores).
         equipo: window._lbpEquipo().id,
-        lastSave: Number(localStorage.getItem('lbp_last_save')) || 0
+        lastSave: Number(localStorage.getItem('lbp_last_save')) || 0,
+        // Que version corre ESTE equipo. Sin este dato, el 24-nov no hubo forma
+        // de saber si un arreglo no funcionaba o el equipo corria codigo viejo.
+        v: String(window.LBP_VERSION || '')
       })
     });
   };
@@ -5565,7 +5568,7 @@ document.addEventListener('visibilitychange', function() {
               fetch(window.LBP_WORKER_URL + '/alarm', {
                 method: 'POST',
                 headers: {'Content-Type':'application/json'},
-                body: JSON.stringify({syncKey: _sk, alarmId: a.alarmId, triggerAt: a.triggerAt, title: a.title, body: a.body, vibration: a.vibration || 'long'})
+                body: JSON.stringify({syncKey: _sk, alarmId: a.alarmId, triggerAt: a.triggerAt, title: a.title, body: a.body, vibration: a.vibration || 'long', ir: a.ir || null})
               }).catch(function() {});
             });
           }
