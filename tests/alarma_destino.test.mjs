@@ -123,3 +123,33 @@ test('un re-envio CON destino si lo actualiza', async () => {
   assert.deepEqual(alarmas(kv)[0].ir, { ruta: 'meetings', refId: 'nuevo' },
     'conservar el viejo no puede impedir actualizarlo');
 });
+
+// ── Diagnostico del lote ───────────────────────────────────────────────────
+// Tres hipotesis fallaron seguidas sobre por que las alarmas de Pepe no tenian
+// destino. Este registro dice lo unico que faltaba: que manda el equipo de
+// verdad en cada lote.
+
+test('el lote deja registro de cuantas alarmas llegan y cuantas con destino', async () => {
+  const kv = kvFalso({ 'data:k_uno': '{}' });
+  await postear(kv, '/alarms/batch', { syncKey: 'k_uno', equipo: 'mac', v: '5.80', alarms: [
+    { alarmId: 'a1', triggerAt: AHORA + 3600000, title: 'T', body: 'B', ir: IR },
+    { alarmId: 'a2', triggerAt: AHORA + 7200000, title: 'T', body: 'B' },
+    { alarmId: 'a3', triggerAt: AHORA + 7200000, title: 'T', body: 'B', ir: null },
+  ] });
+  const log = JSON.parse(kv._map.get('lote_log:k_uno'));
+  assert.equal(log.length, 1);
+  assert.equal(log[0].n, 3, 'no anoto cuantas alarmas llegaron');
+  assert.equal(log[0].conIr, 1, 'no anoto cuantas traian destino');
+  assert.equal(log[0].equipo, 'mac');
+  assert.equal(log[0].v, '5.80');
+});
+
+test('el registro es rodante y no crece sin limite', async () => {
+  const kv = kvFalso({ 'data:k_uno': '{}' });
+  for (let i = 0; i < 25; i++) {
+    await postear(kv, '/alarms/batch', { syncKey: 'k_uno',
+      alarms: [{ alarmId: 'a' + i, triggerAt: AHORA + 3600000, title: 'T', body: 'B' }] });
+  }
+  const log = JSON.parse(kv._map.get('lote_log:k_uno'));
+  assert.ok(log.length <= 20, 'el registro crecio a ' + log.length + ' entradas');
+});

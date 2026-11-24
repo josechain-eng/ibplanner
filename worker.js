@@ -219,7 +219,8 @@ async function handleRequest(request, env) {
     // wins on the same id; long-past alarms (>1h old, cron already handled them) are
     // dropped to bound growth. Removal of a specific alarm goes through DELETE /alarm.
     if (p === '/alarms/batch' && request.method === 'POST') {
-      const { syncKey, alarms } = await request.json();
+      const cuerpoLote = await request.json();
+      const { syncKey, alarms } = cuerpoLote;
       if (!syncKey || !Array.isArray(alarms)) return json({ error: 'missing fields' }, 400);
       const now = Date.now();
       const existing = JSON.parse(await env.LBP_KV.get(`alarms:${syncKey}`) || '[]');
@@ -232,6 +233,16 @@ async function handleRequest(request, env) {
       // horas despues a cualquier hora (16-oct-2026).
       const merged = Object.keys(byId).map(k => byId[k]).filter(a => a && typeof a.triggerAt === 'number' && a.triggerAt > now - VENTANA_ALARMA_MS);
       await env.LBP_KV.put(`alarms:${syncKey}`, JSON.stringify(merged), { expirationTtl: 60 * 60 * 24 * 365 });
+      // Diagnostico: que manda el equipo de verdad. Tres hipotesis fallaron
+      // seguidas sobre por que las alarmas no llevaban destino, y ninguna se
+      // podia confirmar sin ver ESTO. Rodante, 20 entradas.
+      try {
+        const reg = JSON.parse(await env.LBP_KV.get(`lote_log:${syncKey}`) || '[]');
+        reg.unshift({ t: new Date().toISOString(), n: alarms.length,
+          conIr: alarms.filter(a => a && a.ir).length,
+          equipo: String(cuerpoLote.equipo || ''), v: String(cuerpoLote.v || '') });
+        await env.LBP_KV.put(`lote_log:${syncKey}`, JSON.stringify(reg.slice(0, 20)), { expirationTtl: 7 * 86400 });
+      } catch (e) { /* el diagnostico no puede tumbar el registro de alarmas */ }
       await registerSyncKey(env, syncKey);
       return json({ ok: true, count: merged.length });
     }
@@ -1052,6 +1063,16 @@ async function handleRequest(request, env) {
       } catch (e) {
         return json({ ok: false, threw: String(e && e.message || e) });
       }
+    }
+
+    // GET /lote-log?key=  ->  que mandaron los equipos en sus ultimos lotes de alarmas.
+    if (p === '/lote-log' && request.method === 'GET') {
+      const syncKey = url.searchParams.get('key') || '';
+      if (!syncKey) return json({ error: 'missing key', log: [] });
+      if (!(await _syncKeyValida(env, syncKey))) return json({ error: 'Key no valida', log: [] });
+      let reg = [];
+      try { reg = JSON.parse(await env.LBP_KV.get('lote_log:' + syncKey) || '[]'); } catch (e) { reg = []; }
+      return json({ entries: reg.length, log: reg });
     }
 
     // POST /latido  ->  la app dice "estoy viva" y hasta donde subio. Pocos bytes,

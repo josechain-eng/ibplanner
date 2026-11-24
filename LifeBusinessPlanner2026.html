@@ -22,7 +22,7 @@
 <script>
 (function() {
   // ── Version ──────────────────────────────────────────────────────────────
-  window.LBP_VERSION = '5.80';
+  window.LBP_VERSION = '5.81';
 
   // ── PWA Install prompt ───────────────────────────────────────────────────
   window._installPrompt = null;
@@ -1452,7 +1452,8 @@
     _workerFetch('/alarms/batch', {
       method: 'POST',
       headers: {'Content-Type':'application/json'},
-      body: JSON.stringify({syncKey: syncKey, alarms: alarms}),
+      // equipo y version para el diagnostico del worker (lote_log)
+      body: JSON.stringify({syncKey: syncKey, alarms: alarms, equipo: (window._lbpEquipo?window._lbpEquipo().id:''), v: String(window.LBP_VERSION||'')}),
       keepalive: true  // sobrevive al backgrounding/cierre de la app (crítico en Samsung)
     }).then(function(r) {
       if (!r) console.warn('[LBP] Cloud alarm batch: network error');
