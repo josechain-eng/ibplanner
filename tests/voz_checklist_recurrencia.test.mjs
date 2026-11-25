@@ -84,8 +84,13 @@ test('la tarjeta del borrador deja corregir antes de guardar', () => {
 test('tildar un item desde la tarjeta de tarea persiste', () => {
   // Hasta v5.52 la tarjeta usaba RichContent sin onToggle: el tilde se perdia
   // al re-renderizar. El checklist dictado quedaba a medias.
-  assert.ok(/html: t\.description,\s*\n[^\n]*\n[^\n]*\n\s*onToggle: function\(nh\)/.test(html),
-            'la tarjeta de tarea no guarda el tilde');
+  // Se mira el bloque, no un numero de lineas: el 25-nov se le agrego `origen`
+  // (los vinculos) y la prueba se cayo por una linea de mas sin que nada
+  // estuviera roto. Lo que importa es que ese RichContent lleve su onToggle.
+  const i = html.indexOf('html: t.description,');
+  assert.ok(i > 0, 'no encuentro el RichContent de la tarjeta de tarea');
+  assert.match(html.slice(i, i + 600), /onToggle: function\(nh\)/,
+               'la tarjeta de tarea no guarda el tilde');
   assert.ok(html.includes("e.stopPropagation();   // la tarjeta que lo contiene abre el editor al tocarla"),
             'tildar abriria tambien el editor');
 });

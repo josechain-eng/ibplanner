@@ -587,8 +587,8 @@ test('_lbpAlertas no cambio', () => {
 });
 
 // ── Varios ─────────────────────────────────────────────────────────────────
-test('la version sube a 5.84', () => {
-  assert.match(html, /window\.LBP_VERSION = '5\.84'/);
+test('la version sube a 5.85', () => {
+  assert.match(html, /window\.LBP_VERSION = '5\.85'/);
 });
 
 test('una urgencia que no existe se pinta igual que puede_esperar', () => {

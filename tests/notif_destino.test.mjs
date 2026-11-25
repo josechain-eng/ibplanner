@@ -167,12 +167,16 @@ test('sin refId navega igual, sin abrir nada', () => {
 });
 
 test('una pantalla que no sabe abrir el item solo navega', () => {
-  // clients e imports son rutas validas pero no consumen _lbpPendingEdit:
-  // dejarselo puesto seria basura que nadie limpia.
+  // Una ruta valida que NO consume _lbpPendingEdit no tiene que recibirlo:
+  // seria basura que nadie limpia.
+  // El 25-nov este caso dejo de ser `clients`: con los vinculos en las notas,
+  // franquicias, campanas, despachos y finanzas pasaron a abrir la fila. El que
+  // queda es `marketing`, y no por pereza: data.marketingStrategy es UN objeto
+  // con pestanas, no una lista de filas, asi que no hay item que abrir.
   const m = montar();
-  assert.equal(m.ir({ ruta: 'clients', refId: 'c1' }), true);
+  assert.equal(m.ir({ ruta: 'marketing', refId: 'x1' }), true);
   assert.equal(m.win._lbpPendingEdit, undefined);
-  assert.deepEqual(m.win._lbpIrPendiente, { ruta: 'clients', refId: 'c1' });
+  assert.deepEqual(m.win._lbpIrPendiente, { ruta: 'marketing', refId: 'x1' });
 });
 
 test('una ruta que no existe no navega a ningun lado', () => {

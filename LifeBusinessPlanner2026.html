@@ -22,7 +22,7 @@
 <script>
 (function() {
   // ── Version ──────────────────────────────────────────────────────────────
-  window.LBP_VERSION = '5.84';
+  window.LBP_VERSION = '5.85';
 
   // ── PWA Install prompt ───────────────────────────────────────────────────
   window._installPrompt = null;
@@ -2063,6 +2063,34 @@
   /* ═══════════════ RICH TEXT EDITOR ═══════════════ */
   .rte-wrap { border: 1px solid var(--border); border-radius: var(--radius-sm); overflow: hidden; min-width: 0; width: 100%; display: block; }
   .rte-wrap:focus-within { border-color: var(--purple-light); }
+  /* Vinculos dentro de una nota (25-nov-2026) */
+  .lbp-vinculo { display: inline; background: rgba(107,63,160,.28);
+       border: 1px solid rgba(156,104,214,.45); color: var(--purple-light);
+       border-radius: 6px; padding: 1px 6px; margin: 0 1px; font-size: .94em;
+       cursor: pointer; text-decoration: none;
+       /* En el celular un titulo largo parte en dos renglones y sin esto la
+          pildora queda cortada por la mitad: con clone cada pedazo lleva su
+          borde. Se prefiere partir y que se lea todo, antes que recortar. */
+       -webkit-box-decoration-break: clone; box-decoration-break: clone; }
+  .lbp-vinculo:hover { background: rgba(107,63,160,.55); color: var(--text); }
+  .lbp-vinculo-roto { background: rgba(176,74,53,.18); border-color: rgba(176,74,53,.5);
+       color: #e08a76; text-decoration: line-through; cursor: default; }
+  /* En el flujo normal, no flotando: .rte-wrap tiene overflow hidden y
+     recortaria un panel absoluto, y en el celular un flotante dentro de un
+     modal se va de la pantalla. Aca el editor simplemente se agranda. */
+  .lbp-vinc-panel { background: rgba(107,63,160,.12); padding: 7px;
+       border-bottom: 1px solid var(--border); }
+  .lbp-vinc-lista { max-height: 230px; overflow-y: auto; margin-top: 6px; }
+  .lbp-vinc-op { display: flex; gap: 7px; align-items: baseline; padding: 6px 7px;
+       border-radius: 6px; cursor: pointer; font-size: 13px; }
+  .lbp-vinc-op:hover { background: rgba(107,63,160,.3); }
+  .lbp-vinc-tipo { flex-shrink: 0; font-size: 11px; color: var(--text-muted); min-width: 92px; }
+  .lbp-vinc-vacio { color: var(--text-dim); font-size: 12px; padding: 8px 7px; }
+  .lbp-volver { position: sticky; top: 0; z-index: 30; display: flex; align-items: center;
+       gap: 6px; background: rgba(107,63,160,.9); color: #fff; border-radius: 8px;
+       padding: 8px 12px; margin-bottom: 12px; cursor: pointer; font-size: 13px;
+       box-shadow: 0 2px 10px rgba(0,0,0,.35); }
+  .lbp-volver:hover { background: rgba(126,77,187,.95); }
   .rte-toolbar { display: flex; gap: 2px; padding: 5px 7px; border-bottom: 1px solid var(--border);
                  background: rgba(0,0,0,.2); flex-wrap: wrap; align-items: center; }
   .rte-btn { background: rgba(255,255,255,.06); border: 1px solid rgba(150,126,180,.2);
@@ -2810,6 +2838,52 @@ var RichTextEditor = function RichTextEditor(_ref6) {
     document.execCommand(cmd, false, val);
     handleInput();
   };
+  // ── Vincular un item (25-nov-2026) ───────────────────────────────────────
+  var _vinc1 = useState(false), vincPick = _vinc1[0], setVincPick = _vinc1[1];
+  var _vinc2 = useState(''), vincQ = _vinc2[0], setVincQ = _vinc2[1];
+  var _vincRango = useRef(null);
+  var _lbpAbrirVinculador = function() {
+    // Abrir el panel mueve el foco y se pierde el cursor: se guarda el rango
+    // para insertar el chip donde Pepe estaba escribiendo, no al final.
+    try {
+      var s = window.getSelection();
+      _vincRango.current = (s && s.rangeCount && ref.current &&
+                            ref.current.contains(s.anchorNode)) ? s.getRangeAt(0).cloneRange() : null;
+    } catch (_e) { _vincRango.current = null; }
+    setVincQ('');
+    setVincPick(function(v) { return !v; });
+  };
+  var _insertarVinculo = function(c) {
+    setVincPick(false);
+    if (!ref.current) return;
+    ref.current.focus();
+    try {
+      if (_vincRango.current) {
+        var s2 = window.getSelection();
+        s2.removeAllRanges(); s2.addRange(_vincRango.current);
+      }
+    } catch (_e) {}
+    var chip = window._lbpChipVinculo(c.ruta, c.refId,
+      window._lbpVincInterior(c.etiqueta, c.icono), false);
+    // Un espacio DURO delante si el chip no arranca el renglon: el espacio
+    // normal al final de un nodo de texto se colapsa contra el elemento que
+    // sigue y quedaba "Coordinar con[chip]" todo pegado (visto el 25-nov).
+    var _antes = '';
+    try {
+      var _s3 = window.getSelection();
+      if (_s3 && _s3.rangeCount) {
+        var _rg = _s3.getRangeAt(0);
+        if (_rg.startContainer.nodeType === 3 && _rg.startOffset > 0) {
+          var _ch = _rg.startContainer.textContent.charAt(_rg.startOffset - 1);
+          if (_ch && _ch !== '\u00a0' && _ch !== '\n') _antes = '&nbsp;';
+        }
+      }
+    } catch (_e3) {}
+    // El &nbsp; de atras deja donde pararse: pegado al chip atomico el cursor
+    // no tiene lugar y lo siguiente que se escribe se va adentro.
+    document.execCommand('insertHTML', false, _antes + chip + '&nbsp;');
+    handleInput();
+  };
   var handleInput = function handleInput() {
     if (ref.current) {
       var html = ref.current.innerHTML;
@@ -3074,7 +3148,12 @@ var RichTextEditor = function RichTextEditor(_ref6) {
     className: "rte-btn" + (_inClNow() ? " active" : ""),
     title: "Checklist (click again to stop)",
     onClick: function onClick() { insertChecklist(); tick(); }
-  }, "\u2611 Checklist"), /*#__PURE__*/React.createElement("div", {
+  }, "\u2611 Checklist"), /*#__PURE__*/React.createElement("button", {
+    type: "button",
+    className: "rte-btn" + (vincPick ? " active" : ""),
+    title: "Vincular una tarea, proyecto, reunion, nota, despacho...",
+    onClick: function onClick() { _lbpAbrirVinculador(); }
+  }, "\uD83D\uDD17 Vincular"), /*#__PURE__*/React.createElement("div", {
     className: "rte-sep"
   }), /*#__PURE__*/React.createElement("button", {
     type: "button",
@@ -3105,7 +3184,37 @@ var RichTextEditor = function RichTextEditor(_ref6) {
     onClick: function onClick() {
       return exec('removeFormat');
     }
-  }, "\u2715 Clear")), /*#__PURE__*/React.createElement("div", {
+  }, "\u2715 Clear")), vincPick && /*#__PURE__*/React.createElement("div", {
+    className: "lbp-vinc-panel"
+  }, /*#__PURE__*/React.createElement("input", {
+    className: "input",
+    autoFocus: true,
+    placeholder: "Buscar tarea, proyecto, reunion, nota, despacho...",
+    value: vincQ,
+    onChange: function(e) { setVincQ(e.target.value); },
+    onKeyDown: function(e) { if (e.key === 'Escape') setVincPick(false); }
+  }), /*#__PURE__*/React.createElement("div", {
+    className: "lbp-vinc-lista"
+  }, (function() {
+    var ops = window._lbpBuscarEnIndice
+      ? window._lbpBuscarEnIndice(window._LBP_VINC_IX || {}, vincQ, 40) : [];
+    if (!ops.length) {
+      return /*#__PURE__*/React.createElement("div", {
+        className: "lbp-vinc-vacio"
+      }, vincQ ? 'Nada con ese nombre.' : 'Escribi para buscar.');
+    }
+    return ops.map(function(c) {
+      return /*#__PURE__*/React.createElement("div", {
+        key: c.ruta + ':' + c.refId,
+        className: "lbp-vinc-op",
+        // onMouseDown y no onClick: el click llega despues de que el
+        // contenteditable pierde la seleccion y el chip se insertaria al final.
+        onMouseDown: function(e) { e.preventDefault(); _insertarVinculo(c); }
+      }, /*#__PURE__*/React.createElement("span", {
+        className: "lbp-vinc-tipo"
+      }, c.icono + ' ' + c.nombre), /*#__PURE__*/React.createElement("span", null, c.etiqueta));
+    });
+  })())), /*#__PURE__*/React.createElement("div", {
     ref: ref,
     className: "rte-body",
     contentEditable: "true",
@@ -3187,6 +3296,10 @@ var RichTextEditor = function RichTextEditor(_ref6) {
 var RichContent = function RichContent(_ref7) {
   var html = _ref7.html;
   var onToggle = _ref7.onToggle; // optional: (newHtml) => persist checkbox toggles from read-only view
+  // origen: {ruta, refId, etiqueta} de DONDE se esta leyendo esto, para que al
+  // tocar un vinculo quede la franja de volver. Sin origen el vinculo navega
+  // igual, solo que sin vuelta.
+  var origen = _ref7.origen;
   var _rcRef = React.useRef(null);
   if (!html) return null;
   // Simple text check
@@ -3196,20 +3309,40 @@ var RichContent = function RichContent(_ref7) {
       whiteSpace: 'pre-wrap'
     }
   }, html);
+  // El onClick ya NO cuelga de onToggle: antes solo existia para los checkboxes,
+  // y una nota sin checkboxes no recibe onToggle, asi que el vinculo habria
+  // quedado muerto justo en las notas de texto.
   return /*#__PURE__*/React.createElement("div", {
     className: "rte-render",
     ref: _rcRef,
-    onClick: onToggle ? function(e) {
+    onClick: function(e) {
       var _t = e.target;
-      if (_t && _t.tagName === 'INPUT' && _t.type === 'checkbox') {
+      // 1. Un vinculo. Se busca con closest porque el toque puede caer en el
+      //    emoji de adentro y no en el chip.
+      var _v = (_t && _t.closest) ? _t.closest('.lbp-vinculo') : null;
+      if (_v) {
         e.stopPropagation();   // la tarjeta que lo contiene abre el editor al tocarla
+        if (e.preventDefault) e.preventDefault();
+        if (_v.className.indexOf('lbp-vinculo-roto') >= 0) return;   // ya no existe
+        if (window._lbpIr) {
+          window._lbpIr({ ruta: _v.getAttribute('data-ir'), refId: _v.getAttribute('data-ref') },
+                        origen || null);
+        }
+        return;
+      }
+      // 2. Un checkbox de la checklist.
+      if (onToggle && _t && _t.tagName === 'INPUT' && _t.type === 'checkbox') {
+        e.stopPropagation();
         if (_t.checked) { _t.setAttribute('checked', ''); }
         else { _t.removeAttribute('checked'); }
         if (_rcRef.current) onToggle(_rcRef.current.innerHTML);
       }
-    } : undefined,
+    },
     dangerouslySetInnerHTML: {
-      __html: html
+      // Pintado con el indice de HOY: lo guardado puede traer el nombre viejo
+      // de la tarea, o apuntar a algo que ya se borro.
+      __html: (window._lbpPintarVinculos
+        ? window._lbpPintarVinculos(html, window._LBP_VINC_IX || {}) : html)
     }
   });
 };
@@ -3906,18 +4039,37 @@ window._LBP_ASIS_RUTAS = { tasks: 1, projects: 1, meetings: 1, clients: 1, impor
 // de un push --o sea de la red-- y navigate('') deja la app EN BLANCO, asi que
 // nada navega sin estar en esta lista.
 window._LBP_IR_RUTAS = { tasks: 1, goals: 1, projects: 1, journal: 1, routines: 1,
-                         habits: 1, meetings: 1, documents: 1, clients: 1, imports: 1 };
+                         habits: 1, meetings: 1, documents: 1, clients: 1, imports: 1,
+                         campaigns: 1, finance: 1, marketing: 1 };
 // _LBP_IR_ABRE: las que ademas saben ABRIR el item, porque consumen
 // _lbpPendingEdit al montarse. Ese mecanismo ya existia; solo lo usaban los
 // gestos del Home. A las otras se las deja sin _lbpPendingEdit: seria basura
 // que nadie limpia.
+// 25-nov: entran campanas, despachos, franquicias y finanzas, porque Pepe
+// pidio los vinculos "completo de una". Cada una consume _lbpPendingEdit al
+// montarse; estar aca sin consumirlo deja basura en window y no abre nada.
+// `marketing` NO entra: data.marketingStrategy es UN objeto con pestanas, no
+// una lista de filas, asi que no hay item que abrir.
 window._LBP_IR_ABRE = { tasks: 1, goals: 1, projects: 1, journal: 1, routines: 1,
-                        habits: 1, meetings: 1, documents: 1 };
-window._lbpIr = function(ir) {
+                        habits: 1, meetings: 1, documents: 1,
+                        campaigns: 1, imports: 1, clients: 1, finance: 1 };
+window._lbpIr = function(ir, origen) {
   var d = ir || {};
   var ruta = String(d.ruta || '');
   if (!Object.prototype.hasOwnProperty.call(window._LBP_IR_RUTAS, ruta)) return false;
   var refId = String(d.refId || '');
+  // De donde vengo, para la franja de volver. Solo lo manda el chip de un
+  // vinculo: la notificacion y la busqueda llaman SIN origen, y ahi no hay a
+  // donde volver, asi que cualquier vuelta vieja se apaga. Volver al mismo
+  // lugar tampoco es una vuelta.
+  var _o = origen || null;
+  if (_o && Object.prototype.hasOwnProperty.call(window._LBP_IR_RUTAS, String(_o.ruta || '')) &&
+      !(String(_o.ruta) === ruta && String(_o.refId || '') === refId)) {
+    window._lbpVolver = { ruta: String(_o.ruta), refId: String(_o.refId || ''),
+                          etiqueta: String(_o.etiqueta || '') };
+  } else {
+    window._lbpVolver = null;
+  }
   if (refId && Object.prototype.hasOwnProperty.call(window._LBP_IR_ABRE, ruta)) {
     window._lbpPendingEdit = { type: ruta, id: refId };
   }
@@ -3927,6 +4079,140 @@ window._lbpIr = function(ir) {
   // _lbpIrPendiente el segundo, que lo lee el efecto al montar.
   window.dispatchEvent(new Event('lbp_ir'));
   return true;
+};
+
+// ── Vinculos: un chip dentro del texto que lleva al item ──────────────────
+// Pepe, 25-nov-2026: "que la app nos deje poner como un link hacia la tarea,
+// proyecto, reunion, otra nota... para ir ahi rapido a ver el detalle de ese
+// punto y luego poder volver a la lista".
+// El "ir" ya estaba resuelto arriba (_lbpIr, del 24-nov, hecho para la
+// notificacion y la busqueda): navega Y abre el item. Esto agrega el chip, su
+// etiqueta siempre al dia, y de donde se vuelve.
+//
+// `lista` es la clave dentro de data y `campo` de donde sale la etiqueta.
+// Verificado el 25-nov contra el blob real, campo por campo: tasks, journal,
+// meetings y transactions llevan `title`; projects, documents, campaigns,
+// habits, routines y clients llevan `name`; los despachos no llevan ninguno.
+window._LBP_VINC_TIPOS = [
+  { ruta: 'tasks',     lista: 'tasks',        campo: 'title', icono: '\uD83D\uDCCB', nombre: 'Tarea' },
+  { ruta: 'projects',  lista: 'projects',     campo: 'name',  icono: '\uD83D\uDCC1', nombre: 'Proyecto' },
+  { ruta: 'goals',     lista: 'goals',        campo: 'title', icono: '\uD83C\uDFAF', nombre: 'Meta' },
+  { ruta: 'journal',   lista: 'journal',      campo: 'title', icono: '\uD83D\uDCD3', nombre: 'Nota' },
+  { ruta: 'meetings',  lista: 'meetings',     campo: 'title', icono: '\uD83E\uDD1D', nombre: 'Reunion' },
+  { ruta: 'documents', lista: 'documents',    campo: 'name',  icono: '\uD83D\uDCC4', nombre: 'Documento' },
+  { ruta: 'routines',  lista: 'routines',     campo: 'name',  icono: '\uD83D\uDD01', nombre: 'Rutina' },
+  { ruta: 'habits',    lista: 'habits',       campo: 'name',  icono: '\u2705',        nombre: 'Habito' },
+  { ruta: 'campaigns', lista: 'campaigns',    campo: 'name',  icono: '\uD83D\uDCE3', nombre: 'Campana' },
+  { ruta: 'imports',   lista: 'imports',      campo: '',      icono: '\uD83D\uDEA2', nombre: 'Despacho' },
+  { ruta: 'clients',   lista: 'clients',      campo: 'name',  icono: '\uD83C\uDFEA', nombre: 'Franquicia' },
+  { ruta: 'finance',   lista: 'transactions', campo: 'title', icono: '\uD83D\uDCB0', nombre: 'Movimiento' }
+];
+
+// El contenido de una nota se pinta con innerHTML: una tarea titulada con HTML
+// no puede convertirse en etiquetas al insertarla.
+window._lbpVincEsc = function(s) {
+  return String(s == null ? '' : s)
+    .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+};
+// Para buscar: sin mayusculas y sin tildes, asi "cumpleanos" encuentra
+// "cumpleanos" escrito con enie y al reves.
+window._lbpVincNorm = function(s) {
+  return String(s == null ? '' : s).toLowerCase()
+    .normalize('NFD').replace(/[\u0300-\u036f]/g, '');
+};
+window._lbpVincTipo = function(ruta) {
+  var r = String(ruta || ''), i;
+  for (i = 0; i < window._LBP_VINC_TIPOS.length; i++) {
+    if (window._LBP_VINC_TIPOS[i].ruta === r) return window._LBP_VINC_TIPOS[i];
+  }
+  return null;
+};
+window._lbpVincEtiqueta = function(tipo, item, data) {
+  var t = tipo || {}, it = item || {}, d = data || {};
+  // Un despacho no tiene campo de titulo: se arma con la marca de la franquicia
+  // y la temporada, que es como Pepe los nombra ("Boss . Marzo 2026").
+  if (t.ruta === 'imports') {
+    var cs = d.clients || [], cl = null, i;
+    for (i = 0; i < cs.length; i++) {
+      if (cs[i] && cs[i].id === it.clientId) { cl = cs[i]; break; }
+    }
+    var marca = cl ? (cl.businessName || cl.name || '') : '';
+    var cuando = it.season || it.dateDispatch || '';
+    if (marca && cuando) return marca + ' \u00b7 ' + cuando;
+    return marca || cuando || 'Despacho';
+  }
+  // La franquicia se nombra por su MARCA: `name` es la persona de contacto
+  // ("Habib Rodriguez") y en una nota de reunion lo util es "CK".
+  if (t.ruta === 'clients') return String(it.businessName || it.name || '');
+  return String(it[t.campo] || '');
+};
+window._lbpVincInterior = function(etiqueta, icono) {
+  var ic = String(icono || '');
+  return (ic ? window._lbpVincEsc(ic) + '&nbsp;' : '') + window._lbpVincEsc(etiqueta);
+};
+// contenteditable=false lo hace atomico dentro del editor: sin eso se puede
+// escribir DENTRO del chip y el vinculo queda partido en dos. Es la misma razon
+// por la que el checkbox de la checklist lo lleva.
+window._lbpChipVinculo = function(ruta, refId, interior, roto) {
+  return '<span class="lbp-vinculo' + (roto ? ' lbp-vinculo-roto' : '') +
+    '" contenteditable="false" data-ir="' + window._lbpVincEsc(ruta) +
+    '" data-ref="' + window._lbpVincEsc(refId) + '"' +
+    (roto ? ' title="Ese item ya no existe"' : '') +
+    '>' + String(interior == null ? '' : interior) + '</span>';
+};
+// Indice ruta:id -> etiqueta de HOY. Lo rearma el efecto [data] de App.
+window._lbpIndiceVinculos = function(data) {
+  var d = data || {}, ix = {};
+  window._LBP_VINC_TIPOS.forEach(function(t) {
+    var lista = d[t.lista];
+    if (!lista || !lista.length) return;
+    lista.forEach(function(it) {
+      if (!it || !it.id) return;
+      ix[t.ruta + ':' + it.id] = { etiqueta: window._lbpVincEtiqueta(t, it, d),
+                                   icono: t.icono, nombre: t.nombre, ruta: t.ruta };
+    });
+  });
+  return ix;
+};
+window._lbpBuscarEnIndice = function(indice, q, limite) {
+  var ix = indice || {}, tope = limite || 25;
+  var n = window._lbpVincNorm(q), claves = Object.keys(ix), res = [];
+  var i, k, reg, corte;
+  for (i = 0; i < claves.length && res.length < tope; i++) {
+    k = claves[i]; reg = ix[k];
+    if (!reg || !reg.etiqueta) continue;
+    if (n && window._lbpVincNorm(reg.etiqueta).indexOf(n) < 0) continue;
+    corte = k.indexOf(':');
+    res.push({ ruta: k.slice(0, corte), refId: k.slice(corte + 1),
+               etiqueta: reg.etiqueta, icono: reg.icono, nombre: reg.nombre });
+  }
+  return res;
+};
+window._lbpBuscarVinculables = function(data, q, limite) {
+  return window._lbpBuscarEnIndice(window._lbpIndiceVinculos(data), q, limite);
+};
+// Pintar: el chip guardado trae la etiqueta de CUANDO se vinculo. Esto la
+// cambia por la de hoy, y si el item ya no existe lo marca sin borrar el texto
+// (si no, la nota quedaria sin decir a que apuntaba).
+// Es idempotente a proposito: tildar un checkbox de la nota guarda el innerHTML
+// ya pintado, asi que pintar lo pintado tiene que dar exactamente lo mismo.
+window._lbpPintarVinculos = function(html, indice) {
+  if (!html || String(html).indexOf('lbp-vinculo') < 0) return html;
+  var ix = indice || {};
+  return String(html).replace(
+    /<span class="lbp-vinculo[^"]*"([^>]*)>([\s\S]*?)<\/span>/g,
+    function(todo, attrs, interior) {
+      var mi = /data-ir="([^"]*)"/.exec(attrs);
+      var mr = /data-ref="([^"]*)"/.exec(attrs);
+      if (!mi || !mr) return todo;
+      var reg = ix[mi[1] + ':' + mr[1]];
+      if (reg) {
+        return window._lbpChipVinculo(mi[1], mr[1],
+          window._lbpVincInterior(reg.etiqueta, reg.icono), false);
+      }
+      return window._lbpChipVinculo(mi[1], mr[1], interior, true);
+    });
 };
 
 // ── Las dos puertas por donde entra un destino ────────────────────────────
@@ -6964,7 +7250,7 @@ alertasTodas && /*VENTANA_ALERTAS*/ (function(){
       viewTask.estimatedHours && /*#__PURE__*/React.createElement("span",{style:{fontSize:12,color:"var(--text-dim)"}}, "\u23F1 ",viewTask.estimatedHours,"h"),
       viewTask.alarm && viewTask.alarm.enabled && /*#__PURE__*/React.createElement("span",{style:{fontSize:13}},"\uD83D\uDD14")
     ),
-    viewTask.description && /*#__PURE__*/React.createElement("div", {style:{fontSize:13,lineHeight:1.6}}, /*#__PURE__*/React.createElement(RichContent,{html:viewTask.description, onToggle:function(nh){ setViewTask(function(v){return v?Object.assign({},v,{description:nh}):v;}); setData(function(d){ return Object.assign({}, d, {tasks:(d.tasks||[]).map(function(x){return x.id===viewTask.id?Object.assign({},x,{description:nh}):x;})}); }); }})),
+    viewTask.description && /*#__PURE__*/React.createElement("div", {style:{fontSize:13,lineHeight:1.6}}, /*#__PURE__*/React.createElement(RichContent,{html:viewTask.description, origen:{ruta:'tasks',refId:viewTask.id,etiqueta:viewTask.title||'la tarea'}, onToggle:function(nh){ setViewTask(function(v){return v?Object.assign({},v,{description:nh}):v;}); setData(function(d){ return Object.assign({}, d, {tasks:(d.tasks||[]).map(function(x){return x.id===viewTask.id?Object.assign({},x,{description:nh}):x;})}); }); }})),
     viewTask.subtasks && viewTask.subtasks.length > 0 && /*#__PURE__*/React.createElement("div", {style:{marginTop:10}},
       /*#__PURE__*/React.createElement("div",{style:{fontSize:12,color:"var(--text-dim)",marginBottom:4}},"Subtasks"),
       viewTask.subtasks.map(function(st){return /*#__PURE__*/React.createElement("div",{key:st.id,style:{fontSize:12,padding:"3px 0",display:"flex",gap:6,alignItems:"center"}},
@@ -6993,7 +7279,7 @@ alertasTodas && /*VENTANA_ALERTAS*/ (function(){
       ),
       /*#__PURE__*/React.createElement(Chip,{label:viewJournalEntry.mood||'',color:({'EXCELLENT':'#4CAF50','GOOD':'#8BC34A','NEUTRAL':'#FF9800','BAD':'#FF5722','TERRIBLE':'#F44336'})[viewJournalEntry.mood]||'#6B3FA0'})
     ),
-    viewJournalEntry.content && /*#__PURE__*/React.createElement("div",{style:{fontSize:13,lineHeight:1.6,marginBottom:8}}, /*#__PURE__*/React.createElement(RichContent,{html:viewJournalEntry.content, onToggle:function(nh){ setViewJournalEntry(function(v){return v?Object.assign({},v,{content:nh}):v;}); setData(function(d){ return Object.assign({}, d, {journal:(d.journal||[]).map(function(x){return x.id===viewJournalEntry.id?Object.assign({},x,{content:nh}):x;})}); }); }})),
+    viewJournalEntry.content && /*#__PURE__*/React.createElement("div",{style:{fontSize:13,lineHeight:1.6,marginBottom:8}}, /*#__PURE__*/React.createElement(RichContent,{html:viewJournalEntry.content, origen:{ruta:'journal',refId:viewJournalEntry.id,etiqueta:viewJournalEntry.title||'la nota'}, onToggle:function(nh){ setViewJournalEntry(function(v){return v?Object.assign({},v,{content:nh}):v;}); setData(function(d){ return Object.assign({}, d, {journal:(d.journal||[]).map(function(x){return x.id===viewJournalEntry.id?Object.assign({},x,{content:nh}):x;})}); }); }})),
     viewJournalEntry.gratitude && /*#__PURE__*/React.createElement("div",{style:{background:"rgba(76,175,80,.1)",border:"1px solid rgba(76,175,80,.2)",borderRadius:8,padding:"8px 12px",fontSize:13}},
       "\uD83D\uDE4F ", /*#__PURE__*/React.createElement("strong",null,"Grateful: "), viewJournalEntry.gratitude)
   )),
@@ -7030,7 +7316,7 @@ alertasTodas && /*VENTANA_ALERTAS*/ (function(){
     ),
     /*#__PURE__*/React.createElement(Progress, {value: (viewProject.status==='PLANNING'?25:viewProject.status==='IN_PROGRESS'?50:(viewProject.status==='CLIENT_REVIEW'||viewProject.status==='AWAITING_APPROVAL')?75:viewProject.status==='DONE'?100:0), color: '#4CAF50'}),
     /*#__PURE__*/React.createElement("div", {style:{fontSize:11,color:"var(--text-dim)",marginTop:2,marginBottom:10}}, (viewProject.status==='PLANNING'?25:viewProject.status==='IN_PROGRESS'?50:(viewProject.status==='CLIENT_REVIEW'||viewProject.status==='AWAITING_APPROVAL')?75:viewProject.status==='DONE'?100:0) + "% complete"),
-    viewProject.description && /*#__PURE__*/React.createElement("div", {style:{fontSize:13,lineHeight:1.6}}, /*#__PURE__*/React.createElement(RichContent,{html:viewProject.description, onToggle:function(nh){ setViewProject(function(v){return v?Object.assign({},v,{description:nh}):v;}); setData(function(d){ return Object.assign({}, d, {projects:(d.projects||[]).map(function(x){return x.id===viewProject.id?Object.assign({},x,{description:nh}):x;})}); }); }})),
+    viewProject.description && /*#__PURE__*/React.createElement("div", {style:{fontSize:13,lineHeight:1.6}}, /*#__PURE__*/React.createElement(RichContent,{html:viewProject.description, origen:{ruta:'projects',refId:viewProject.id,etiqueta:viewProject.name||'el proyecto'}, onToggle:function(nh){ setViewProject(function(v){return v?Object.assign({},v,{description:nh}):v;}); setData(function(d){ return Object.assign({}, d, {projects:(d.projects||[]).map(function(x){return x.id===viewProject.id?Object.assign({},x,{description:nh}):x;})}); }); }})),
     (viewProject.attachments||[]).length > 0 && /*#__PURE__*/React.createElement("div", {style:{marginTop:12}},
       /*#__PURE__*/React.createElement("div", {style:{fontSize:12,color:'var(--text-dim)',marginBottom:6}}, '📎 Attachments (' + (viewProject.attachments||[]).length + ')'),
       /*#__PURE__*/React.createElement(ReadOnlyAttachments, { attachments: viewProject.attachments||[] })
@@ -7292,7 +7578,8 @@ var GoalsScreen = function GoalsScreen(_ref19) {
         marginBottom: 8
       }
     }, "\u2728 ", g.vision), g.description && /*#__PURE__*/React.createElement(RichContent, {
-      html: g.description
+      html: g.description,
+      origen: { ruta: 'goals', refId: g.id, etiqueta: g.title || 'la meta' }
     }), /*#__PURE__*/React.createElement("div", {
       style: {
         display: 'flex',
@@ -7799,6 +8086,7 @@ var ProjectsScreen = function ProjectsScreen(_ref20) {
       }
     }, /*#__PURE__*/React.createElement(RichContent, {
       html: p.description,
+      origen: { ruta: 'projects', refId: p.id, etiqueta: p.name || 'el proyecto' },
       onToggle: function(newHtml) {
         setData(function(d){ return Object.assign({}, d, { projects: (d.projects||[]).map(function(x){ return x.id===p.id ? Object.assign({}, x, { description: newHtml }) : x; }) }); });
       }
@@ -8355,6 +8643,7 @@ var TasksScreen = function TasksScreen(_ref21) {
       }
     }, /*#__PURE__*/React.createElement(RichContent, {
       html: t.description,
+      origen: { ruta: 'tasks', refId: t.id, etiqueta: t.title || 'la tarea' },
       // Tildar un item del checklist desde la TARJETA tiene que persistir.
       // Hasta v5.52 solo persistia dentro del detalle: en la lista se destildaba solo.
       onToggle: function(nh) {
@@ -8681,6 +8970,15 @@ var ClientsScreen = function ClientsScreen(_ref24) {
     _useState48 = _slicedToArray(_useState47, 2),
     form = _useState48[0],
     setForm = _useState48[1];
+  // Abrir el item que pidio un vinculo, la busqueda o una notificacion.
+  useEffect(function() {
+    var pe = window._lbpPendingEdit;
+    if (pe && pe.type === 'clients') {
+      window._lbpPendingEdit = null;
+      var _it = (data.clients || []).find(function(x){ return x && x.id === pe.id; });
+      if (_it) { setEditItem(_it); setForm(Object.assign({}, _it)); setModal(true); }
+    }
+  }, []);
   var clients = (data.clients || []).filter(function (c) {
     return !search || c.name.toLowerCase().includes(search.toLowerCase()) || (c.businessName || '').toLowerCase().includes(search.toLowerCase());
   });
@@ -9282,6 +9580,16 @@ var FinanceScreen = function FinanceScreen(_ref25) {
     editItem = _useState58[0],
     setEditItem = _useState58[1];
   var allTx = data.transactions || [];
+  // Abrir el item que pidio un vinculo, la busqueda o una notificacion.
+  useEffect(function() {
+    var pe = window._lbpPendingEdit;
+    if (pe && pe.type === 'finance') {
+      window._lbpPendingEdit = null;
+      var _it = (data.transactions || []).find(function(x){ return x && x.id === pe.id; });
+      if (_it) { setEditItem(_it); setForm(Object.assign({}, _it)); setModal(true); }
+    }
+  }, []);
+
   var monthTx = allTx.filter(function (t) {
     return t.month === selMonth && t.year === new Date().getFullYear();
   });
@@ -10857,7 +11165,8 @@ var JournalLinksSection = function JournalLinksSection(_refJLS) {
       ),
       viewJE.content && /*#__PURE__*/React.createElement("div", {style:{marginBottom:10}},
         /*#__PURE__*/React.createElement("div", {style:{fontSize:11,color:"var(--text-dim)",marginBottom:4}}, "Reflection"),
-        /*#__PURE__*/React.createElement(RichContent, {html:viewJE.content})
+        /*#__PURE__*/React.createElement(RichContent, {html:viewJE.content,
+          origen:{ruta:'journal', refId:viewJE.id, etiqueta:viewJE.title||'la nota'}})
       ),
       viewJE.gratitude && /*#__PURE__*/React.createElement("div", {style:{background:"rgba(76,175,80,.1)",borderRadius:8,padding:"6px 10px",marginBottom:8,fontSize:13}},
         "🙏 ", /*#__PURE__*/React.createElement("strong", null, "Grateful: "), viewJE.gratitude),
@@ -11221,7 +11530,8 @@ var JournalScreen = function JournalScreen(_ref31) {
         maxHeight: 60
       }
     }, /*#__PURE__*/React.createElement(RichContent, {
-      html: e.content
+      html: e.content,
+      origen: { ruta: 'journal', refId: e.id, etiqueta: e.title || 'la nota' }
     })), e.gratitude && /*#__PURE__*/React.createElement("div", {
       style: {
         background: 'rgba(76,175,80,.1)',
@@ -11359,7 +11669,8 @@ var JournalScreen = function JournalScreen(_ref31) {
       marginBottom: 4
     }
   }, "Day Reflection"), /*#__PURE__*/React.createElement(RichContent, {
-    html: viewEntry.content
+    html: viewEntry.content,
+    origen: { ruta: 'journal', refId: viewEntry.id, etiqueta: viewEntry.title || 'la entrada' }
   })), viewEntry.gratitude && /*#__PURE__*/React.createElement("div", {
     style: {
       background: 'rgba(76,175,80,.1)',
@@ -20438,6 +20749,16 @@ var CampaignsScreen = function CampaignsScreen(_ref_camp) {
   var _fForm=useState(emptyFran),_fForm2=_slicedToArray(_fForm,2),fForm=_fForm2[0],setFForm=_fForm2[1];
 
   var campaigns = data.campaigns || [];
+  // Abrir el item que pidio un vinculo, la busqueda o una notificacion.
+  useEffect(function() {
+    var pe = window._lbpPendingEdit;
+    if (pe && pe.type === 'campaigns') {
+      window._lbpPendingEdit = null;
+      var _it = (data.campaigns || []).find(function(x){ return x && x.id === pe.id; });
+      if (_it) { setCEdit(_it); setCForm(Object.assign({}, _it, {franchises:(_it.franchises||[]).slice()})); setCModal(true); }
+    }
+  }, []);
+
   var allClients = data.clients || [];
 
   var filtered = campaigns.filter(function(c){
@@ -20781,6 +21102,16 @@ var ImportsScreen = function ImportsScreen(_ref_imp) {
   var emptyForm = {clientId:'',season:'',items:'',amount:'',status:'PENDIENTE',dateDispatch:'',etaArica:'',etaAduana:'',etaStorage:'',limiteAduana:'',tributos:'',bultos:'',received:'',notes:''};
   var _iForm = useState(emptyForm), _iForm2 = _slicedToArray(_iForm, 2), iForm = _iForm2[0], setIForm = _iForm2[1];
   var imports = data.imports || [];
+  // Abrir el item que pidio un vinculo, la busqueda o una notificacion.
+  useEffect(function() {
+    var pe = window._lbpPendingEdit;
+    if (pe && pe.type === 'imports') {
+      window._lbpPendingEdit = null;
+      var _it = (data.imports || []).find(function(x){ return x && x.id === pe.id; });
+      if (_it) { setITab('despachos'); setIEdit(_it); setIForm(Object.assign({}, _it)); setIModal(true); }
+    }
+  }, []);
+
   var allClients = data.clients || [];
   var filtered = imports.filter(function(imp){
     var c = allClients.find(function(x){return x.id===imp.clientId;});
@@ -21697,6 +22028,10 @@ var App = function App() {
     var _noToast = function(){};
     var _types = ['tasks','goals','projects','journal','routines','habits','medications','householdTasks','workouts','meetings'];
     _types.forEach(function(k){ scheduleAlarms(data[k] || [], k, _noToast); });
+    // El indice de los vinculos: ruta:id -> etiqueta de hoy. Vive en window
+    // porque lo consumen RichContent y la barra del editor, que no reciben data
+    // por props y estan en una docena de lugares.
+    try { window._LBP_VINC_IX = window._lbpIndiceVinculos(data); } catch (_eix) {}
     // Also schedule alarms for subtasks nested inside projects
     var _allSubtasks = (data.projects || []).reduce(function(acc, p) { return acc.concat(p.subtasks || []); }, []);
     if (_allSubtasks.length) scheduleAlarms(_allSubtasks, 'subtask', _noToast);
@@ -21771,10 +22106,15 @@ var App = function App() {
     // autoritativa (únicamente si el task está presente Y marcado completado).
   }, [data]);
 
+  var _vlv = useState(null), volver = _vlv[0], setVolver = _vlv[1];
   var navigate = useCallback(function (p) {
     history.pushState({lbpRoute: p}, '', '');
     setPage(p);
     setDrawerOpen(false);
+    // Navegar a mano apaga la vuelta: si no, la franja queda ofreciendo volver
+    // a una nota que ya no tiene nada que ver con donde estas.
+    window._lbpVolver = null;
+    setVolver(null);
   }, []);
   // El destino que dejo _lbpIr (una notificacion tocada, o ?ir= en la URL).
   // `aplicar()` corre tambien al montar: cuando la app se abre DESDE la
@@ -21785,7 +22125,10 @@ var App = function App() {
       var d = window._lbpIrPendiente;
       if (!d || !d.ruta) return;
       window._lbpIrPendiente = null;
+      // Se lee ANTES: navigate() limpia la vuelta, y aca si hay que conservarla.
+      var _v = window._lbpVolver || null;
       navigate(d.ruta);
+      setVolver(_v);
     };
     window.addEventListener('lbp_ir', aplicar);
     aplicar();
@@ -22087,7 +22430,16 @@ var App = function App() {
   )
   ), /*#__PURE__*/React.createElement("main", {
     className: "content"
-  }, renderPage())), /*#__PURE__*/React.createElement("nav", {
+  }, volver && /*#__PURE__*/React.createElement("div", {
+    className: "lbp-volver",
+    onClick: function() {
+      var v = volver;
+      setVolver(null);
+      window._lbpVolver = null;
+      if (window._lbpIr) window._lbpIr({ ruta: v.ruta, refId: v.refId });
+    }
+  }, "\u2190 Volver a ", /*#__PURE__*/React.createElement("strong", null,
+    volver.etiqueta || volver.ruta)), renderPage())), /*#__PURE__*/React.createElement("nav", {
     className: "bottom-nav"
   }, bottomTabs.map(function (_ref68) {
     var _ref69 = _slicedToArray(_ref68, 3),
