@@ -113,8 +113,8 @@ const f1 = html.indexOf('/*FIN_FILA_ASIS*/', f0);
 assert.ok(f0 > 0 && f1 > f0, 'no encuentro la fila del asistente (/*FILA_ASIS*/)');
 const fuenteFila = html.slice(f0 + '/*FILA_ASIS*/'.length, f1);
 
-function pintarFila(item, data, abiertos) {
-  const log = { completadas: [], decididas: [], vistas: [], navegadas: [], expandidos: [], cerrada: 0 };
+function pintarFila(item, data, abiertos, fuera) {
+  const log = { completadas: [], decididas: [], vistas: [], navegadas: [], expandidos: [], sacados: [], cerrada: 0 };
   const React = {
     createElement: function (tipo, props) {
       return { tipo: tipo, props: props || {}, hijos: Array.prototype.slice.call(arguments, 2) };
@@ -122,6 +122,7 @@ function pintarFila(item, data, abiertos) {
   };
   const fila = new Function('window', 'React', 'data', 'completeTask', '_asisDecidir',
     'setViewTask', 'setAlertasTodas', 'navigate', 'asisExp', '_asisExpandir',
+    'asisFuera', '_asisSacar',
     'return (' + fuenteFila + ');')(
     win, React, data || {},
     (id) => log.completadas.push(id),
@@ -130,7 +131,9 @@ function pintarFila(item, data, abiertos) {
     (v) => { if (v === false) log.cerrada++; },
     (r) => log.navegadas.push(r),
     (abiertos || {}),
-    (id) => log.expandidos.push(id));
+    (id) => log.expandidos.push(id),
+    (fuera || {}),
+    (idItem, sid) => log.sacados.push([idItem, sid]));
   return { nodo: fila(item), log };
 }
 function recorrer(n, fn) {
@@ -140,9 +143,12 @@ function recorrer(n, fn) {
   fn(n);
   (n.hijos || []).forEach((c) => recorrer(c, fn));
 }
+const PROPIO = /^(Sacarla: no me interesa|Volver a incluirla)$/;
 const tilde = (nodo) => {
   let out = null;
-  recorrer(nodo, (n) => { if (!out && n.props && n.props['aria-label']) out = n; });
+  recorrer(nodo, (n) => {
+    if (!out && n.props && n.props['aria-label'] && !PROPIO.test(n.props['aria-label'])) out = n;
+  });
   return out;
 };
 const botonConTexto = (nodo, texto) => {
@@ -894,11 +900,10 @@ const textoFila = (n) => {
   });
   return t;
 };
+// El tilde de cada senal dice si va incluida (26-nov): ya no cierra la tarea.
 const tildesPropios = (nodo) => {
   const out = [];
-  recorrer(nodo, (n) => {
-    if (n.props && n.props['aria-label'] === 'Marcar esta tarea como hecha') out.push(n);
-  });
+  recorrer(nodo, (n) => { if (n.props && PROPIO.test(n.props['aria-label'] || '')) out.push(n); });
   return out;
 };
 
@@ -916,11 +921,7 @@ test('desplegado, el grupo pinta sus tres senales con nombre y tilde propio', ()
   const r = pintarFila(ITEM_GRUPO(), DATA_GRUPO, { grupo: true });
   assert.deepEqual(filasGrupo(r.nodo).map(textoFila),
     ['Order guide PF Changs', 'Camaras almacen', 'Surtido anual']);
-  const propios = tildesPropios(r.nodo);
-  assert.equal(propios.length, 3, 'cada senal del grupo lleva su propio tilde');
-  propios[1].props.onClick();
-  assert.deepEqual(r.log.completadas, ['g2'], 'el tilde de una cerro otra cosa');
-  assert.deepEqual(r.log.decididas, [], 'cerrar una del grupo no decide el aviso entero');
+  assert.equal(tildesPropios(r.nodo).length, 3, 'cada senal del grupo lleva su propio tilde');
 });
 
 test('el tilde del grupo cierra las tres y decide una sola vez', () => {
@@ -944,14 +945,95 @@ test('un aviso de una sola senal se comporta como siempre', () => {
   assert.deepEqual(r.log.decididas, [['solo', 'listo']]);
 });
 
+// ── Destildar una del grupo: esa queda afuera ───────────────────────────
+// Pepe, 26-nov-2026: "como hago si no quiero incluir alguna de las 8 (no me
+// interesa). deberia poder destickear el check y que no sea incluida".
+// El tilde de cada senal paso de "cerrar esta ya" a "esta va incluida": todas
+// arrancan tildadas, y el tilde grande cierra las tildadas y descarta las otras.
+const SID = (c) => c.sid;
+
+test('una senal ya decidida no vuelve a la lista del grupo', () => {
+  const item = { id: 'g', ruta: 'tasks', refId: 'g1', cubre: ['today_g1', 'today_g2', 'today_g3'] };
+  const dec = [{ id: 'today_g2', decision: 'no', ts: 1 }];
+  assert.deepEqual(winCub._lbpAsisCubiertos(item, DATA_GRUPO, dec).map((c) => c.id), ['g1', 'g3'],
+    'la que descarto volvio a aparecer');
+  // 'revocada' es deshacer: vuelve a estar en juego.
+  const rev = [{ id: 'today_g2', decision: 'revocada', ts: 1 }];
+  assert.deepEqual(winCub._lbpAsisCubiertos(item, DATA_GRUPO, rev).map((c) => c.id),
+    ['g1', 'g2', 'g3']);
+  // Sin lista de decisiones se comporta como antes.
+  assert.equal(winCub._lbpAsisCubiertos(item, DATA_GRUPO).length, 3);
+});
+
+test('cada senal del grupo viaja con su id de senal, para poder descartarla', () => {
+  const cub = winCub._lbpAsisCubiertos(
+    { id: 'g', cubre: ['today_g1', 'stale_g2'] }, DATA_GRUPO);
+  assert.deepEqual(cub.map(SID), ['today_g1', 'stale_g2']);
+});
+
+test('el tilde de una senal la saca o la devuelve: no la cierra en el acto', () => {
+  const r = pintarFila(ITEM_GRUPO(), DATA_GRUPO, { grupo: true });
+  const propios = tildesPropios(r.nodo);
+  propios[1].props.onClick();
+  assert.deepEqual(r.log.sacados, [['grupo', 'today_g2']]);
+  assert.deepEqual(r.log.completadas, [], 'destildar no puede cerrar la tarea');
+  assert.deepEqual(r.log.decididas, []);
+});
+
+test('el tilde grande cierra las tildadas y descarta las destildadas', () => {
+  const r = pintarFila(ITEM_GRUPO(), DATA_GRUPO, { grupo: true }, { grupo: { today_g2: true } });
+  tilde(r.nodo).props.onClick();
+  assert.deepEqual(r.log.completadas, ['g1', 'g3'], 'cerro una que estaba destildada');
+  assert.deepEqual(r.log.decididas, [['today_g2', 'no'], ['grupo', 'listo']],
+    'la destildada tiene que quedar descartada, y el aviso decidido una vez');
+});
+
+test('el tilde grande cuenta solo las que siguen tildadas', () => {
+  const todas = pintarFila(ITEM_GRUPO(), DATA_GRUPO, { grupo: true });
+  assert.equal(tilde(todas.nodo).props['aria-label'], 'Cerrar las 3 tildadas');
+  const menos = pintarFila(ITEM_GRUPO(), DATA_GRUPO, { grupo: true }, { grupo: { today_g2: true } });
+  assert.equal(tilde(menos.nodo).props['aria-label'], 'Cerrar las 2 tildadas');
+});
+
+test('una senal destildada se ve apagada y con el circulo vacio', () => {
+  const r = pintarFila(ITEM_GRUPO(), DATA_GRUPO, { grupo: true }, { grupo: { today_g2: true } });
+  const filas = filasGrupo(r.nodo);
+  const marca = (n) => {
+    let m = null;
+    recorrer(n, (x) => { if (m === null && x.props && x.props.style && x.props.style.borderRadius === '50%') m = x; });
+    return m;
+  };
+  assert.equal(marca(filas[0]).hijos[0], '\u2713', 'la tildada tiene que mostrar el tilde');
+  assert.equal(marca(filas[1]).hijos[0], '', 'la destildada tiene que quedar vacia');
+  assert.notEqual(marca(filas[0]).props.style.color, marca(filas[1]).props.style.color,
+    'tildada y destildada no se pueden ver igual');
+});
+
+test('sin tareas que cerrar, el boton Listo tambien aplica los descartes', () => {
+  // Un grupo de despachos no tiene tilde: el que decide es el boton "Listo".
+  const item = ITEM({ id: 'adu', ruta: 'imports', refId: 'i1', titulo: '3 despachos',
+    cubre: ['aduana_i1', 'aduana_i2'] });
+  const datos = { clients: [{ id: 'c1', businessName: 'Hugo' }],
+    imports: [{ id: 'i1', clientId: 'c1', season: 'Jul 2026' }, { id: 'i2', clientId: 'c1', season: 'Mar 2026' }] };
+  const r = pintarFila(item, datos, { adu: true }, { adu: { aduana_i2: true } });
+  assert.equal(tilde(r.nodo), null, 'un despacho no se cierra con un tilde');
+  botonConTexto(r.nodo, '✓ Listo').props.onClick();
+  assert.deepEqual(r.log.decididas, [['aduana_i2', 'no'], ['adu', 'listo']]);
+  assert.deepEqual(r.log.completadas, []);
+});
+
 test('la ventana despliega el grupo y el tilde de arriba cierra TODAS', () => {
   // Hasta el 26-nov el tilde del grupo hacia completeTask de UNA tarea y daba
   // el aviso por decidido: quedaban 7 abiertas y el aviso desaparecia.
   const i = html.indexOf('/*FILA_ASIS*/');
   assert.ok(i > 0, 'no encuentro la fila de la ventana del asistente');
   const fila = html.slice(i, html.indexOf('/*FIN_FILA_ASIS*/'));
-  assert.match(fila, /_lbpAsisCubiertos\(x,\s*data\)/, 'la fila no resuelve el grupo');
+  assert.match(fila, /_lbpAsisCubiertos\(x,\s*data,\s*data\.asisDecididos\)/,
+    'la fila no resuelve el grupo, o no respeta lo ya descartado');
   assert.match(fila, /_asisExpandir/, 'no hay con que desplegar las N del grupo');
-  assert.match(fila, /cub\.forEach\(function\(c\)\s*\{[^}]*completeTask\(c\.tarea\.id\)/,
-    'el tilde del grupo no cierra todas las tareas del grupo');
+  assert.match(fila, /var _aplicarGrupo=function\(\)/, 'no hay con que aplicar el grupo');
+  assert.match(fila, /else if \(c\.tarea\) \{ completeTask\(c\.tarea\.id\); \}/,
+    'el aplicar del grupo no cierra las tareas tildadas');
+  assert.match(fila, /if \(fuera\[c\.sid\]\) \{ _asisDecidir\(c\.sid, 'no'\); \}/,
+    'el aplicar del grupo no descarta las destildadas');
 });
