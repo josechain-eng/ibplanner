@@ -431,3 +431,26 @@ test('la franja de volver existe y usa _lbpVolver', () => {
   const i = html.indexOf('lbp-volver');
   assert.ok(i > 0, 'no hay franja de volver en la interfaz');
 });
+
+test('en la vista la pildora va en el renglon, no en una columna aparte', () => {
+  // 25-nov, celular de Pepe: al abrir la nota los vinculos salian como una
+  // columna angosta con el texto partido al medio ("Man / go"); en la PC,
+  // despegados contra el margen derecho. En el editor se veian bien, y por eso
+  // parecia que se "arreglaban" al volver de la tarea.
+  // Causa: `.rte-render .rte-checklist li` era display:flex, asi que CADA
+  // <span> del vinculo se volvia un item flex -- una columna propia -- en vez
+  // de texto corrido. El editor (.rte-body) usa display:block con el checkbox
+  // absoluto y nunca tuvo el problema. Las dos vistas usan el mismo molde.
+  const regla = (sel) => {
+    const i = html.indexOf(sel + ' {');
+    assert.ok(i > 0, 'no encuentro la regla ' + sel);
+    return html.slice(i, html.indexOf('}', i));
+  };
+  const vista = regla('.rte-render .rte-checklist li');
+  assert.ok(!/display\s*:\s*flex/.test(vista),
+    'el <li> de la vista volvio a ser flex: cada pildora seria una columna');
+  assert.match(vista, /display\s*:\s*block/, 'el <li> de la vista no es block');
+  const caja = regla('.rte-render .rte-checklist li input[type=checkbox]');
+  assert.match(caja, /position\s*:\s*absolute/,
+    'sin el checkbox absoluto el texto se le encima');
+});

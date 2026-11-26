@@ -93,8 +93,13 @@ test('se monta en el Home justo despues de la tarjeta del briefing', () => {
   assert.ok(montaje - siguiente < 1200, 'se monto lejos de la tarjeta del briefing');
 });
 
-test('version 5.85', () => {
-  assert.ok(html.includes("window.LBP_VERSION = '5.85'"));
+test('version 5.85 o mas nueva', () => {
+  // Se pide un piso, no un numero exacto: la version sube en cada arreglo y una
+  // prueba clavada en '5.85' se cae sola sin que nada este roto.
+  const m = html.match(/window\.LBP_VERSION = '(\d+)\.(\d+)'/);
+  assert.ok(m, 'no encuentro window.LBP_VERSION');
+  assert.ok(Number(m[1]) * 1000 + Number(m[2]) >= 5085,
+    'la version quedo por debajo de 5.85: ' + m[0]);
 });
 
 test('deshacer reescribe la entrada como revocada, sin marca de borrado ni tratadas pegada', () => {
