@@ -26,9 +26,18 @@ function fuenteFuncion(nombre) {
   }
   assert.fail('no cierra ' + nombre);
 }
-const nombres = ['_asisDetectar', '_asisPasaLaVara', '_asisRecortar'];
+// Desde el 26-nov el detector usa dos cosas de nivel de modulo: _msBolivia (la
+// regla de fechas, compartida con _prioAbiertas) y PRIO_PESO (para no dejar caer
+// una tarea prioritaria a "puede esperar").
+function fuenteVar(nombre) {
+  const i = src.indexOf('var ' + nombre + ' = {');
+  assert.ok(i > 0, 'no encuentro var ' + nombre + ' en worker.js');
+  return src.slice(i, src.indexOf('};', i) + 2);
+}
+const nombres = ['_msBolivia', '_asisDetectar', '_asisPasaLaVara', '_asisRecortar'];
 const { _asisDetectar, _asisPasaLaVara, _asisRecortar } = new Function(
-  nombres.map(fuenteFuncion).join('\n') + '\nreturn { ' + nombres.join(', ') + ' };'
+  fuenteVar('PRIO_PESO') + '\n' + nombres.map(fuenteFuncion).join('\n')
+  + '\nreturn { _asisDetectar: _asisDetectar, _asisPasaLaVara: _asisPasaLaVara, _asisRecortar: _asisRecortar };'
 )();
 
 // La vara (martes 12:00 Bolivia = 16:00 UTC)

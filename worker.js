@@ -2542,16 +2542,57 @@ async function refreshDailyInfo(env, trigger, opts) {
 // HTML (dos detectores aceptados a proposito); si cambia uno, cambiar el otro.
 // Todo el calendario es de Bolivia (UTC-4, sin horario de verano).
 // ---------------------------------------------------------------------------
+// Fecha/hora sin zona ("2026-11-01T09:00") es hora de Bolivia, como en la app.
+// Vive aca y no dentro del detector porque _prioAbiertas lee las mismas fechas:
+// dos copias de esta regla es como se desalinean dos superficies que tienen que
+// decir lo mismo.
+function _msBolivia(txt) {
+  var t = String(txt || '');
+  if (t.length > 10 && !/(Z|[+-]\d\d:?\d\d)$/.test(t)) t += (t.length === 16 ? ':00' : '') + '-04:00';
+  return new Date(t).getTime();
+}
+
+// Las tareas PRIORITARIAS abiertas a las que YA les tocaba.
+// Pepe, 26-nov-2026: "todas las aprobadas hay que hacerlas, pero como siempre,
+// hay unas mas prioritarias que otras [...] que me vuelva a sonar a la tarde si
+// sigue abierta". Vale para cualquier tarea urgente o alta, venga del correo o
+// la haya hecho el a mano (decision suya del 26-nov).
+// El orden es el del aviso: primero las urgentes, y dentro de cada nivel la que
+// lleva mas tiempo esperando.
+var PRIO_PESO = { URGENT: 0, HIGH: 1 };
+var PRIO_MUERTA = { DONE: 1, CANCELLED: 1, ARCHIVED: 1 };
+function _prioAbiertas(data, nowMs) {
+  var d = data || {}, now = nowMs || Date.now();
+  var hoy = _hoyBolivia(now);
+  var out = [];
+  (d.tasks || []).forEach(function (t) {
+    if (!t || !t.id) return;
+    if (Object.prototype.hasOwnProperty.call(PRIO_MUERTA, String(t.status || ''))) return;
+    var p = String(t.priority || '');
+    if (!Object.prototype.hasOwnProperty.call(PRIO_PESO, p)) return;
+    // "Ya le tocaba" = la alarma sono, o el vencimiento es de hoy para atras.
+    // Sin ninguna de las dos no es una tarea que "sigue abierta": es una que
+    // todavia no empezo, y avisar de esa es ruido.
+    var desde = 0;
+    if (t.alarm && t.alarm.enabled && t.alarm.datetime) {
+      var ms = _msBolivia(t.alarm.datetime);
+      if (isFinite(ms) && ms <= now) desde = ms;
+    }
+    if (!desde && t.dueDate && String(t.dueDate).slice(0, 10) <= hoy) {
+      desde = _msBolivia(String(t.dueDate).slice(0, 10) + 'T23:59');
+    }
+    if (!desde) return;
+    out.push({ id: t.id, title: String(t.title || 'Tarea').slice(0, 60), priority: p, desde: desde });
+  });
+  out.sort(function (a, b) { return PRIO_PESO[a.priority] - PRIO_PESO[b.priority] || a.desde - b.desde; });
+  return out;
+}
+
 function _asisDetectar(data, nowMs) {
   data = data || {};
   var BO = 4 * 3600 * 1000;
   var DIA = 86400000;
-  // Fecha/hora sin zona ("2026-11-01T09:00") es hora de Bolivia, como en la app.
-  var aMs = function (txt) {
-    var t = String(txt || '');
-    if (t.length > 10 && !/(Z|[+-]\d\d:?\d\d)$/.test(t)) t += (t.length === 16 ? ':00' : '') + '-04:00';
-    return new Date(t).getTime();
-  };
+  var aMs = _msBolivia;
   var cortar = function (txt, n) { return String(txt || '').slice(0, n); };
   var out = [];
   var tasks = data.tasks || [];
@@ -2580,9 +2621,15 @@ function _asisDetectar(data, nowMs) {
     var ms = aMs(t.alarm.datetime);
     var dias = Math.floor((nowMs - ms) / DIA);
     if (ms < nowMs && dias >= 1 && dias <= 60) {
+      // Una tarea urgente o alta se queda en 'hoy' mientras siga abierta. El
+      // asistente ordena ya -> hoy -> resto y corta en 5: cayendo a
+      // 'puede_esperar' al dia siguiente, lo que Pepe marco como prioritario
+      // quedaba al fondo y no volvia a sonar nunca (26-nov-2026). No sube a
+      // 'ya': eso la metia en el chequeo horario, que suena cada hora de 7 a 21.
+      var prio = Object.prototype.hasOwnProperty.call(PRIO_PESO, String(t.priority || ''));
       out.push({ id: 'stale_' + t.id, tipo: 'alarma_vieja', ruta: 'tasks', refId: t.id,
         texto: '"' + cortar(t.title, 35) + '" - alarma de hace ' + dias + ' dia' + (dias > 1 ? 's' : '') + ' sin completar',
-        dias: dias, urgencia: 'puede_esperar' });
+        dias: dias, urgencia: prio ? 'hoy' : 'puede_esperar' });
     }
   });
   // 2. Reunion de ayer sin tareas de seguimiento
@@ -2920,6 +2967,39 @@ function _asisHoraBolivia(ms) {
   const d = new Date(ms - 4 * 3600 * 1000);
   const dd = (n) => (n < 10 ? '0' : '') + n;
   return dd(d.getUTCHours()) + ':' + dd(d.getUTCMinutes());
+}
+
+// El aviso de las prioritarias: 15:25 y 18:45 de Bolivia.
+// Es un aviso PROPIO y no pasa por la vara del silencio: la vara decide si vale
+// la pena interrumpir con el RESUMEN del dia, y esto es justo lo que Pepe marco
+// como prioritario. Si no hay ninguna abierta no suena nada.
+async function _prioRecordatorio(env, slot, nowMs) {
+  const now = nowMs || Date.now();
+  const fecha = _hoyBolivia(now);
+  const elegido = await _asisBlobElegido(env);
+  const syncKey = elegido.syncKey, data = elegido.data;
+  if (!data) return 0;
+  // MISMA regla que la pasada y el chequeo horario: con datos que no se pueden
+  // creer la tarea puede estar ya cerrada en el telefono y sin subir.
+  if ((await _asisFrescura(env, syncKey, elegido.blobMs, now)).viejos) return 0;
+  const abiertas = _prioAbiertas(data, now);
+  if (!abiertas.length) return 0;
+  // La ventana del cron es de tres minutos porque Cloudflare pierde ~20% de los
+  // disparos. La marca va ANTES del envio: repetir un push es peor que perderlo,
+  // porque el proximo horario vuelve a intentar igual.
+  const marca = 'smart:' + syncKey + ':' + fecha + ':' + slot;
+  try { if (await env.LBP_KV.get(marca)) return 0; }
+  catch (e) { /* sin poder leer la marca, mejor decirlo una vez de mas */ }
+  try { await env.LBP_KV.put(marca, String(now), { expirationTtl: ASIS_MARK_TTL }); }
+  catch (e) { /* sin marca el otro minuto repite: molesto, no grave */ }
+  const n = abiertas.length;
+  const top = abiertas.slice(0, ASIS_PUSH_ITEMS);
+  const cuerpo = top.map(function (t) { return '- ' + t.title; }).join('\n')
+    + (n > top.length ? '\n+' + (n - top.length) + ' mas en la app' : '');
+  const cuantas = n === 1 ? 'Una prioritaria sigue abierta' : (n + ' prioritarias siguen abiertas');
+  const titulo = slot === 'prio1845' ? ('Ultimo llamado: ' + cuantas.toLowerCase()) : cuantas;
+  return await _asisEnviarPush(env, syncKey, now, titulo, cuerpo,
+    'prio_' + fecha + '_' + slot, slot);
 }
 
 async function _asisLineasDuras(env, nowMs) {
@@ -3580,6 +3660,23 @@ async function scheduledHandler(event, env) {
     if (_asisPasada) {
       try { await correrAsistente(env, _asisPasada, now); }
       catch (e) { /* la pasada no puede tumbar el resto del cron */ }
+    }
+
+    // Prioritarias: 19:25-19:27 UTC (15:25 Bolivia) y 22:45-22:47 UTC (18:45).
+    // Las dos horas las eligio Pepe el 26-nov. Los minutos NO son los que pidio
+    // (15:30 y 18:30) y el motivo es de relojeria, no de gusto:
+    //  - mm 30-34 de CADA hora refresca el tipo de cambio (varios fetches
+    //    externos). Juntar eso con un envio en una sola invocacion ya mato el
+    //    push del briefing una vez (04-sep-2026); de ahi 15:25.
+    //  - el 18:30 caia 20 minutos despues de la pasada de la tarde (18:10) y los
+    //    dos avisos se pisaban. Pepe eligio correrlo a 18:45.
+    // mm 40-41 son las lineas duras y mm < 5 el otro refresco del TC: ninguna de
+    // las dos ventanas comparte invocacion con nada pesado.
+    const _prioSlot = (utcH === 19 && utcM >= 25 && utcM < 28) ? 'prio1525'
+      : ((utcH === 22 && utcM >= 45 && utcM < 48) ? 'prio1845' : null);
+    if (_prioSlot) {
+      try { await _prioRecordatorio(env, _prioSlot, now); }
+      catch (e) { /* el aviso no puede tumbar el resto del cron */ }
     }
 
     // Lineas duras: minutos 40 y 41 de cada hora (la hora de Bolivia la acota

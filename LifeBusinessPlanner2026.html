@@ -22,7 +22,7 @@
 <script>
 (function() {
   // ── Version ──────────────────────────────────────────────────────────────
-  window.LBP_VERSION = '5.88';
+  window.LBP_VERSION = '5.89';
 
   // ── PWA Install prompt ───────────────────────────────────────────────────
   window._installPrompt = null;
@@ -4389,7 +4389,11 @@ window._tpAplicar = function(data, decisiones, extra) {
       res.detalle.push('Descartada: ' + p.titulo);
       return;
     }
-    if (x.decision !== 'ok') return;
+    // 'prio' es el tilde con estrella (26-nov-2026): la MISMA tarea que el
+    // tilde normal, pero en prioridad alta. Desde ahi la toman el aviso de las
+    // 15:25 y 18:45 y el orden del asistente; no cambia ni la fecha ni la alarma.
+    if (x.decision !== 'ok' && x.decision !== 'prio') return;
+    var esPrio = x.decision === 'prio';
     var dueDate = window._tpProximoDiaHabil(hoy);
     var datetime = window._tpHoraAlarma({ tasks: tasks }, dueDate, puestas);
     puestas.push(datetime);
@@ -4397,7 +4401,7 @@ window._tpAplicar = function(data, decisiones, extra) {
     tasks.push({
       id: uid(), title: p.titulo,
       description: (p.cita ? p.cita + ' ' : '') + 'De: ' + p.remitente + ' · ' + p.asunto + ' · ' + p.fecha,
-      status: 'INBOX', priority: 'MEDIUM', dueDate: dueDate,
+      status: 'INBOX', priority: esPrio ? 'HIGH' : 'MEDIUM', dueDate: dueDate,
       clientId: (cli && cli.id) || '',
       category: 'Work', tags: ['Correo'], createdAt: ts,
       alarm: { enabled: true, datetime: datetime, recurrence: 'weekdays2',
@@ -4407,7 +4411,7 @@ window._tpAplicar = function(data, decisiones, extra) {
     });
     decididas.push({ id: p.hiloId, decision: 'ok', ts: ts });
     res.creadas++;
-    res.detalle.push('Creada: ' + p.titulo + ' (' + dueDate + ' ' + datetime.slice(11) + ')');
+    res.detalle.push('Creada' + (esPrio ? ' como prioritaria' : '') + ': ' + p.titulo + ' (' + dueDate + ' ' + datetime.slice(11) + ')');
   });
   return { tasks: tasks, tareasDecididas: window._tpPodarDecididas(decididas), res: res };
 };
@@ -20833,6 +20837,9 @@ var TareasPropuestas = function TareasPropuestas(props) {
             p.cita ? React.createElement('div',{style:{fontSize:10,fontStyle:'italic',color:'var(--text-dim)',marginTop:4}},'“'+p.cita+'”') : null),
           React.createElement('div',{style:{display:'flex',gap:6,flexShrink:0}},
             btn('✓','#4ADE80',function(){ decidir(p,'ok'); }),
+            // La estrella aprueba igual que el tilde, pero en prioridad alta:
+            // esa vuelve a sonar a las 15:25 y a las 18:45 si sigue abierta.
+            btn('⭐','#F59E0B',function(){ decidir(p,'prio'); }),
             btn('✗','#F44336',function(){ decidir(p,'no'); })));
       }),
       lote && lote.descartes.length ? React.createElement('details',{style:{marginTop:6}},
