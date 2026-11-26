@@ -49,8 +49,22 @@ function fuenteObj(nombre) {
   return cuerpo(i) + ';\n';
 }
 
+// _LBP_VINC_TIPOS es un ARRAY, no un objeto: cuerpo() cuenta llaves.
+function fuenteArr(nombre) {
+  const i = html.indexOf('window.' + nombre + ' = [');
+  assert.ok(i > 0, 'no encuentro window.' + nombre);
+  let nivel = 0;
+  for (let j = html.indexOf('[', i); j < html.length; j++) {
+    if (html[j] === '[') nivel++;
+    else if (html[j] === ']' && --nivel === 0) return html.slice(i, j + 1) + ';\n';
+  }
+  assert.fail('no cierra ' + nombre);
+}
+
 // Las fuentes que se ejecutan en este proceso Y en el hijo con TZ de Bolivia.
 const FUENTES = fuenteFn('_fechaLocal') +
+  fuenteObj('_LBP_ASIS_SENAL_RUTAS') + fuenteArr('_LBP_VINC_TIPOS') +
+  fuenteWin('_lbpVincTipo') + fuenteWin('_lbpVincEtiqueta') + fuenteWin('_lbpAsisCubiertos') +
   fuenteObj('_LBP_ASIS_URG') + fuenteObj('_LBP_ASIS_RUTAS') + fuenteObj('_LBP_ASIS_DECISIONES') +
   fuenteWin('_lbpAsisUrg') + fuenteWin('_lbpAsisFrescos') +
   fuenteWin('_lbpAsisDecidir') + fuenteWin('_lbpAsisDestino') +
@@ -99,21 +113,24 @@ const f1 = html.indexOf('/*FIN_FILA_ASIS*/', f0);
 assert.ok(f0 > 0 && f1 > f0, 'no encuentro la fila del asistente (/*FILA_ASIS*/)');
 const fuenteFila = html.slice(f0 + '/*FILA_ASIS*/'.length, f1);
 
-function pintarFila(item, data) {
-  const log = { completadas: [], decididas: [], vistas: [], navegadas: [], cerrada: 0 };
+function pintarFila(item, data, abiertos) {
+  const log = { completadas: [], decididas: [], vistas: [], navegadas: [], expandidos: [], cerrada: 0 };
   const React = {
     createElement: function (tipo, props) {
       return { tipo: tipo, props: props || {}, hijos: Array.prototype.slice.call(arguments, 2) };
     },
   };
   const fila = new Function('window', 'React', 'data', 'completeTask', '_asisDecidir',
-    'setViewTask', 'setAlertasTodas', 'navigate', 'return (' + fuenteFila + ');')(
+    'setViewTask', 'setAlertasTodas', 'navigate', 'asisExp', '_asisExpandir',
+    'return (' + fuenteFila + ');')(
     win, React, data || {},
     (id) => log.completadas.push(id),
     (id, d) => log.decididas.push([id, d]),
     (t) => log.vistas.push(t && t.id),
     (v) => { if (v === false) log.cerrada++; },
-    (r) => log.navegadas.push(r));
+    (r) => log.navegadas.push(r),
+    (abiertos || {}),
+    (id) => log.expandidos.push(id));
   return { nodo: fila(item), log };
 }
 function recorrer(n, fn) {
@@ -792,4 +809,149 @@ test('al volver a la pestania se vuelve a pedir /asistente si quedo viejo', asyn
     assert.deepEqual(e.quitados.sort(), ['focus', 'visibilitychange'],
       'el efecto no suelta sus oyentes al desmontar');
   } finally { globalThis.Date = DateReal; }
+});
+
+// ── Avisos agrupados: ver las N, no solo una ─────────────────────────────
+// Pepe, 26-nov-2026: "le doy para verlas, pero solo me abre la ventana de una.
+// No se ni tengo como ver las otras 7". El aviso lleva UN refId, asi que la
+// ventana abria esa tarea y las otras 7 no existian en pantalla. Los ids si
+// estaban: el worker guarda en `cubre` las senales que el item resume
+// ('today_<idTarea>', 'aduana_<idDespacho>'...). _lbpAsisCubiertos las resuelve
+// contra el blob para poder pintarlas.
+// _lbpAsisCubiertos vive en el mismo `win`: la fila de la ventana lo llama.
+const winCub = win;
+
+const DATOS_CUB = {
+  tasks: [{ id: 't1', title: 'Order guide PF Changs' }, { id: 't2', title: 'Camaras almacen' },
+          { id: 't3', title: 'Surtido anual' }],
+  meetings: [{ id: 'm1', title: 'Reunion Mango' }],
+  projects: [{ id: 'p1', name: 'Marketing Q4' }],
+  clients: [{ id: 'c1', businessName: 'Boss', name: 'Habib' }],
+  imports: [{ id: 'imp1', clientId: 'c1', season: 'Marzo 2026' }],
+};
+
+test('las 8 alarmas agrupadas se resuelven todas, no solo la del refId', () => {
+  const item = { id: 'g1', ruta: 'tasks', refId: 't2',
+                 cubre: ['today_t1', 'today_t2', 'today_t3'] };
+  const cub = winCub._lbpAsisCubiertos(item, DATOS_CUB);
+  assert.equal(cub.length, 3, 'no resolvio las tres senales del grupo');
+  assert.deepEqual(cub.map(c => c.id), ['t1', 't2', 't3']);
+  assert.deepEqual(cub.map(c => c.etiqueta),
+    ['Order guide PF Changs', 'Camaras almacen', 'Surtido anual']);
+  assert.ok(cub.every(c => c.ruta === 'tasks'));
+  assert.ok(cub.every(c => c.tarea && c.tarea.id === c.id), 'falta la tarea para el tilde');
+});
+
+test('cada prefijo de senal cae en su pantalla y trae su etiqueta', () => {
+  const item = { id: 'g2', ruta: 'imports', refId: 'imp1',
+                 cubre: ['stale_t1', 'followup_m1', 'proj_p1', 'client_c1', 'aduana_imp1'] };
+  const cub = winCub._lbpAsisCubiertos(item, DATOS_CUB);
+  assert.deepEqual(cub.map(c => c.ruta), ['tasks', 'meetings', 'projects', 'clients', 'imports']);
+  assert.deepEqual(cub.map(c => c.etiqueta),
+    ['Order guide PF Changs', 'Reunion Mango', 'Marketing Q4', 'Boss', 'Boss · Marzo 2026']);
+  // Solo las tareas se pueden cerrar con el tilde.
+  assert.deepEqual(cub.map(c => !!c.tarea), [true, false, false, false, false]);
+});
+
+test('una senal sin entidad en el blob no se pinta: no habria a donde ir', () => {
+  const item = { id: 'g3', ruta: 'tasks', refId: 't1',
+                 cubre: ['today_t1', 'today_borrada', 'marciano_t1', 'sinprefijo'] };
+  const cub = winCub._lbpAsisCubiertos(item, DATOS_CUB);
+  assert.deepEqual(cub.map(c => c.id), ['t1'],
+    'se colo una senal sin entidad, con prefijo desconocido o sin prefijo');
+});
+
+test('sin cubre no hay lista, y la misma senal dos veces va una sola vez', () => {
+  assert.deepEqual(winCub._lbpAsisCubiertos({ id: 'g4', ruta: 'tasks', refId: 't1' }, DATOS_CUB), []);
+  assert.deepEqual(winCub._lbpAsisCubiertos({ id: 'g5', cubre: [] }, DATOS_CUB), []);
+  assert.deepEqual(winCub._lbpAsisCubiertos(null, DATOS_CUB), []);
+  const dup = winCub._lbpAsisCubiertos({ id: 'g6', cubre: ['today_t1', 'stale_t1'] }, DATOS_CUB);
+  assert.deepEqual(dup.map(c => c.id), ['t1'], 'la misma tarea se repitio en la lista');
+});
+
+const DATA_GRUPO = { tasks: [
+  { id: 'g1', title: 'Order guide PF Changs', status: 'TODO' },
+  { id: 'g2', title: 'Camaras almacen', status: 'TODO' },
+  { id: 'g3', title: 'Surtido anual', status: 'TODO' }] };
+const ITEM_GRUPO = (o = {}) => ITEM(Object.assign({
+  id: 'grupo', ruta: 'tasks', refId: 'g2', titulo: '3 alarmas de ayer sin cerrar',
+  cubre: ['today_g1', 'today_g2', 'today_g3'] }, o));
+// Las filas de la sublista se reconocen por su key '<ruta>:<id>'.
+const filasGrupo = (nodo) => {
+  const out = [];
+  recorrer(nodo, (n) => {
+    if (n.props && typeof n.props.key === 'string' &&
+        /^(tasks|meetings|projects|clients|imports):/.test(n.props.key)) out.push(n);
+  });
+  return out;
+};
+const textoFila = (n) => {
+  let t = null;
+  recorrer(n, (x) => {
+    if (t === null && x.props && x.props.style && x.props.style.WebkitLineClamp === 2) {
+      t = x.hijos[0];
+    }
+  });
+  return t;
+};
+const tildesPropios = (nodo) => {
+  const out = [];
+  recorrer(nodo, (n) => {
+    if (n.props && n.props['aria-label'] === 'Marcar esta tarea como hecha') out.push(n);
+  });
+  return out;
+};
+
+test('en un grupo el titulo despliega la lista, no abre una sola tarea', () => {
+  const r = pintarFila(ITEM_GRUPO(), DATA_GRUPO);
+  filaClicable(r.nodo).props.onClick();
+  assert.deepEqual(r.log.expandidos, ['grupo']);
+  assert.deepEqual(r.log.vistas, [], 'abrio una sola tarea en vez de desplegar las tres');
+  assert.equal(r.log.cerrada, 0, 'desplegar no cierra la ventana');
+});
+
+test('desplegado, el grupo pinta sus tres senales con nombre y tilde propio', () => {
+  const cerrado = pintarFila(ITEM_GRUPO(), DATA_GRUPO, {});
+  assert.deepEqual(filasGrupo(cerrado.nodo), [], 'cerrado no tiene que pintar la lista');
+  const r = pintarFila(ITEM_GRUPO(), DATA_GRUPO, { grupo: true });
+  assert.deepEqual(filasGrupo(r.nodo).map(textoFila),
+    ['Order guide PF Changs', 'Camaras almacen', 'Surtido anual']);
+  const propios = tildesPropios(r.nodo);
+  assert.equal(propios.length, 3, 'cada senal del grupo lleva su propio tilde');
+  propios[1].props.onClick();
+  assert.deepEqual(r.log.completadas, ['g2'], 'el tilde de una cerro otra cosa');
+  assert.deepEqual(r.log.decididas, [], 'cerrar una del grupo no decide el aviso entero');
+});
+
+test('el tilde del grupo cierra las tres y decide una sola vez', () => {
+  const r = pintarFila(ITEM_GRUPO(), DATA_GRUPO);
+  tilde(r.nodo).props.onClick();
+  assert.deepEqual(r.log.completadas, ['g1', 'g2', 'g3'],
+    'el tilde del grupo tiene que cerrar TODAS, no la del refId');
+  assert.deepEqual(r.log.decididas, [['grupo', 'listo']]);
+});
+
+test('un aviso de una sola senal se comporta como siempre', () => {
+  // La regresion que importa: lo que no es grupo no cambia.
+  const r = pintarFila(ITEM({ id: 'solo', ruta: 'tasks', refId: 'g1',
+    cubre: ['stale_g1'] }), DATA_GRUPO);
+  filaClicable(r.nodo).props.onClick();
+  assert.deepEqual(r.log.vistas, ['g1'], 'con una sola senal el clic abre la tarea');
+  assert.deepEqual(r.log.expandidos, []);
+  assert.deepEqual(filasGrupo(r.nodo), []);
+  tilde(r.nodo).props.onClick();
+  assert.deepEqual(r.log.completadas, ['g1']);
+  assert.deepEqual(r.log.decididas, [['solo', 'listo']]);
+});
+
+test('la ventana despliega el grupo y el tilde de arriba cierra TODAS', () => {
+  // Hasta el 26-nov el tilde del grupo hacia completeTask de UNA tarea y daba
+  // el aviso por decidido: quedaban 7 abiertas y el aviso desaparecia.
+  const i = html.indexOf('/*FILA_ASIS*/');
+  assert.ok(i > 0, 'no encuentro la fila de la ventana del asistente');
+  const fila = html.slice(i, html.indexOf('/*FIN_FILA_ASIS*/'));
+  assert.match(fila, /_lbpAsisCubiertos\(x,\s*data\)/, 'la fila no resuelve el grupo');
+  assert.match(fila, /_asisExpandir/, 'no hay con que desplegar las N del grupo');
+  assert.match(fila, /cub\.forEach\(function\(c\)\s*\{[^}]*completeTask\(c\.tarea\.id\)/,
+    'el tilde del grupo no cierra todas las tareas del grupo');
 });
