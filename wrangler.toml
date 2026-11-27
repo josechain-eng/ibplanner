@@ -4,7 +4,8 @@
 # conjunto de vars por el de este archivo y borra las que no esten declaradas.
 # Asi se perdieron OPENAI_API_KEY y JINA_API_KEY. Los secrets SI sobreviven.
 # Secrets esperados: ANTHROPIC_API_KEY, OPENAI_API_KEY, BRIEFING_KEY, ASIS_KEY,
-# HOTMART_HOTTOK, SIDE_PUSH_KEY (+ JINA_API_KEY opcional). ASIS_KEY es la del POST
+# HOTMART_HOTTOK, SIDE_PUSH_KEY, META_TOKEN_A, META_CUENTAS (+ JINA_API_KEY
+# opcional). ASIS_KEY es la del POST
 # /asistente/senal del vigilante de las esperas: sin ella ese endpoint responde
 # 401 y una de las tres corrientes que el asistente reemplaza nace muerta.
 # HOTMART_HOTTOK es el hottok del postback de Hotmart (POST /side/hotmart): sin
@@ -14,6 +15,10 @@
 # Roundup (pagos de Dodo) para reenviar una venta YA validada a POST /side/venta.
 # Esos dos workers guardan la MISMA clave: si se cambia, hay que cambiarla en los
 # tres o el tablero deja de recibir ventas sin avisar.
+# META_TOKEN_A es el token del usuario del sistema «LB Planner tablero» (solo
+# ads_read, sin caducidad) y META_CUENTAS el mapa "idCuenta:letra" de que token
+# usa cada cuenta. META_CUENTAS NO es sensible, pero va como secret igual: este
+# worker no puede declarar [vars] sin borrar las del dashboard.
 
 name = "life-planner"
 main = "worker.js"

@@ -500,6 +500,191 @@ test('la base ya NO trae la fila de pauta de la caja: la arma el tablero', async
   assert.equal(pauta, undefined, 'si la base la trae, queda vieja apenas Meta entre solo');
 });
 
+// ── gasto de Meta ──────────────────────────────────────────────────────────
+// El cron lo guarda en KV `side_meta`; el tablero reemplaza el `marketing` de
+// cada producto por la suma de SUS campanas. Si Meta no contesta o el dato esta
+// viejo, se usa el numero de la base: mejor un valor viejo marcado que un cero.
+
+const BASE4 = {
+  productos: [
+    { id: 'dormir', nombre: 'Dormir bien', linea: 'digital', hotmart: '8711675',
+      campanas: ['C1', 'C2'], dejaPorVenta: 15.44, marketing: 141.96, otros: 0,
+      ventasBase: 3, ingresoBase: 46.32 },
+    { id: 'collar', nombre: 'Collar', linea: 'dropshipping', fuente: 'fourthwall',
+      dejaPorVenta: 49.62, marketing: 38.35, otros: 12.14, ventasBase: 0, ingresoBase: 0 },
+  ],
+};
+const META_OK = JSON.stringify({
+  actualizado: Date.UTC(2026, 10, 27, 17, 0),
+  campanas: { C1: 11.54, C2: 80.00, OTRA: 500 },
+});
+const mundo4 = (extra) => kvConLista(Object.assign({
+  ['data:' + KEY]: JSON.stringify({ _cloudSaveTime: 1 }),
+  side_base: JSON.stringify(BASE4),
+}, extra || {}));
+
+test('el gasto de un producto sale de SUS campanas, no del numero de la base', async () => {
+  const kv = mundo4({ side_meta: META_OK });
+  const d = await conReloj(HOY27, () => leerSide(kv));
+  const p = d.productos.find(x => x.id === 'dormir');
+  assert.equal(p.marketing, 91.54, '11,54 + 80,00; la campana ajena no entra');
+  assert.equal(p.marketingVivo, true);
+});
+
+test('si Meta no trajo TODAS las campanas del producto, no se suma a medias', async () => {
+  // Sumar solo las que vinieron daria un gasto menor al real, con cara de dato
+  // vivo. Mejor el numero de la base, marcado como cargado a mano.
+  const kv = kvConLista({
+    ['data:' + KEY]: JSON.stringify({ _cloudSaveTime: 1 }),
+    side_base: JSON.stringify({ productos: [Object.assign({}, BASE4.productos[0], { campanas: ['C1', 'NO_VINO'] })] }),
+    side_meta: META_OK,
+  });
+  const d = await conReloj(HOY27, () => leerSide(kv));
+  const p = d.productos[0];
+  assert.equal(p.marketing, 141.96, 'se queda con el de la base');
+  assert.equal(p.marketingVivo, false);
+});
+
+test('un producto sin campanas declaradas conserva el gasto de la base', async () => {
+  const kv = mundo4({ side_meta: META_OK });
+  const d = await conReloj(HOY27, () => leerSide(kv));
+  const c = d.productos.find(x => x.id === 'collar');
+  assert.equal(c.marketing, 38.35);
+  assert.equal(c.marketingVivo, false, 'tiene que quedar marcado como cargado a mano');
+});
+
+test('sin datos de Meta se usa la base y se dice que no hay lectura', async () => {
+  const kv = mundo4();
+  const d = await conReloj(HOY27, () => leerSide(kv));
+  assert.equal(d.productos.find(x => x.id === 'dormir').marketing, 141.96);
+  assert.equal(d.meta.hay, false);
+});
+
+test('un dato de Meta viejo se usa pero queda marcado viejo', async () => {
+  // 9 horas: el cron corre cada hora, asi que eso es una conexion caida.
+  const kv = mundo4({ side_meta: JSON.stringify({ actualizado: HOY27 - 9 * 3600000, campanas: { C1: 11.54, C2: 80 } }) });
+  const d = await conReloj(HOY27, () => leerSide(kv));
+  assert.equal(d.meta.viejo, true, 'tiene que avisar, no fallar en silencio');
+  assert.equal(d.productos.find(x => x.id === 'dormir').marketing, 91.54, 'igual se usa');
+});
+
+test('un dato fresco no se marca viejo', async () => {
+  const kv = mundo4({ side_meta: META_OK });
+  const d = await conReloj(HOY27, () => leerSide(kv));
+  assert.equal(d.meta.hay, true);
+  assert.equal(d.meta.viejo, false);
+});
+
+test('los totales se mueven con el gasto vivo', async () => {
+  const kv = mundo4({ side_meta: META_OK });
+  const d = await conReloj(HOY27, () => leerSide(kv));
+  assert.equal(d.totales.marketing, 129.89, '91,54 del vivo + 38,35 de la base');
+});
+
+// ── el cron que trae el gasto de Meta ──────────────────────────────────────
+
+// Reemplaza fetch solo mientras corre fn, y anota a donde se llamo.
+async function conMeta(respuesta, fn) {
+  const antes = globalThis.fetch;
+  const urls = [];
+  globalThis.fetch = async (u, init) => {
+    urls.push(String(u));
+    urls.cuerpos = urls.cuerpos || [];
+    urls.cuerpos.push(String((init && init.body) || ''));
+    if (typeof respuesta === 'function') return respuesta(String(u));
+    return new Response(JSON.stringify(respuesta), { status: 200, headers: { 'content-type': 'application/json' } });
+  };
+  try { await fn(urls); } finally { globalThis.fetch = antes; }
+  return urls;
+}
+
+const INSIGHTS = { data: [
+  { campaign_id: '52690088466424', spend: '11.54' },
+  { campaign_id: '52691145435224', spend: '76.09' },
+] };
+
+async function cron(kv, ms, env0) {
+  const env = Object.assign(envFalso({ LBP_KV: kv }), env0 || {});
+  const w = await cargarWorker();
+  await conReloj(ms, () => w.scheduled({ cron: '* * * * *' }, env));
+}
+// El cron sale temprano si no hay sync keys registradas (worker.js): hay que sembrarlas.
+const mundoCron = (extra) => kvConLista(Object.assign({
+  synckeys_registry: JSON.stringify([KEY]),
+  ['data:' + KEY]: JSON.stringify({ _cloudSaveTime: Date.UTC(2026, 10, 27, 12, 0) }),
+  side_base: JSON.stringify(BASE4),
+}, extra || {}));
+
+const MM50 = Date.UTC(2026, 10, 27, 19, 50);
+
+test('a las :50 el cron trae el gasto de Meta y lo guarda', async () => {
+  const kv = mundoCron();
+  let urls = [];
+  await conMeta(INSIGHTS, async (u) => {
+    await cron(kv, MM50, { META_TOKEN_A: 'tok', META_CUENTAS: '1825182928656356:A' });
+    urls = u;
+  });
+  const g = JSON.parse(kv._map.get('side_meta'));
+  assert.equal(g.campanas['52690088466424'], 11.54);
+  assert.equal(g.campanas['52691145435224'], 76.09);
+  assert.ok(g.actualizado > 0);
+  assert.ok(urls.some(u => u.indexOf('act_1825182928656356/insights') >= 0), 'tiene que pedir las campanas de esa cuenta');
+  // level va en el CUERPO, no en la direccion: la direccion no puede llevar el token.
+  assert.ok((urls.cuerpos || []).some(b => b.indexOf('level=campaign') >= 0), 'por campana, no por cuenta');
+});
+
+test('el token NO viaja en la direccion, va en la cabecera o en el cuerpo', async () => {
+  const kv = mundoCron();
+  let urls = [];
+  await conMeta(INSIGHTS, async (u) => {
+    await cron(kv, MM50, { META_TOKEN_A: 'tok-secreto', META_CUENTAS: '1825182928656356:A' });
+    urls = u;
+  });
+  for (const u of urls) {
+    assert.ok(u.indexOf('tok-secreto') < 0, 'el token no puede ir en la URL: queda en logs y en caches');
+  }
+  assert.ok((urls.cuerpos || []).some(b => b.indexOf('access_token=tok-secreto') >= 0),
+            'la prueba no mide nada si el token tampoco viaja en el cuerpo');
+});
+
+test('si el dato tiene pocos minutos no se vuelve a pedir', async () => {
+  const kv = mundoCron({ side_meta: JSON.stringify({ actualizado: MM50 - 10 * 60000, campanas: { X: 1 } }) });
+  let urls = [];
+  await conMeta(INSIGHTS, async (u) => {
+    await cron(kv, MM50, { META_TOKEN_A: 'tok', META_CUENTAS: '1825182928656356:A' });
+    urls = u;
+  });
+  assert.equal(urls.filter(u => u.indexOf('graph.facebook.com') >= 0).length, 0);
+});
+
+test('sin token configurado el cron no llama a Meta ni rompe', async () => {
+  const kv = mundoCron();
+  let urls = [];
+  await conMeta(INSIGHTS, async (u) => { await cron(kv, MM50, { META_CUENTAS: '1825182928656356:A' }); urls = u; });
+  assert.equal(urls.filter(u => u.indexOf('graph.facebook.com') >= 0).length, 0);
+  assert.equal(kv._map.get('side_meta'), undefined);
+});
+
+test('si Meta devuelve error se conserva lo viejo', async () => {
+  const viejo = JSON.stringify({ actualizado: MM50 - 9 * 3600000, campanas: { VIEJA: 7 } });
+  const kv = mundoCron({ side_meta: viejo });
+  await conMeta(() => new Response(JSON.stringify({ error: { message: 'token vencido' } }), { status: 400 }), async () => {
+    await cron(kv, MM50, { META_TOKEN_A: 'tok', META_CUENTAS: '1825182928656356:A' });
+  });
+  const g = JSON.parse(kv._map.get('side_meta'));
+  assert.equal(g.campanas.VIEJA, 7, 'no se puede borrar lo que habia por un error de red');
+});
+
+test('fuera de la ventana el cron no toca Meta', async () => {
+  const kv = mundoCron();
+  let urls = [];
+  await conMeta(INSIGHTS, async (u) => {
+    await cron(kv, Date.UTC(2026, 10, 27, 19, 20), { META_TOKEN_A: 'tok', META_CUENTAS: '1825182928656356:A' });
+    urls = u;
+  });
+  assert.equal(urls.filter(u => u.indexOf('graph.facebook.com') >= 0).length, 0);
+});
+
 // ── la pantalla en la app ──────────────────────────────────────────────────
 
 const html = fs.readFileSync(path.join(RAIZ, 'LifeBusinessPlanner2026.html'), 'utf8');

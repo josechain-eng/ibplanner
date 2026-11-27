@@ -92,7 +92,8 @@ async function handleRequest(request, env) {
       const hm = JSON.parse(await env.LBP_KV.get('side_hotmart') || '[]');
       const otras = JSON.parse(await env.LBP_KV.get('side_ventas') || '[]');
       const todas = (Array.isArray(hm) ? hm : []).concat(Array.isArray(otras) ? otras : []);
-      return json(_sideArmar(base, todas));
+      const metaGasto = JSON.parse(await env.LBP_KV.get('side_meta') || 'null');
+      return json(_sideArmar(base, todas, null, metaGasto));
     }
 
     // POST /side/hotmart  ->  postback de Hotmart. Se valida la cabecera
@@ -1712,7 +1713,75 @@ function _sideRelojes(base, productos, hoy) {
   });
 }
 
-function _sideArmar(base, ventas, hoy) {
+// El gasto de Meta lo deja el cron en KV `side_meta` como {actualizado, campanas}.
+// Un producto que declara sus campanas usa la suma de ESAS; el que no, conserva
+// el numero de la base y queda marcado como cargado a mano. Si el dato falta o
+// esta viejo se usa la base igual: mejor un valor viejo MARCADO que un cero que
+// parece real. Ver [[feedback-revisar-conexiones]].
+const SIDE_META_VIEJO_MS = 6 * 3600 * 1000;
+
+// Trae de Meta el gasto historico POR CAMPANA de cada cuenta configurada y lo
+// deja en KV `side_meta`. El token va en el CUERPO, nunca en la direccion: una
+// URL queda en registros y caches, y ahi seria legible.
+// META_CUENTAS es una var (no secreto): "idCuenta:A,idCuenta:B"; la letra dice
+// cual token usar, porque cada portafolio tiene el suyo.
+const SIDE_META_REFRESCO_MS = 55 * 60 * 1000;
+
+async function _sideMetaRefrescar(env) {
+  const mapa = String(env.META_CUENTAS || '').split(',').map((x) => x.trim()).filter(Boolean);
+  if (!mapa.length) return null;
+  const previo = JSON.parse(await env.LBP_KV.get('side_meta') || 'null');
+  if (previo && Date.now() - (Number(previo.actualizado) || 0) < SIDE_META_REFRESCO_MS) return previo;
+  const campanas = {};
+  const errores = [];
+  let alguna = false;
+  for (const par of mapa) {
+    const i = par.lastIndexOf(':');
+    if (i <= 0) continue;
+    const cuenta = par.slice(0, i);
+    const token = env['META_TOKEN_' + par.slice(i + 1).toUpperCase()];
+    if (!token) { errores.push(cuenta + ': sin token'); continue; }
+    try {
+      const cuerpo = new URLSearchParams({
+        level: 'campaign',
+        fields: 'campaign_id,spend',
+        date_preset: 'maximum',
+        limit: '200',
+        access_token: String(token),
+      });
+      const r = await fetch('https://graph.facebook.com/v21.0/act_' + encodeURIComponent(cuenta) + '/insights', {
+        method: 'POST',
+        headers: { 'content-type': 'application/x-www-form-urlencoded' },
+        body: cuerpo.toString(),
+      });
+      const j = await r.json();
+      if (!r.ok || !j || j.error || !Array.isArray(j.data)) {
+        errores.push(cuenta + ': ' + ((j && j.error && j.error.message) || ('HTTP ' + r.status)));
+        continue;
+      }
+      for (const fila of j.data) {
+        if (fila && fila.campaign_id) campanas[String(fila.campaign_id)] = _side2(fila.spend);
+      }
+      alguna = true;
+    } catch (e) {
+      errores.push(cuenta + ': ' + ((e && e.message) || 'error'));
+    }
+  }
+  // Si NINGUNA cuenta contesto, no se pisa lo que habia: un error de red no
+  // puede borrar el gasto y dejarlo en cero, que parece un dato real.
+  if (!alguna) return previo;
+  const salida = { actualizado: Date.now(), campanas: campanas, errores: errores };
+  await env.LBP_KV.put('side_meta', JSON.stringify(salida));
+  return salida;
+}
+
+function _sideArmar(base, ventas, hoy, meta) {
+  const mCamp = (meta && meta.campanas) || null;
+  const mEstado = {
+    hay: !!mCamp,
+    actualizado: (meta && meta.actualizado) || null,
+    viejo: !!mCamp && (Date.now() - (Number(meta.actualizado) || 0) > SIDE_META_VIEJO_MS),
+  };
   const dueno = {};
   for (const p of base.productos) {
     for (const c of _sideClaves(p)) if (!(c in dueno)) dueno[c] = c;
@@ -1743,13 +1812,25 @@ function _sideArmar(base, ventas, hoy) {
     // dice que deja ese producto: una estimacion marcada vale mas que un cero.
     const neto = ex.neto > 0 ? ex.neto : ex.n * (Number(p.dejaPorVenta) || 0);
     const ingreso = _side2((Number(p.ingresoBase) || 0) + neto);
-    const marketing = _side2(p.marketing);
+    // Gasto vivo: solo si el producto declara campanas Y Meta contesto por todas.
+    let marketing = _side2(p.marketing);
+    let marketingVivo = false;
+    const camps = Array.isArray(p.campanas) ? p.campanas : [];
+    if (mCamp && camps.length) {
+      let suma = 0, completo = true;
+      for (const c of camps) {
+        if (Object.prototype.hasOwnProperty.call(mCamp, c)) suma += Number(mCamp[c]) || 0;
+        else completo = false;
+      }
+      if (completo) { marketing = _side2(suma); marketingVivo = true; }
+    }
     const otros = _side2(p.otros);
     productos.push(Object.assign({}, p, {
       clientes: clientes,
       ventasNuevas: ex.n,
       ingreso: ingreso,
       marketing: marketing,
+      marketingVivo: marketingVivo,
       otros: otros,
       resultado: _side2(ingreso - marketing - otros),
     }));
@@ -1762,6 +1843,7 @@ function _sideArmar(base, ventas, hoy) {
   return Object.assign({}, base, {
     productos: productos,
     relojes: _sideRelojes(base, productos, hoy || _hoyBolivia()),
+    meta: mEstado,
     totales: tot,
     sinUbicar: sinUbicar,
     ventasHotmart: (ventas || []).length,
@@ -3914,6 +3996,15 @@ async function scheduledHandler(event, env) {
     //    dos avisos se pisaban. Pepe eligio correrlo a 18:45.
     // mm 40-41 son las lineas duras y mm < 5 el otro refresco del TC: ninguna de
     // las dos ventanas comparte invocacion con nada pesado.
+    // Gasto de Meta: una pasada por hora al minuto 50-51. Ese minuto esta libre:
+    // el TC refresca en mm < 5 y 30-35, las lineas duras en 40-41 y las
+    // prioritarias en 25-27 y 45-47. La funcion igual no repite si el dato tiene
+    // menos de 55 minutos, asi que los dos minutos de la ventana no duplican.
+    if (utcM >= 50 && utcM < 52) {
+      try { await _sideMetaRefrescar(env); }
+      catch (e) { /* el gasto del tablero no puede tumbar el resto del cron */ }
+    }
+
     const _prioSlot = (utcH === 19 && utcM >= 25 && utcM < 28) ? 'prio1525'
       : ((utcH === 22 && utcM >= 45 && utcM < 48) ? 'prio1845' : null);
     if (_prioSlot) {
