@@ -1595,9 +1595,16 @@ function _sideVentaDesdeHotmart(c) {
     if (String((x && x.source) || '').toUpperCase().indexOf('PRODUCER') >= 0) neto = Number(x.value) || 0;
   }
   const precio = compra.price && Number(compra.price.value);
+  // OJO con el id del producto: la prueba del panel de Hotmart manda id = 0, y
+  // con `|| ''` el cero se perdia y la venta quedaba sin producto. Un cero es un
+  // dato, no un vacio. Se guarda tambien el ucode, que es el identificador
+  // estable de Hotmart, para poder ubicar la venta si el id faltara.
+  const prod = d.product || {};
+  const pid = (prod.id === undefined || prod.id === null) ? '' : prod.id;
   return {
     transaccion: trans,
-    producto: String((d.product && d.product.id) || ''),
+    producto: String(pid),
+    ucode: String(prod.ucode || ''),
     estado: estado,
     evento: ev,
     neto: _side2(neto),

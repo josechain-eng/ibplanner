@@ -169,6 +169,28 @@ test('una venta de un producto que no esta en la base no rompe el tablero', asyn
   assert.ok(r.cuerpo.sinUbicar >= 1, 'pero queda avisado');
 });
 
+test('el id del producto se guarda aunque sea 0 (la prueba de Hotmart manda 0)', async () => {
+  // El sandbox de Hotmart manda product.id = 0. Con `|| ''` el cero se perdia y
+  // la venta quedaba sin producto: silenciosa, con cara de sana.
+  const kv = mundo();
+  const p = postback({ transaccion: 'HP0' });
+  p.data.product.id = 0;
+  await mandar(kv, p);
+  const v = JSON.parse(kv._map.get('side_hotmart'))[0];
+  assert.equal(v.producto, '0', 'el id 0 no se puede perder');
+});
+
+test('se guarda tambien el ucode del producto', async () => {
+  // Es el identificador estable de Hotmart: si algun dia el id no viene, el
+  // ucode permite ubicar la venta en vez de perderla.
+  const kv = mundo();
+  const p = postback({ transaccion: 'HPu' });
+  p.data.product.ucode = 'fb056612-bcc6-4217-9e6d-2a5d1110ac2f';
+  await mandar(kv, p);
+  const v = JSON.parse(kv._map.get('side_hotmart'))[0];
+  assert.equal(v.ucode, 'fb056612-bcc6-4217-9e6d-2a5d1110ac2f');
+});
+
 // ── POST /side/hotmart: seguridad ──────────────────────────────────────────
 
 test('postback sin hottok da 401 y no guarda nada', async () => {
