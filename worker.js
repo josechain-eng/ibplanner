@@ -1678,7 +1678,41 @@ function _sideClaves(p) {
   return out;
 }
 
-function _sideArmar(base, ventas) {
+// Los relojes de la regla de corte se CALCULAN, no se escriben. Con el texto a
+// mano, una venta nueva movia los KPIs y dejaba el reloj diciendo "3 de 10": un
+// tablero que se contradice es peor que uno viejo, porque no se sabe a cual
+// creerle. La base solo dice de que producto es cada reloj, para cuando es y
+// cual es la meta.
+function _sideRelojes(base, productos, hoy) {
+  const porId = {};
+  for (const p of productos) porId[p.id] = p;
+  const dias = (a, b) => Math.round((Date.parse(b + 'T00:00:00Z') - Date.parse(a + 'T00:00:00Z')) / 86400000);
+  return (base.relojes || []).map((r) => {
+    const p = porId[r.producto] || null;
+    const meta = (r.meta === undefined || r.meta === null) ? null : Number(r.meta);
+    const clientes = p ? Number(p.clientes) || 0 : 0;
+    const cumplido = meta !== null && clientes >= meta;
+    const falta = r.fecha ? dias(hoy, r.fecha) : null;
+    const vencido = falta !== null && falta < 0;
+    return {
+      producto: r.producto || '',
+      nombre: r.nombre || (p ? (p.chip || p.nombre) : (r.producto || '')),
+      que: r.que || (meta !== null ? 'clientes' : ''),
+      nota: r.nota || '',
+      fecha: r.fecha || '',
+      dias: falta,
+      vencido: vencido,
+      cumplido: cumplido,
+      meta: meta,
+      clientes: meta === null ? null : clientes,
+      // Como lo tiene que pintar la app: rojo si se paso sin llegar, ambar si
+      // queda poco, verde si ya llego.
+      clase: cumplido ? 'g' : (vencido ? 'r' : ((falta !== null && falta <= 15) ? 'w' : '')),
+    };
+  });
+}
+
+function _sideArmar(base, ventas, hoy) {
   const dueno = {};
   for (const p of base.productos) {
     for (const c of _sideClaves(p)) if (!(c in dueno)) dueno[c] = c;
@@ -1727,6 +1761,7 @@ function _sideArmar(base, ventas) {
   tot.resultado = _side2(tot.ingreso - tot.marketing - tot.otros);
   return Object.assign({}, base, {
     productos: productos,
+    relojes: _sideRelojes(base, productos, hoy || _hoyBolivia()),
     totales: tot,
     sinUbicar: sinUbicar,
     ventasHotmart: (ventas || []).length,

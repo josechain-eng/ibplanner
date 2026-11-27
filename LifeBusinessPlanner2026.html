@@ -22,7 +22,7 @@
 <script>
 (function() {
   // ── Version ──────────────────────────────────────────────────────────────
-  window.LBP_VERSION = '5.91';
+  window.LBP_VERSION = '5.92';
 
   // ── PWA Install prompt ───────────────────────────────────────────────────
   window._installPrompt = null;
@@ -19967,9 +19967,18 @@ function SideScreen(_ref_side) {
   var sumSalio = lineas.reduce(function (a, L) { return a + porLinea[L].salio; }, 0);
   var sumEntro = lineas.reduce(function (a, L) { return a + porLinea[L].entro; }, 0);
 
-  var filasCaja = (d.caja || []).map(function (f) {
+  // La fila de pauta se arma con el gasto VIVO de cada linea. Si viniera escrita
+  // en la base quedaria vieja apenas Meta empiece a entrar solo, y el tablero se
+  // contradiria consigo mismo.
+  var filaPauta = ['Pauta en Meta'].concat(lineas.map(function (L) {
+    var n = 0;
+    prods.forEach(function (p) { if (p.linea === L) n += Number(p.marketing) || 0; });
+    return _sideNum(n);
+  }));
+  filaPauta.push(_sideNum(tot.marketing));
+  var filasCaja = [filaPauta].concat((d.caja || []).map(function (f) {
     return [f[0]].concat(f.slice(1).map(function (x) { return (x === null || x === '') ? '—' : _sideNum(x); }));
-  });
+  }));
   filasCaja = filasCaja.concat([
     ['Salio'].concat(lineas.map(function (L) { return { v: _sideNum(porLinea[L].salio), fuerte: true }; }))
       .concat([{ v: _sideNum(sumSalio), fuerte: true }]),
@@ -20049,12 +20058,21 @@ function SideScreen(_ref_side) {
     (d.relojes || []).length ? _sideH('div', { key: 'rl' },
       seccion('Relojes · 30 dias para publicar, 60 para 10 clientes'),
       tarjeta(d.relojes.map(function (r, i) {
-        var col = r[3] === 'r' ? 'var(--red)' : (r[3] === 'w' ? 'var(--orange)' : 'var(--text-dim)');
+        var col = r.clase === 'r' ? 'var(--red)' : (r.clase === 'w' ? 'var(--orange)'
+          : (r.clase === 'g' ? 'var(--green)' : 'var(--text-dim)'));
+        var cuando = r.cumplido ? 'cumplido'
+          : (r.dias === null ? ''
+            : (r.dias < 0 ? ('vencio hace ' + (-r.dias) + (r.dias === -1 ? ' dia' : ' dias'))
+              : (r.dias === 0 ? 'vence hoy' : ('faltan ' + r.dias + (r.dias === 1 ? ' dia' : ' dias')))));
+        var cuenta = r.meta === null ? (r.que || '')
+          : (r.clientes + ' de ' + r.meta + (r.meta === 1 ? ' cliente pago' : ' clientes pagos'));
         return _sideH('div', { key: 'r' + i, className: 'list-item', style: { display: 'block' } },
           _sideH('div', { style: { display: 'flex', justifyContent: 'space-between', gap: 12, fontSize: 13 } },
-            _sideH('b', null, r[0]),
-            _sideH('span', { style: { fontWeight: 700, whiteSpace: 'nowrap', color: col, textAlign: 'right' } }, r[2])),
-          _sideH('div', { style: { color: 'var(--text-muted)', fontSize: 11.5, marginTop: 2 } }, r[4] || ''));
+            _sideH('b', null, r.nombre),
+            _sideH('span', { style: { fontWeight: 700, whiteSpace: 'nowrap', color: col, textAlign: 'right' } },
+              (r.fecha || '') + (cuando ? ' · ' + cuando : ''))),
+          _sideH('div', { style: { color: 'var(--text-muted)', fontSize: 11.5, marginTop: 2 } },
+            cuenta + (r.nota ? ' · ' + r.nota : '')));
       }))) : null,
 
     _sideH('div', { key: 'pie', style: { fontSize: 11, color: 'var(--text-muted)', marginTop: 14 } },

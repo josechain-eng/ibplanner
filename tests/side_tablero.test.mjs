@@ -10,7 +10,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
-import { cargarWorker, kvFalso, envFalso } from './_arnes_cron.mjs';
+import { cargarWorker, kvFalso, envFalso, conReloj } from './_arnes_cron.mjs';
 
 const RAIZ = path.join(import.meta.dirname, '..');
 const KEY = 'lbp_clave_de_prueba';      // clave inventada, nunca una real
@@ -400,6 +400,104 @@ test('las ventas de Hotmart y las reenviadas conviven en el mismo tablero', asyn
   assert.equal(d.productos.find(x => x.id === 'dormir').clientes, 4);
   assert.equal(d.productos.find(x => x.id === 'collar').clientes, 1);
   assert.equal(d.totales.clientes, 5);
+});
+
+// ── relojes de corte: los cuenta el tablero, no yo ────────────────────────
+// 27-nov: con el texto escrito a mano, una venta nueva movia los KPIs y dejaba
+// el reloj diciendo "3 de 10". Un tablero que se contradice es peor que uno
+// viejo, porque no sabes a cual creerle.
+
+const BASE3 = {
+  productos: [
+    { id: 'dormir', nombre: 'Dormir bien', chip: 'Dormir bien', linea: 'digital', hotmart: '8711675',
+      dejaPorVenta: 15.44, marketing: 141.96, otros: 0, ventasBase: 3, ingresoBase: 46.32 },
+    { id: 'juegos', nombre: 'Juegos por edad', chip: 'Juegos', linea: 'digital', hotmart: '8551784',
+      dejaPorVenta: 8, marketing: 134.03, otros: 0, ventasBase: 1, ingresoBase: 8 },
+    { id: 'cuaderno', nombre: 'Cuaderno Trazos', chip: 'Cuaderno', linea: 'digital',
+      dejaPorVenta: 5, marketing: 0, otros: 0.91, ventasBase: 0, ingresoBase: 0 },
+  ],
+  relojes: [
+    { producto: 'juegos', fecha: '2026-11-22', meta: 10, nota: 'Toca cerrarlo.' },
+    { producto: 'dormir', fecha: '2026-12-11', meta: 10, nota: 'El unico con chance.' },
+    { producto: 'cuaderno', fecha: '2026-12-20', que: 'publicar', nota: 'Falta abrir Gumroad.' },
+  ],
+};
+const mundo3 = (extra) => kvConLista(Object.assign({
+  ['data:' + KEY]: JSON.stringify({ _cloudSaveTime: 1 }),
+  side_base: JSON.stringify(BASE3),
+}, extra || {}));
+
+// El reloj se juzga contra HOY en Bolivia; se fija el reloj para que la prueba
+// no cambie de resultado segun el dia en que se corra.
+const HOY27 = Date.UTC(2026, 10, 27, 18, 0); // 14:00 en Bolivia
+
+test('el reloj cuenta los clientes de verdad, no un texto escrito a mano', async () => {
+  const kv = mundo3();
+  const d = await conReloj(HOY27, () => leerSide(kv));
+  const r = d.relojes.find(x => x.producto === 'dormir');
+  assert.equal(r.clientes, 3);
+  assert.equal(r.meta, 10);
+  assert.equal(r.nombre, 'Dormir bien');
+});
+
+test('una venta nueva mueve el reloj en el mismo momento que el KPI', async () => {
+  const kv = mundo3();
+  await mandar(kv, postback({ transaccion: 'HPreloj' }));   // una venta de Dormir bien
+  const d = await conReloj(HOY27, () => leerSide(kv));
+  assert.equal(d.totales.clientes, 5, '3 + 1 de juegos + la nueva');
+  assert.equal(d.relojes.find(x => x.producto === 'dormir').clientes, 4,
+               'el reloj tiene que contar lo mismo que el KPI');
+});
+
+test('los dias que faltan salen de la fecha de Bolivia', async () => {
+  const kv = mundo3();
+  const d = await conReloj(HOY27, () => leerSide(kv));
+  assert.equal(d.relojes.find(x => x.producto === 'dormir').dias, 14);
+  assert.equal(d.relojes.find(x => x.producto === 'cuaderno').dias, 23);
+});
+
+test('los dias se cuentan con el dia de BOLIVIA, no con el de UTC', async () => {
+  // 28-nov 02:00 UTC es todavia el 27 a las 22:00 en Bolivia. Con la fecha de
+  // UTC el reloj descontaria un dia de mas. La prueba anterior fijaba el reloj a
+  // una hora en que las dos fechas coinciden: no podia fallar.
+  const kv = mundo3();
+  const d = await conReloj(Date.UTC(2026, 10, 28, 2, 0), () => leerSide(kv));
+  assert.equal(d.relojes.find(x => x.producto === 'dormir').dias, 14,
+               'del 27 en Bolivia al 11-dic van 14 dias');
+});
+
+test('un reloj pasado de fecha queda marcado vencido', async () => {
+  const kv = mundo3();
+  const d = await conReloj(HOY27, () => leerSide(kv));
+  const j = d.relojes.find(x => x.producto === 'juegos');
+  assert.equal(j.vencido, true);
+  assert.equal(j.dias, -5);
+  assert.equal(j.cumplido, false, '1 de 10 no es cumplido');
+});
+
+test('si llego a la meta, el reloj dice cumplido aunque haya vencido', async () => {
+  const kv = mundo3();
+  for (let i = 0; i < 10; i++) await mandar(kv, postback({ transaccion: 'HPj' + i, producto: 8551784 }));
+  const d = await conReloj(HOY27, () => leerSide(kv));
+  const j = d.relojes.find(x => x.producto === 'juegos');
+  assert.equal(j.clientes, 11);
+  assert.equal(j.cumplido, true);
+});
+
+test('un reloj de publicar no inventa un conteo de clientes', async () => {
+  const kv = mundo3();
+  const d = await conReloj(HOY27, () => leerSide(kv));
+  const c = d.relojes.find(x => x.producto === 'cuaderno');
+  assert.equal(c.meta, null, 'sin meta de clientes no se cuenta');
+  assert.equal(c.que, 'publicar');
+});
+
+test('la base ya NO trae la fila de pauta de la caja: la arma el tablero', async () => {
+  const kv = mundo3();
+  const d = await conReloj(HOY27, () => leerSide(kv));
+  assert.equal(d.totales.marketing, 275.99);     // 141,96 + 134,03
+  const pauta = (d.caja || []).find(f => String(f[0]).toLowerCase().indexOf('pauta') >= 0);
+  assert.equal(pauta, undefined, 'si la base la trae, queda vieja apenas Meta entre solo');
 });
 
 // ── la pantalla en la app ──────────────────────────────────────────────────
