@@ -309,12 +309,21 @@ test('la pantalla pide el tablero al worker con la sync key', () => {
   assert.ok(cuerpo.indexOf('lbp_side_v1') > 0, 'no cachea el tablero para el celular');
 });
 
-test('la pantalla se pinta con colores propios, no con los del tema oscuro', () => {
-  // La paleta vive en SIDE_C, justo antes del componente.
-  const i = html.indexOf('var SIDE_C = {');
-  assert.ok(i > 0, 'no encuentro la paleta del tablero');
+test('la pantalla usa el estilo de la app, no una paleta propia', () => {
+  // 27-nov: Pepe pidio que se vea como parte de la app, no como un documento
+  // pegado adentro. Antes esta prueba exigia lo contrario (paleta editorial
+  // propia); la regla cambio, y lo que se mide ahora es que use las piezas y
+  // las variables de color del planner.
+  const i = html.indexOf('var SIDE_LINEAS');
+  assert.ok(i > 0, 'no encuentro el bloque del tablero');
   const cuerpo = html.slice(i, html.indexOf('var SearchScreen'));
-  assert.ok(cuerpo.indexOf('#f4f1ea') > 0, 'falta el fondo crema del diseno editorial');
-  assert.ok(cuerpo.indexOf('#9a7b3f') > 0, 'falta el dorado');
-  assert.ok(cuerpo.indexOf('var(--bg)') < 0, 'no debe heredar el tema oscuro de la app');
+  for (const pieza of ['page-header', 'stat-card', "className: 'tabs'", "className: 'card'", 'btn btn-secondary']) {
+    assert.ok(cuerpo.indexOf(pieza) > 0, 'no usa la pieza de la app: ' + pieza);
+  }
+  for (const v of ['var(--text-dim)', 'var(--border)', 'var(--green)', 'var(--red)']) {
+    assert.ok(cuerpo.indexOf(v) > 0, 'no usa la variable de color: ' + v);
+  }
+  for (const viejo of ['#f4f1ea', '#9a7b3f', '#2b2926', '#948d7d', 'Georgia']) {
+    assert.ok(cuerpo.indexOf(viejo) < 0, 'quedo un color o fuente propia: ' + viejo);
+  }
 });
