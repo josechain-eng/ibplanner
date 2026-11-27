@@ -531,6 +531,33 @@ test('el gasto de un producto sale de SUS campanas, no del numero de la base', a
   assert.equal(p.marketingVivo, true);
 });
 
+test('una campana sin gasto cuenta CERO, no "falta el dato"', async () => {
+  // Meta no devuelve fila para una campana que todavia no gasto. Si eso se lee
+  // como dato faltante, un producto con una campana por arrancar nunca pasa a
+  // vivo. Cuando TODAS las cuentas contestaron, lo que no vino es cero.
+  const kv = kvConLista({
+    ['data:' + KEY]: JSON.stringify({ _cloudSaveTime: 1 }),
+    side_base: JSON.stringify({ productos: [Object.assign({}, BASE4.productos[0], { campanas: ['C1', 'C2', 'SIN_GASTO'] })] }),
+    side_meta: JSON.stringify({ actualizado: Date.UTC(2026, 10, 27, 17, 0), completo: true, campanas: { C1: 11.54, C2: 80 } }),
+  });
+  const d = await conReloj(HOY27, () => leerSide(kv));
+  assert.equal(d.productos[0].marketing, 91.54, 'la que no gasto suma 0');
+  assert.equal(d.productos[0].marketingVivo, true);
+});
+
+test('si alguna cuenta fallo, lo que falta NO se toma como cero', async () => {
+  // Con una cuenta caida, dar por cero lo que no vino subestima el gasto y el
+  // tablero mostraria un resultado mejor que el real.
+  const kv = kvConLista({
+    ['data:' + KEY]: JSON.stringify({ _cloudSaveTime: 1 }),
+    side_base: JSON.stringify({ productos: [Object.assign({}, BASE4.productos[0], { campanas: ['C1', 'C2', 'NO_VINO'] })] }),
+    side_meta: JSON.stringify({ actualizado: Date.UTC(2026, 10, 27, 17, 0), completo: false, campanas: { C1: 11.54, C2: 80 } }),
+  });
+  const d = await conReloj(HOY27, () => leerSide(kv));
+  assert.equal(d.productos[0].marketing, 141.96, 'se queda con el de la base');
+  assert.equal(d.productos[0].marketingVivo, false);
+});
+
 test('si Meta no trajo TODAS las campanas del producto, no se suma a medias', async () => {
   // Sumar solo las que vinieron daria un gasto menor al real, con cara de dato
   // vivo. Mejor el numero de la base, marcado como cargado a mano.
@@ -697,6 +724,24 @@ test('una falla total deja rastro, no silencio', async () => {
   const log = JSON.parse(kv._map.get('side_meta_log') || 'null');
   assert.ok(log, 'tiene que quedar el intento anotado');
   assert.ok(String(log.errores.join(' ')).indexOf('token vencido') >= 0, 'con el motivo');
+});
+
+test('con una cuenta caida y otra sana, el gasto se guarda pero NO como completo', async () => {
+  // Es el caso que decide si una campana ausente se puede leer como cero. Con
+  // una cuenta caida no se puede: lo que falta podria ser gasto real.
+  const kv = mundoCron();
+  await conMeta((u) => {
+    if (u.indexOf('act_111/insights') >= 0) {
+      return new Response(JSON.stringify({ error: { message: 'sin permiso' } }), { status: 403 });
+    }
+    return new Response(JSON.stringify(INSIGHTS), { status: 200, headers: { 'content-type': 'application/json' } });
+  }, async () => {
+    await cron(kv, MM50, { META_TOKEN_A: 'tok', META_CUENTAS: '1825182928656356:A,111:A' });
+  });
+  const g = JSON.parse(kv._map.get('side_meta'));
+  assert.equal(g.completo, false, 'si una cuenta fallo, el dato NO es completo');
+  assert.equal(g.campanas['52690088466424'], 11.54, 'lo que si vino se guarda igual');
+  assert.ok(String(g.errores.join(' ')).indexOf('sin permiso') >= 0);
 });
 
 test('fuera de la ventana el cron no toca Meta', async () => {

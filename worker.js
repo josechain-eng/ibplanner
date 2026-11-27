@@ -1780,15 +1780,19 @@ async function _sideMetaRefrescar(env) {
     } catch (e) { /* el rastro no puede tumbar el cron */ }
     return previo;
   }
-  const salida = { actualizado: Date.now(), campanas: campanas, errores: errores };
+  // `completo` = todas las cuentas configuradas contestaron. Solo entonces una
+  // campana ausente se puede leer como cero.
+  const salida = { actualizado: Date.now(), completo: errores.length === 0, campanas: campanas, errores: errores };
   await env.LBP_KV.put('side_meta', JSON.stringify(salida));
   return salida;
 }
 
 function _sideArmar(base, ventas, hoy, meta) {
   const mCamp = (meta && meta.campanas) || null;
+  const mCompleto = !!(meta && meta.completo);
   const mEstado = {
     hay: !!mCamp,
+    completo: mCompleto,
     actualizado: (meta && meta.actualizado) || null,
     viejo: !!mCamp && (Date.now() - (Number(meta.actualizado) || 0) > SIDE_META_VIEJO_MS),
   };
@@ -1827,12 +1831,17 @@ function _sideArmar(base, ventas, hoy, meta) {
     let marketingVivo = false;
     const camps = Array.isArray(p.campanas) ? p.campanas : [];
     if (mCamp && camps.length) {
-      let suma = 0, completo = true;
+      // Meta no devuelve fila para una campana que todavia no gasto: cuando
+      // TODAS las cuentas contestaron (meta.completo), lo que no vino es CERO,
+      // no un dato faltante. Si alguna cuenta fallo, en cambio, dar por cero lo
+      // que falta subestimaria el gasto y mostraria un resultado mejor que el
+      // real: ahi se usa el numero de la base.
+      let suma = 0, falta = false;
       for (const c of camps) {
         if (Object.prototype.hasOwnProperty.call(mCamp, c)) suma += Number(mCamp[c]) || 0;
-        else completo = false;
+        else falta = true;
       }
-      if (completo) { marketing = _side2(suma); marketingVivo = true; }
+      if (!falta || mCompleto) { marketing = _side2(suma); marketingVivo = true; }
     }
     const otros = _side2(p.otros);
     productos.push(Object.assign({}, p, {
