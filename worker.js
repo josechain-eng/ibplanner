@@ -89,8 +89,10 @@ async function handleRequest(request, env) {
       if (!(await _syncKeyValida(env, syncKey))) return json({ error: 'Key no valida' });
       const base = JSON.parse(await env.LBP_KV.get('side_base') || 'null');
       if (!base || !Array.isArray(base.productos)) return json({ error: 'Todavia no hay tablero cargado' });
-      const guardadas = JSON.parse(await env.LBP_KV.get('side_hotmart') || '[]');
-      return json(_sideArmar(base, Array.isArray(guardadas) ? guardadas : []));
+      const hm = JSON.parse(await env.LBP_KV.get('side_hotmart') || '[]');
+      const otras = JSON.parse(await env.LBP_KV.get('side_ventas') || '[]');
+      const todas = (Array.isArray(hm) ? hm : []).concat(Array.isArray(otras) ? otras : []);
+      return json(_sideArmar(base, todas));
     }
 
     // POST /side/hotmart  ->  postback de Hotmart. Se valida la cabecera
@@ -109,6 +111,39 @@ async function handleRequest(request, env) {
       const guardadas = JSON.parse(await env.LBP_KV.get('side_hotmart') || '[]');
       await env.LBP_KV.put('side_hotmart', JSON.stringify(_sideGuardarVenta(guardadas, v)));
       return json({ ok: true, guardado: true, estado: v.estado, evento: v.evento });
+    }
+
+    // POST /side/venta  ->  ventas que YA vienen validadas por otro worker mio:
+    // htk-pedidos valida la firma de Fourthwall y el worker de Invoice Roundup la
+    // de Dodo. Aca solo se comprueba que el aviso venga de ellos (SIDE_PUSH_KEY)
+    // y se guarda lo minimo. Asi no hay que traer a este worker los secretos de
+    // dos proveedores mas.
+    if (p === '/side/venta' && request.method === 'POST') {
+      const esperado = env.SIDE_PUSH_KEY;
+      const dado = request.headers.get('X-Side-Key') || '';
+      if (!esperado || !_igualConstante(dado, String(esperado))) return json({ error: 'unauthorized' }, 401);
+      let c = null;
+      try { c = JSON.parse(await request.text()); } catch (e) { return json({ error: 'json invalido' }, 400); }
+      const fuente = String((c && c.fuente) || '').trim().toLowerCase();
+      const id = String((c && c.id) || '').trim();
+      if (!fuente || !id) return json({ error: 'hacen falta fuente e id' }, 400);
+      const estado = String((c && c.estado) || '').trim() === 'devuelta' ? 'devuelta' : 'aprobada';
+      // Se copia campo por campo A PROPOSITO: si el que reenvia manda de mas
+      // (correo, nombre, direccion), aca no entra.
+      const v = {
+        transaccion: fuente + ':' + id,
+        fuente: fuente,
+        producto: String((c && c.producto) || ''),
+        estado: estado,
+        evento: String((c && c.evento) || '').slice(0, 40),
+        neto: _side2(c && c.neto),
+        precio: _side2(c && c.precio),
+        moneda: String((c && c.moneda) || '').slice(0, 8),
+        ts: Date.now(),
+      };
+      const guardadas = JSON.parse(await env.LBP_KV.get('side_ventas') || '[]');
+      await env.LBP_KV.put('side_ventas', JSON.stringify(_sideGuardarVenta(guardadas, v)));
+      return json({ ok: true, guardado: true, estado: v.estado });
     }
 
     // GET /tc-probe  ->  prueba CADA fuente del tipo de cambio por separado, sin
@@ -1603,6 +1638,7 @@ function _sideVentaDesdeHotmart(c) {
   const pid = (prod.id === undefined || prod.id === null) ? '' : prod.id;
   return {
     transaccion: trans,
+    fuente: 'hotmart',
     producto: String(pid),
     ucode: String(prod.ucode || ''),
     estado: estado,
@@ -1632,23 +1668,42 @@ function _sideGuardarVenta(lista, v) {
 }
 
 // Arma el tablero: a cada producto de la base le suma sus ventas de Hotmart.
+// Con que claves se reconoce una venta como de este producto. Hotmart entra por
+// su id de producto; Fourthwall y Dodo por su fuente, y con `ref` vacia el
+// producto se queda con CUALQUIER venta de esa fuente (la tienda vende uno solo).
+function _sideClaves(p) {
+  const out = [];
+  if (p && p.hotmart) out.push('hotmart:' + String(p.hotmart));
+  if (p && p.fuente) out.push(String(p.fuente) + ':' + (p.ref ? String(p.ref) : '*'));
+  return out;
+}
+
 function _sideArmar(base, ventas) {
-  const conocidos = {};
-  for (const p of base.productos) if (p && p.hotmart) conocidos[String(p.hotmart)] = true;
+  const dueno = {};
+  for (const p of base.productos) {
+    for (const c of _sideClaves(p)) if (!(c in dueno)) dueno[c] = c;
+  }
   const porProd = {};
   let sinUbicar = 0;
   for (const v of ventas) {
     if (!v || v.estado !== 'aprobada') continue;
-    const id = String(v.producto || '');
-    if (!conocidos[id]) { sinUbicar++; continue; }
-    if (!porProd[id]) porProd[id] = { n: 0, neto: 0 };
-    porProd[id].n += 1;
-    porProd[id].neto += Number(v.neto) || 0;
+    const fuente = String(v.fuente || 'hotmart');
+    // Primero la clave exacta, despues el comodin de la fuente.
+    const exacta = fuente + ':' + String(v.producto || '');
+    const comodin = fuente + ':*';
+    const c = (exacta in dueno) ? exacta : ((comodin in dueno) ? comodin : '');
+    if (!c) { sinUbicar++; continue; }
+    if (!porProd[c]) porProd[c] = { n: 0, neto: 0 };
+    porProd[c].n += 1;
+    porProd[c].neto += Number(v.neto) || 0;
   }
   const productos = [];
   const tot = { clientes: 0, ingreso: 0, marketing: 0, otros: 0, resultado: 0 };
   for (const p of base.productos) {
-    const ex = porProd[String(p.hotmart || '')] || { n: 0, neto: 0 };
+    let ex = { n: 0, neto: 0 };
+    for (const c of _sideClaves(p)) {
+      if (porProd[c]) { ex = { n: ex.n + porProd[c].n, neto: ex.neto + porProd[c].neto }; }
+    }
     const clientes = (Number(p.ventasBase) || 0) + ex.n;
     // Si el postback no trajo la comision del productor, se usa lo que la base
     // dice que deja ese producto: una estimacion marcada vale mas que un cero.

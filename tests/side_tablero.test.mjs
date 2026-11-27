@@ -284,6 +284,124 @@ test('la lista de ventas no crece sin limite', async () => {
   assert.ok(lista.some(v => v.transaccion === 'HP6'), 'la nueva no se puede perder');
 });
 
+// ── POST /side/venta: Fourthwall y Dodo ────────────────────────────────────
+// Esos dos ya validan la firma del proveedor en sus propios workers; aca llega
+// la venta ya limpia, firmada con una clave nuestra.
+
+const PUSH = 'side-push-de-prueba';
+const BASE2 = {
+  productos: [
+    { id: 'collar', nombre: 'Collar', linea: 'dropshipping', fuente: 'fourthwall',
+      dejaPorVenta: 49.62, marketing: 38.35, otros: 12.14, ventasBase: 0, ingresoBase: 0 },
+    { id: 'invoice', nombre: 'Invoice Roundup', linea: 'apps', fuente: 'dodo', ref: 'pdt_prueba',
+      dejaPorVenta: 8.05, marketing: 0, otros: 22.48, ventasBase: 0, ingresoBase: 0 },
+    { id: 'dormir', nombre: 'Dormir bien', linea: 'digital', hotmart: '8711675',
+      dejaPorVenta: 15.44, marketing: 141.96, otros: 0, ventasBase: 3, ingresoBase: 46.32 },
+  ],
+};
+const mundo2 = (extra) => kvConLista(Object.assign({
+  ['data:' + KEY]: JSON.stringify({ _cloudSaveTime: 1 }),
+  side_base: JSON.stringify(BASE2),
+}, extra || {}));
+
+async function venta(kv, cuerpo, opts) {
+  const o = opts || {};
+  const env = envFalso({ LBP_KV: kv });
+  if (o.sinClave) delete env.SIDE_PUSH_KEY; else env.SIDE_PUSH_KEY = PUSH;
+  const w = await cargarWorker();
+  const r = await w.fetch(new Request('https://x/side/venta', {
+    method: 'POST',
+    headers: Object.assign({ 'content-type': 'application/json' },
+      o.claveMala ? { 'X-Side-Key': 'otra' } : (o.sinCabecera ? {} : { 'X-Side-Key': PUSH })),
+    body: typeof cuerpo === 'string' ? cuerpo : JSON.stringify(cuerpo),
+  }), env);
+  const txt = await r.text();
+  let c = null; try { c = JSON.parse(txt); } catch (e) {}
+  return { status: r.status, cuerpo: c };
+}
+const leerSide = async (kv) => (await pedir(kv, 'GET', '/side?key=' + KEY)).cuerpo;
+
+test('una venta sin la clave nuestra se rechaza', async () => {
+  const kv = mundo2();
+  assert.equal((await venta(kv, { fuente: 'fourthwall', id: 'A1', estado: 'aprobada', neto: 49.62 }, { sinCabecera: true })).status, 401);
+  assert.equal((await venta(kv, { fuente: 'fourthwall', id: 'A1', estado: 'aprobada', neto: 49.62 }, { claveMala: true })).status, 401);
+  assert.equal((await venta(kv, { fuente: 'fourthwall', id: 'A1', estado: 'aprobada', neto: 49.62 }, { sinClave: true })).status, 401);
+  assert.equal(kv._map.get('side_ventas'), undefined);
+});
+
+test('una venta de Fourthwall suma al producto de dropshipping', async () => {
+  const kv = mundo2();
+  const r = await venta(kv, { fuente: 'fourthwall', id: 'HUBXVCJS', estado: 'aprobada', neto: 49.62, moneda: 'USD' });
+  assert.equal(r.status, 200);
+  const d = await leerSide(kv);
+  const c = d.productos.find(x => x.id === 'collar');
+  assert.equal(c.clientes, 1);
+  assert.equal(c.ingreso, 49.62);
+  assert.equal(c.resultado, -0.87);          // 49,62 - 38,35 - 12,14
+  assert.equal(d.totales.clientes, 4, 'las 3 de Hotmart mas esta');
+});
+
+test('un pago de Dodo suma a la micro app por su producto', async () => {
+  const kv = mundo2();
+  await venta(kv, { fuente: 'dodo', id: 'pay_1', producto: 'pdt_prueba', estado: 'aprobada', neto: 8.05 });
+  const d = await leerSide(kv);
+  assert.equal(d.productos.find(x => x.id === 'invoice').clientes, 1);
+  assert.equal(d.productos.find(x => x.id === 'invoice').ingreso, 8.05);
+});
+
+test('un pago de Dodo de otro producto no se cuenta en el nuestro', async () => {
+  const kv = mundo2();
+  await venta(kv, { fuente: 'dodo', id: 'pay_x', producto: 'pdt_de_otra_app', estado: 'aprobada', neto: 8.05 });
+  const d = await leerSide(kv);
+  assert.equal(d.productos.find(x => x.id === 'invoice').clientes, 0);
+  assert.ok(d.sinUbicar >= 1);
+});
+
+test('la misma venta reenviada dos veces se cuenta una sola vez', async () => {
+  const kv = mundo2();
+  await venta(kv, { fuente: 'fourthwall', id: 'REPE', estado: 'aprobada', neto: 49.62 });
+  await venta(kv, { fuente: 'fourthwall', id: 'REPE', estado: 'aprobada', neto: 49.62 });
+  const d = await leerSide(kv);
+  assert.equal(d.productos.find(x => x.id === 'collar').clientes, 1);
+  assert.equal(JSON.parse(kv._map.get('side_ventas')).length, 1);
+});
+
+test('una venta cancelada descuenta', async () => {
+  const kv = mundo2();
+  await venta(kv, { fuente: 'fourthwall', id: 'CANC', estado: 'aprobada', neto: 49.62 });
+  await venta(kv, { fuente: 'fourthwall', id: 'CANC', estado: 'devuelta' });
+  const d = await leerSide(kv);
+  assert.equal(d.productos.find(x => x.id === 'collar').clientes, 0);
+  assert.equal(d.productos.find(x => x.id === 'collar').ingreso, 0);
+});
+
+test('de una venta reenviada no se guarda ningun dato personal', async () => {
+  const kv = mundo2();
+  await venta(kv, { fuente: 'fourthwall', id: 'PRIV', estado: 'aprobada', neto: 49.62,
+    email: 'alguien@ejemplo.com', nombre: 'Nombre Apellido', direccion: 'Calle Falsa 123' });
+  const crudo = kv._map.get('side_ventas') || '';
+  for (const dato of ['alguien@ejemplo.com', 'Nombre Apellido', 'Calle Falsa']) {
+    assert.ok(crudo.indexOf(dato) < 0, 'se colo un dato personal: ' + dato);
+  }
+});
+
+test('una venta sin fuente o sin id no se guarda', async () => {
+  const kv = mundo2();
+  assert.equal((await venta(kv, { id: 'SIN_FUENTE', estado: 'aprobada' })).status, 400);
+  assert.equal((await venta(kv, { fuente: 'fourthwall', estado: 'aprobada' })).status, 400);
+  assert.equal(kv._map.get('side_ventas'), undefined);
+});
+
+test('las ventas de Hotmart y las reenviadas conviven en el mismo tablero', async () => {
+  const kv = mundo2();
+  await mandar(kv, postback({ transaccion: 'HPmix' }));
+  await venta(kv, { fuente: 'fourthwall', id: 'FWmix', estado: 'aprobada', neto: 49.62 });
+  const d = await leerSide(kv);
+  assert.equal(d.productos.find(x => x.id === 'dormir').clientes, 4);
+  assert.equal(d.productos.find(x => x.id === 'collar').clientes, 1);
+  assert.equal(d.totales.clientes, 5);
+});
+
 // ── la pantalla en la app ──────────────────────────────────────────────────
 
 const html = fs.readFileSync(path.join(RAIZ, 'LifeBusinessPlanner2026.html'), 'utf8');

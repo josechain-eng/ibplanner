@@ -4,12 +4,16 @@
 # conjunto de vars por el de este archivo y borra las que no esten declaradas.
 # Asi se perdieron OPENAI_API_KEY y JINA_API_KEY. Los secrets SI sobreviven.
 # Secrets esperados: ANTHROPIC_API_KEY, OPENAI_API_KEY, BRIEFING_KEY, ASIS_KEY,
-# HOTMART_HOTTOK (+ JINA_API_KEY opcional). ASIS_KEY es la del POST
+# HOTMART_HOTTOK, SIDE_PUSH_KEY (+ JINA_API_KEY opcional). ASIS_KEY es la del POST
 # /asistente/senal del vigilante de las esperas: sin ella ese endpoint responde
 # 401 y una de las tres corrientes que el asistente reemplaza nace muerta.
 # HOTMART_HOTTOK es el hottok del postback de Hotmart (POST /side/hotmart): sin
 # el, ese endpoint rechaza todo y las ventas del tablero de side hustles dejan
 # de entrar solas, en silencio.
+# SIDE_PUSH_KEY la usan htk-pedidos (ventas de Fourthwall) y el worker de Invoice
+# Roundup (pagos de Dodo) para reenviar una venta YA validada a POST /side/venta.
+# Esos dos workers guardan la MISMA clave: si se cambia, hay que cambiarla en los
+# tres o el tablero deja de recibir ventas sin avisar.
 
 name = "life-planner"
 main = "worker.js"
