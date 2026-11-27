@@ -591,6 +591,15 @@ async function conMeta(respuesta, fn) {
     urls.push(String(u));
     urls.cuerpos = urls.cuerpos || [];
     urls.cuerpos.push(String((init && init.body) || ''));
+    urls.metodos = urls.metodos || [];
+    urls.metodos.push(String((init && init.method) || 'GET').toUpperCase());
+    urls.cabeceras = urls.cabeceras || [];
+    urls.cabeceras.push((init && init.headers) || {});
+    // Como el Meta real: un POST a /insights NO devuelve datos, encola un
+    // reporte y responde un report_run_id. Simularlo es lo que atrapa el bug.
+    if (String(u).indexOf('/insights') >= 0 && String((init && init.method) || 'GET').toUpperCase() === 'POST') {
+      return new Response(JSON.stringify({ report_run_id: '123' }), { status: 200, headers: { 'content-type': 'application/json' } });
+    }
     if (typeof respuesta === 'function') return respuesta(String(u));
     return new Response(JSON.stringify(respuesta), { status: 200, headers: { 'content-type': 'application/json' } });
   };
@@ -629,8 +638,9 @@ test('a las :50 el cron trae el gasto de Meta y lo guarda', async () => {
   assert.equal(g.campanas['52691145435224'], 76.09);
   assert.ok(g.actualizado > 0);
   assert.ok(urls.some(u => u.indexOf('act_1825182928656356/insights') >= 0), 'tiene que pedir las campanas de esa cuenta');
-  // level va en el CUERPO, no en la direccion: la direccion no puede llevar el token.
-  assert.ok((urls.cuerpos || []).some(b => b.indexOf('level=campaign') >= 0), 'por campana, no por cuenta');
+  assert.ok(urls.some(u => u.indexOf('level=campaign') >= 0), 'por campana, no por cuenta');
+  assert.ok((urls.metodos || []).every(m => m === 'GET'),
+            'tiene que ser GET: un POST a /insights encola un reporte y no devuelve datos');
 });
 
 test('el token NO viaja en la direccion, va en la cabecera o en el cuerpo', async () => {
@@ -643,8 +653,9 @@ test('el token NO viaja en la direccion, va en la cabecera o en el cuerpo', asyn
   for (const u of urls) {
     assert.ok(u.indexOf('tok-secreto') < 0, 'el token no puede ir en la URL: queda en logs y en caches');
   }
-  assert.ok((urls.cuerpos || []).some(b => b.indexOf('access_token=tok-secreto') >= 0),
-            'la prueba no mide nada si el token tampoco viaja en el cuerpo');
+  const auth = (urls.cabeceras || []).map(h => String((h && (h.Authorization || h.authorization)) || '')).join(' ');
+  assert.ok(auth.indexOf('Bearer tok-secreto') >= 0,
+            'la prueba no mide nada si el token tampoco viaja en la cabecera');
 });
 
 test('si el dato tiene pocos minutos no se vuelve a pedir', async () => {
@@ -673,6 +684,19 @@ test('si Meta devuelve error se conserva lo viejo', async () => {
   });
   const g = JSON.parse(kv._map.get('side_meta'));
   assert.equal(g.campanas.VIEJA, 7, 'no se puede borrar lo que habia por un error de red');
+});
+
+test('una falla total deja rastro, no silencio', async () => {
+  // El 27-nov el cron corrio una hora entera sin guardar nada y sin aviso: el
+  // POST devolvia un report_run_id y el error se perdia. El rastro es lo que
+  // convierte una conexion caida en algo que se puede ver.
+  const kv = mundoCron();
+  await conMeta(() => new Response(JSON.stringify({ error: { message: 'token vencido' } }), { status: 400 }), async () => {
+    await cron(kv, MM50, { META_TOKEN_A: 'tok', META_CUENTAS: '1825182928656356:A' });
+  });
+  const log = JSON.parse(kv._map.get('side_meta_log') || 'null');
+  assert.ok(log, 'tiene que quedar el intento anotado');
+  assert.ok(String(log.errores.join(' ')).indexOf('token vencido') >= 0, 'con el motivo');
 });
 
 test('fuera de la ventana el cron no toca Meta', async () => {

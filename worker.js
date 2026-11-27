@@ -1742,18 +1742,21 @@ async function _sideMetaRefrescar(env) {
     const token = env['META_TOKEN_' + par.slice(i + 1).toUpperCase()];
     if (!token) { errores.push(cuenta + ': sin token'); continue; }
     try {
-      const cuerpo = new URLSearchParams({
+      // GET, no POST: un POST a /insights ENCOLA un reporte y devuelve un
+      // report_run_id, no los datos. Eso es lo que hacia que el cron corriera y
+      // no guardara nada, en silencio.
+      // El token va en la cabecera Authorization, no en la direccion: una URL
+      // queda en registros y caches y ahi seria legible.
+      const q = new URLSearchParams({
         level: 'campaign',
         fields: 'campaign_id,spend',
         date_preset: 'maximum',
         limit: '200',
-        access_token: String(token),
       });
-      const r = await fetch('https://graph.facebook.com/v21.0/act_' + encodeURIComponent(cuenta) + '/insights', {
-        method: 'POST',
-        headers: { 'content-type': 'application/x-www-form-urlencoded' },
-        body: cuerpo.toString(),
-      });
+      const r = await fetch(
+        'https://graph.facebook.com/v21.0/act_' + encodeURIComponent(cuenta) + '/insights?' + q.toString(),
+        { headers: { Authorization: 'Bearer ' + String(token) } }
+      );
       const j = await r.json();
       if (!r.ok || !j || j.error || !Array.isArray(j.data)) {
         errores.push(cuenta + ': ' + ((j && j.error && j.error.message) || ('HTTP ' + r.status)));
@@ -1769,7 +1772,14 @@ async function _sideMetaRefrescar(env) {
   }
   // Si NINGUNA cuenta contesto, no se pisa lo que habia: un error de red no
   // puede borrar el gasto y dejarlo en cero, que parece un dato real.
-  if (!alguna) return previo;
+  if (!alguna) {
+    // Falla total: NO se pisa lo guardado, pero queda el rastro. Sin esto el cron
+    // corre, no guarda nada y nadie se entera (paso el 27-nov con el POST).
+    try {
+      await env.LBP_KV.put('side_meta_log', JSON.stringify({ t: Date.now(), errores: errores }));
+    } catch (e) { /* el rastro no puede tumbar el cron */ }
+    return previo;
+  }
   const salida = { actualizado: Date.now(), campanas: campanas, errores: errores };
   await env.LBP_KV.put('side_meta', JSON.stringify(salida));
   return salida;
