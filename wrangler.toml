@@ -3,10 +3,13 @@
 # texto plano en el dashboard: un `wrangler deploy` desde aca reemplaza el
 # conjunto de vars por el de este archivo y borra las que no esten declaradas.
 # Asi se perdieron OPENAI_API_KEY y JINA_API_KEY. Los secrets SI sobreviven.
-# Secrets esperados: ANTHROPIC_API_KEY, OPENAI_API_KEY, BRIEFING_KEY, ASIS_KEY
-# (+ JINA_API_KEY opcional). ASIS_KEY es la del POST /asistente/senal del vigilante
-# de las esperas: sin ella ese endpoint responde 401 y una de las tres corrientes
-# que el asistente reemplaza nace muerta.
+# Secrets esperados: ANTHROPIC_API_KEY, OPENAI_API_KEY, BRIEFING_KEY, ASIS_KEY,
+# HOTMART_HOTTOK (+ JINA_API_KEY opcional). ASIS_KEY es la del POST
+# /asistente/senal del vigilante de las esperas: sin ella ese endpoint responde
+# 401 y una de las tres corrientes que el asistente reemplaza nace muerta.
+# HOTMART_HOTTOK es el hottok del postback de Hotmart (POST /side/hotmart): sin
+# el, ese endpoint rechaza todo y las ventas del tablero de side hustles dejan
+# de entrar solas, en silencio.
 
 name = "life-planner"
 main = "worker.js"

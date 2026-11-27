@@ -22,7 +22,7 @@
 <script>
 (function() {
   // ── Version ──────────────────────────────────────────────────────────────
-  window.LBP_VERSION = '5.89';
+  window.LBP_VERSION = '5.90';
 
   // ── PWA Install prompt ───────────────────────────────────────────────────
   window._installPrompt = null;
@@ -19812,6 +19812,360 @@ var BrainstormScreen = function(props) {
 };
 
 // ─── SearchScreen ───────────────────────────────────────────────
+// ─── SideScreen ─────────────────────────────────────────────────────────
+// Tablero de los side hustles (productos digitales, dropshipping, micro apps).
+// Los datos vienen de GET /side del worker: la base la mantengo yo en el KV
+// `side_base` y las ventas de Hotmart entran solas por su postback.
+//
+// Va con colores PROPIOS (el diseño editorial claro), no con las variables del
+// tema oscuro de la app: es un documento dentro del planner, y así se lee igual
+// en el celular que impreso. Por eso todo el estilo es inline y no toca el CSS
+// de la app ni lo hereda.
+var _sideH = React.createElement;
+var SIDE_C = {
+  bg: '#f4f1ea', card: '#ffffff', bd: '#e2ddd0', tx: '#2b2926',
+  mu: '#948d7d', go: '#9a7b3f', ok: '#2f6a4a', bad: '#b04a35', warn: '#b07d2e'
+};
+var SIDE_SERIF = "Georgia,'Times New Roman',serif";
+var SIDE_LINEAS = { digital: 'Productos digitales', dropshipping: 'Dropshipping', apps: 'Micro apps' };
+
+function _sideNum(x, dec) {
+  var n = Number(x) || 0;
+  var s = n.toFixed(dec === undefined ? 2 : dec);
+  var p = s.split('.');
+  p[0] = p[0].replace(/\B(?=(\d{3})+(?!\d))/g, '.');
+  return p.length > 1 ? p[0] + ',' + p[1] : p[0];
+}
+function _sideUSD(x) { var n = Number(x) || 0; return (n < 0 ? '−US$ ' : 'US$ ') + _sideNum(Math.abs(n)); }
+
+function SideScreen(_ref_side) {
+  var _sd1 = useState(null), _sd2 = _slicedToArray(_sd1, 2), d = _sd2[0], setD = _sd2[1];
+  var _sd3 = useState(''), _sd4 = _slicedToArray(_sd3, 2), err = _sd4[0], setErr = _sd4[1];
+  var _sd5 = useState(''), _sd6 = _slicedToArray(_sd5, 2), sel = _sd6[0], setSel = _sd6[1];
+  var _sd7 = useState(false), _sd8 = _slicedToArray(_sd7, 2), cargando = _sd8[0], setCargando = _sd8[1];
+  var _sd9 = useState(0), _sd10 = _slicedToArray(_sd9, 2), leido = _sd10[0], setLeido = _sd10[1];
+
+  var traer = function traer() {
+    var k = '';
+    try { k = localStorage.getItem('lbp_sync_key') || ''; } catch (e) {}
+    if (!k) { setErr('Este equipo todavia no tiene sync key.'); return; }
+    // El bloque grande del archivo no ve el _workerFetch del bloque chico (vive
+    // dentro de su propio ambito): aca se llama al worker como lo hace el resto
+    // de este bloque, con window.LBP_WORKER_URL.
+    if (!window.LBP_WORKER_URL) { setErr('Falta configurar el Worker en Cloud & Sync.'); return; }
+    setCargando(true);
+    fetch(window.LBP_WORKER_URL + '/side?key=' + encodeURIComponent(k)).then(function (r) {
+      return r ? r.json() : null;
+    }).then(function (j) {
+      setCargando(false);
+      if (!j) { setErr('No se pudo hablar con el worker.'); return; }
+      if (j.error) { setErr(j.error); return; }
+      setErr(''); setD(j); setLeido(Date.now());
+      try { localStorage.setItem('lbp_side_v1', JSON.stringify({ data: j, fetchedAt: Date.now() })); } catch (e) {}
+    })['catch'](function () { setCargando(false); setErr('No se pudo hablar con el worker.'); });
+  };
+
+  // Primero lo guardado (para que abra al toque y sirva sin señal), despues la
+  // red si pasó más de una hora.
+  useEffect(function () {
+    var c = null;
+    try { c = JSON.parse(localStorage.getItem('lbp_side_v1') || 'null'); } catch (e) {}
+    if (c && c.data) { setD(c.data); setLeido(c.fetchedAt || 0); }
+    if (!c || !c.fetchedAt || Date.now() - c.fetchedAt > 3600000) traer();
+  }, []);
+
+  var caja = function caja(hijos, extra) {
+    return _sideH('div', { style: Object.assign({
+      background: SIDE_C.card, border: '1px solid ' + SIDE_C.bd, borderRadius: 10,
+      boxShadow: '0 1px 3px rgba(43,41,38,.04)', padding: '14px 16px', marginBottom: 12
+    }, extra || {}) }, hijos);
+  };
+  var lab = function lab(t, col) {
+    return _sideH('div', { key: 'l', style: {
+      color: col || SIDE_C.go, textTransform: 'uppercase', letterSpacing: '.04em',
+      fontSize: 10.5, fontWeight: 600, marginBottom: 7
+    } }, t);
+  };
+  var h2 = function h2(t) {
+    return _sideH('div', { style: { fontFamily: SIDE_SERIF, fontSize: 21, lineHeight: 1.2, marginBottom: 10 } }, t);
+  };
+  var chico = function chico(t, col) {
+    return _sideH('div', { style: { fontSize: 12.5, color: col || SIDE_C.mu, lineHeight: 1.5 } }, t);
+  };
+  // Las tablas anchas scrollean DENTRO de su caja: en el celular la pagina
+  // nunca se corre de lado.
+  var rodante = function rodante(hijo, min) {
+    return _sideH('div', { style: { overflowX: 'auto', WebkitOverflowScrolling: 'touch' } },
+      _sideH('div', { style: { minWidth: min || 560 } }, hijo));
+  };
+  var th = function th(t, i, der) {
+    return _sideH('th', { key: 'h' + i, style: {
+      color: SIDE_C.go, textTransform: 'uppercase', letterSpacing: '.04em', fontSize: 10,
+      fontWeight: 600, textAlign: (i === 0 && !der) ? 'left' : 'right', verticalAlign: 'bottom',
+      padding: '0 0 6px ' + (i === 0 ? '0' : '10px'), borderBottom: '1px solid ' + SIDE_C.bd, whiteSpace: 'nowrap'
+    } }, t);
+  };
+  var td = function td(t, i, o) {
+    var op = o || {};
+    return _sideH('td', { key: 'c' + i, style: Object.assign({
+      padding: '7px 0 7px ' + (i === 0 ? '0' : '10px'), borderBottom: '1px solid #f0ece2',
+      textAlign: i === 0 ? 'left' : 'right', whiteSpace: i === 0 ? 'normal' : 'nowrap',
+      minWidth: i === 0 ? 140 : 0, color: op.col || SIDE_C.tx,
+      fontWeight: op.fuerte ? 600 : 400,
+      borderTop: op.arriba ? '1px solid ' + SIDE_C.bd : undefined
+    }, op.style || {}) }, t);
+  };
+  var tabla = function tabla(cols, filas, pie, min) {
+    return rodante(_sideH('table', { style: {
+      borderCollapse: 'collapse', width: '100%', fontSize: 13,
+      fontVariantNumeric: 'tabular-nums'
+    } },
+      _sideH('thead', { key: 't' }, _sideH('tr', null, cols.map(function (c, i) { return th(c, i); }))),
+      _sideH('tbody', { key: 'b' }, filas.map(function (f, j) {
+        return _sideH('tr', { key: 'r' + j }, f.map(function (c, i) {
+          return td(c && c.v !== undefined ? c.v : c, i, c && c.v !== undefined ? c : null);
+        }));
+      })),
+      pie ? _sideH('tfoot', { key: 'f' }, _sideH('tr', null, pie.map(function (c, i) {
+        return td(c && c.v !== undefined ? c.v : c, i,
+          Object.assign({ fuerte: true, arriba: true, style: { borderBottom: 'none', paddingTop: 8 } },
+            c && c.v !== undefined ? c : {}));
+      }))) : null
+    ), min);
+  };
+
+  // ── estados sin datos ──
+  var envoltorio = function envoltorio(hijos) {
+    return _sideH('div', { style: {
+      background: SIDE_C.bg, color: SIDE_C.tx, borderRadius: 12, padding: '18px 16px 26px',
+      fontFamily: "-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif",
+      fontSize: 15, lineHeight: 1.5, fontVariantNumeric: 'tabular-nums'
+    } }, hijos);
+  };
+
+  if (!d) {
+    return envoltorio([
+      _sideH('div', { key: 'h', style: { fontFamily: SIDE_SERIF, fontSize: 26, marginBottom: 6 } },
+        'Side hustles'),
+      caja([lab('Estado'), chico(err || (cargando ? 'Buscando el tablero…' : 'Todavia no hay tablero guardado en este equipo.'), SIDE_C.tx)]),
+      _sideH('button', { key: 'b', onClick: function () { traer(); }, style: {
+        background: SIDE_C.tx, color: SIDE_C.bg, border: 'none', borderRadius: 8,
+        padding: '10px 16px', fontSize: 13, fontWeight: 600, cursor: 'pointer'
+      } }, cargando ? 'Buscando…' : 'Reintentar')
+    ]);
+  }
+
+  var tot = d.totales || { clientes: 0, ingreso: 0, marketing: 0, otros: 0, resultado: 0 };
+  var prods = d.productos || [];
+  var proyectos = prods.filter(function (p) { return !p.soloTabla; });
+  var actual = null;
+  for (var pi = 0; pi < proyectos.length; pi++) if (proyectos[pi].id === sel) actual = proyectos[pi];
+  if (!actual && proyectos.length) actual = proyectos[0];
+
+  // ── KPIs ──
+  var kpi = function kpi(titulo, valor, pie, mal) {
+    return _sideH('div', { key: titulo, style: {
+      background: SIDE_C.card, border: '1px solid ' + SIDE_C.bd, borderRadius: 10,
+      boxShadow: '0 1px 3px rgba(43,41,38,.04)', padding: '12px 14px'
+    } },
+      _sideH('div', { key: 'h', style: { color: SIDE_C.go, textTransform: 'uppercase', letterSpacing: '.04em', fontSize: 10, fontWeight: 600 } }, titulo),
+      _sideH('div', { key: 'v', style: { fontFamily: SIDE_SERIF, fontSize: 25, lineHeight: 1.1, margin: '2px 0 1px', color: mal ? SIDE_C.bad : SIDE_C.tx } }, valor),
+      _sideH('div', { key: 'f', style: { color: SIDE_C.mu, fontSize: 11.5 } }, pie)
+    );
+  };
+
+  // ── Caja: lo que salio sale de los propios productos, asi que una venta
+  // nueva mueve el total sin que yo toque nada. Las filas de concepto son el
+  // desglose de lo gastado y esas si las mantengo a mano.
+  var lineas = ['digital', 'dropshipping', 'apps'];
+  var porLinea = {};
+  lineas.forEach(function (L) { porLinea[L] = { salio: 0, entro: 0 }; });
+  prods.forEach(function (p) {
+    var L = porLinea[p.linea] || porLinea.digital;
+    L.salio += (Number(p.marketing) || 0) + (Number(p.otros) || 0);
+    L.entro += Number(p.ingreso) || 0;
+  });
+  var cel = function cel(n, col) { return { v: _sideNum(n), col: col }; };
+  var filasCaja = (d.caja || []).map(function (f) {
+    return [f[0]].concat(f.slice(1).map(function (x) { return x === null || x === '' ? '—' : _sideNum(x); }));
+  });
+  var sumSalio = lineas.reduce(function (a, L) { return a + porLinea[L].salio; }, 0);
+  var sumEntro = lineas.reduce(function (a, L) { return a + porLinea[L].entro; }, 0);
+  var pieCaja = null;
+  var filasTot = [
+    ['Salio'].concat(lineas.map(function (L) { return cel(porLinea[L].salio); })).concat([{ v: _sideNum(sumSalio), fuerte: true }]),
+    ['Entro'].concat(lineas.map(function (L) { return cel(porLinea[L].entro, SIDE_C.ok); })).concat([{ v: _sideNum(sumEntro), col: SIDE_C.ok, fuerte: true }]),
+    ['Resultado'].concat(lineas.map(function (L) { return cel(porLinea[L].entro - porLinea[L].salio, SIDE_C.bad); })).concat([{ v: _sideNum(sumEntro - sumSalio), col: SIDE_C.bad, fuerte: true }])
+  ].map(function (f) {
+    return f.map(function (c, i) {
+      if (i === 0) return { v: c, fuerte: true, arriba: true, style: { borderBottom: 'none', paddingTop: 8 } };
+      var o = (c && c.v !== undefined) ? c : { v: c };
+      return Object.assign({}, o, { fuerte: true, arriba: true, style: { borderBottom: 'none', paddingTop: 8 } });
+    });
+  });
+
+  // ── Consolidado ──
+  var filasCons = prods.map(function (p) {
+    return [
+      _sideH('span', null,
+        _sideH('b', { key: 'n' }, p.nombre),
+        _sideH('div', { key: 's', style: { fontSize: 12.5, color: SIDE_C.mu } }, p.sub || SIDE_LINEAS[p.linea] || '')),
+      _sideH('span', null, p.precio || '—',
+        p.precioSub ? _sideH('div', { key: 'x', style: { fontSize: 12.5, color: SIDE_C.mu } }, p.precioSub) : null),
+      p.dejaTexto || (p.dejaPorVenta ? _sideNum(p.dejaPorVenta) : '—'),
+      { v: p.clientes ? String(p.clientes) : '0', col: p.clientes ? SIDE_C.ok : SIDE_C.tx, fuerte: !!p.clientes },
+      _sideNum(p.ingreso),
+      _sideNum(p.marketing),
+      p.otros ? _sideNum(p.otros) : '—',
+      { v: _sideNum(p.resultado), col: p.resultado < 0 ? SIDE_C.bad : SIDE_C.ok }
+    ];
+  });
+
+  // ── Detalle del proyecto elegido ──
+  var detalle = null;
+  if (actual) {
+    var est = actual.estado || ['', ''];
+    var colTag = est[0] === 'on' ? SIDE_C.ok : (est[0] === 'off' ? SIDE_C.bad : (est[0] === 'wait' ? SIDE_C.warn : SIDE_C.mu));
+    var parKV = function parKV(titulo, filas) {
+      return caja([lab(titulo),
+        _sideH('table', { key: 't', style: { width: '100%', fontSize: 13, borderCollapse: 'collapse', fontVariantNumeric: 'tabular-nums' } },
+          _sideH('tbody', null, filas.map(function (f, i) {
+            var fin = f[0].indexOf('__') === 0;
+            return _sideH('tr', { key: 'k' + i },
+              _sideH('td', { style: { padding: '6px 10px 6px 0', color: fin ? SIDE_C.tx : '#4a4740', borderTop: fin ? '1px solid ' + SIDE_C.bd : undefined, fontWeight: fin ? 600 : 400 } }, fin ? f[0].slice(2) : f[0]),
+              _sideH('td', { style: { padding: '6px 0', textAlign: 'right', fontWeight: 600, whiteSpace: 'nowrap', borderTop: fin ? '1px solid ' + SIDE_C.bd : undefined } }, f[1]));
+          })))]);
+    };
+    detalle = _sideH('div', null,
+      _sideH('div', { key: 'l', style: { color: SIDE_C.go, textTransform: 'uppercase', letterSpacing: '.04em', fontSize: 10.5, fontWeight: 600, marginBottom: 4 } },
+        SIDE_LINEAS[actual.linea] || ''),
+      _sideH('div', { key: 'h', style: { fontFamily: SIDE_SERIF, fontSize: 21, lineHeight: 1.2, marginBottom: 3 } }, actual.nombre,
+        est[1] ? _sideH('span', { style: { marginLeft: 8, fontFamily: 'inherit', fontSize: 10, fontWeight: 600, letterSpacing: '.03em', textTransform: 'uppercase', padding: '2px 6px', borderRadius: 4, border: '1px solid ' + SIDE_C.bd, color: colTag, verticalAlign: 4 } }, est[1]) : null),
+      _sideH('div', { key: 'd', style: { fontSize: 12.5, color: SIDE_C.mu, marginBottom: 14 } }, actual.donde || ''),
+      actual.que ? caja([lab('Que ofrecemos'), chico(actual.que, SIDE_C.tx)]) : null,
+      actual.eco && actual.eco.length ? parKV('Precio y costo', actual.eco) : null,
+      parKV('Resultados', [
+        ['Clientes pagos', String(actual.clientes || 0) + (actual.ventasNuevas ? ' (+' + actual.ventasNuevas + ' nueva' + (actual.ventasNuevas > 1 ? 's' : '') + ')' : '')],
+        ['Ventas cobradas', _sideUSD(actual.ingreso)],
+        ['Pauta gastada', _sideUSD(actual.marketing)],
+        ['Otros costos', _sideUSD(actual.otros)]
+      ].concat(actual.resExtra || []).concat([['__Resultado', _sideUSD(actual.resultado)]])),
+      actual.emb ? caja([lab('El embudo'), chico(actual.emb, SIDE_C.tx)]) : null,
+      actual.camp && actual.camp.length ? _sideH('div', { key: 'cp' },
+        _sideH('div', { style: { font: '600 14px/1.3 inherit', margin: '18px 0 6px' } }, 'Pauta, campana por campana'),
+        caja([tabla(['Campana', 'Periodo', 'Gasto', 'Impres.', 'Clics', 'Pagos abiertos', 'Ventas'],
+          actual.camp, actual.campt ? ['Total', ''].concat(actual.campt) : null, 620)])) : null,
+      actual.notas && actual.notas.length ? caja([lab('Lo que hay que saber')].concat(
+        actual.notas.map(function (t, i) {
+          return _sideH('div', { key: 'n' + i, style: { fontSize: 13, color: '#4a4740', marginBottom: i === actual.notas.length - 1 ? 0 : 7, paddingLeft: 14, position: 'relative' } },
+            _sideH('span', { style: { position: 'absolute', left: 0, top: 8, width: 5, height: 5, borderRadius: '50%', background: SIDE_C.go } }), t);
+        }))) : null,
+      actual.reloj ? caja([lab('Reloj de corte'), _sideH('div', { style: { fontSize: 13, fontWeight: 600 } }, actual.reloj)]) : null
+    );
+  }
+
+  return envoltorio([
+    // encabezado
+    _sideH('div', { key: 'enc' },
+      lab('Productos digitales · dropshipping · micro apps'),
+      _sideH('div', { style: { fontFamily: SIDE_SERIF, fontSize: 28, lineHeight: 1.15, marginBottom: 4 } },
+        'Side hustles · ', _sideH('span', { style: { color: SIDE_C.go } }, 'tablero')),
+      _sideH('div', { style: { color: SIDE_C.mu, fontSize: 12.5, marginBottom: 18 } },
+        (d.actualizado || '') + (d.ventasHotmart ? ' · ' + d.ventasHotmart + ' venta(s) por el postback de Hotmart' : ''))),
+
+    // KPIs
+    _sideH('div', { key: 'kpis', style: { display: 'grid', gridTemplateColumns: 'repeat(2,1fr)', gap: 10, marginBottom: 12 } },
+      kpi('Gasto en pauta', _sideUSD(tot.marketing), 'Desde el 23-sep-2026'),
+      kpi('Clientes pagos', String(tot.clientes), 'Todos de guias'),
+      kpi('Ingreso neto', _sideUSD(tot.ingreso), 'Lo que le queda a Pepe'),
+      kpi('Resultado', _sideUSD(tot.resultado), 'Todo lo gastado menos lo cobrado', true)),
+
+    d.foto ? _sideH('div', { key: 'foto', style: { background: SIDE_C.tx, color: '#f4f1ea', borderRadius: 10, padding: '14px 16px', marginBottom: 22 } },
+      lab('La foto en una linea', '#c9a961'),
+      _sideH('div', { style: { fontSize: 14 } }, d.foto)) : null,
+
+    // Caja
+    _sideH('div', { key: 'caja' }, lab('Caja'), h2('Que salio y que entro'),
+      caja([tabla(['Concepto', 'Productos digitales', 'Dropshipping', 'Micro apps', 'Total'],
+        filasCaja.concat(filasTot), pieCaja, 560),
+        d.cajaNota ? _sideH('div', { key: 'n', style: { fontSize: 12.5, color: SIDE_C.mu, marginTop: 10 } }, d.cajaNota) : null])),
+
+    // Consolidado
+    _sideH('div', { key: 'cons', style: { marginTop: 10 } }, lab('Consolidado'), h2('Producto por producto'),
+      tabla(['Producto', 'Precio', 'Deja por venta', 'Clientes', 'Ventas', 'Marketing', 'Otros costos', 'Resultado'],
+        filasCons,
+        ['Total', '', '', String(tot.clientes), _sideNum(tot.ingreso), _sideNum(tot.marketing), _sideNum(tot.otros),
+          { v: _sideNum(tot.resultado), col: SIDE_C.bad }], 700),
+      _sideH('div', { style: { fontSize: 12.5, color: SIDE_C.mu, marginTop: 8 } },
+        '«Deja por venta» es lo que le queda a Pepe despues de la comision de la plataforma, el impuesto y el costo del producto.')),
+
+    // Selector
+    _sideH('div', { key: 'sel', style: { marginTop: 24 } }, lab('Detalle'), h2('Elegi un proyecto'),
+      _sideH('div', { style: { display: 'flex', flexWrap: 'wrap', gap: 7, marginBottom: 14 } },
+        proyectos.map(function (p) {
+          var act = actual && p.id === actual.id;
+          return _sideH('button', { key: p.id, type: 'button',
+            onClick: function () { setSel(p.id); },
+            style: {
+              font: "600 12.5px/1 inherit", color: act ? SIDE_C.bg : SIDE_C.tx,
+              background: act ? SIDE_C.tx : SIDE_C.card, border: '1px solid ' + (act ? SIDE_C.tx : SIDE_C.bd),
+              borderRadius: 999, padding: '9px 13px', cursor: 'pointer', textAlign: 'left',
+              boxShadow: '0 1px 3px rgba(43,41,38,.04)', WebkitAppearance: 'none'
+            } }, p.chip || p.nombre,
+            _sideH('div', { style: { fontWeight: 400, fontSize: 10.5, opacity: .72, marginTop: 3 } }, p.chipd || ''));
+        })),
+      detalle),
+
+    // Sugerencias
+    (d.sugerencias || []).length ? _sideH('div', { key: 'sug', style: { marginTop: 24 } },
+      lab('Lo que yo haria'), h2('En este orden'),
+      caja(d.sugerencias.map(function (s, i) {
+        return _sideH('div', { key: 's' + i, style: { position: 'relative', paddingLeft: 34, paddingBottom: i === d.sugerencias.length - 1 ? 0 : 14 } },
+          _sideH('span', { style: { position: 'absolute', left: 0, top: 0, width: 23, height: 23, borderRadius: '50%', background: SIDE_C.tx, color: SIDE_C.bg, font: '600 12px/23px inherit', textAlign: 'center' } }, String(i + 1)),
+          _sideH('b', { style: { display: 'block', fontSize: 14.5, margin: '2px 0 3px' } }, s[0]),
+          _sideH('div', { style: { fontSize: 13.5, color: '#4a4740' } }, s[1]));
+      }))) : null,
+
+    // Lo que ya no corre
+    (d.cerrado || []).length ? _sideH('div', { key: 'cer', style: { marginTop: 10 } },
+      lab('Cerrado o en pausa'), h2('Lo que ya no corre'),
+      caja([
+        _sideH('table', { key: 't', style: { width: '100%', fontSize: 13, borderCollapse: 'collapse' } },
+          _sideH('tbody', null, d.cerrado.map(function (c, i) {
+            var col = c[2] === 'off' ? SIDE_C.bad : (c[2] === 'wait' ? SIDE_C.warn : SIDE_C.mu);
+            return _sideH('tr', { key: 'c' + i },
+              _sideH('td', { style: { padding: '7px 10px 7px 0', borderBottom: i === d.cerrado.length - 1 ? 'none' : '1px solid #f0ece2' } },
+                _sideH('b', null, c[0]), c[1] ? _sideH('span', { style: { color: SIDE_C.mu, fontSize: 12.5 } }, ' · ' + c[1]) : null),
+              _sideH('td', { style: { padding: '7px 0', textAlign: 'right', whiteSpace: 'nowrap', borderBottom: i === d.cerrado.length - 1 ? 'none' : '1px solid #f0ece2' } },
+                _sideH('span', { style: { fontSize: 10, fontWeight: 600, letterSpacing: '.03em', textTransform: 'uppercase', padding: '2px 6px', borderRadius: 4, border: '1px solid ' + SIDE_C.bd, color: col } }, c[3])));
+          }))),
+        d.cerradoNota ? _sideH('div', { key: 'n', style: { fontSize: 12.5, color: SIDE_C.mu, marginTop: 10 } }, d.cerradoNota) : null
+      ])) : null,
+
+    // Relojes
+    (d.relojes || []).length ? _sideH('div', { key: 'rel', style: { marginTop: 10 } },
+      lab('Regla de corte · 30 dias para publicar, 60 para 10 clientes pagos'), h2('Los relojes'),
+      caja(d.relojes.map(function (r, i) {
+        var col = r[3] === 'r' ? SIDE_C.bad : (r[3] === 'w' ? SIDE_C.warn : SIDE_C.tx);
+        return _sideH('div', { key: 'r' + i, style: { padding: '9px 0', borderBottom: i === d.relojes.length - 1 ? 'none' : '1px solid #f0ece2' } },
+          _sideH('div', { style: { display: 'flex', justifyContent: 'space-between', gap: 12, fontSize: 13.5 } },
+            _sideH('b', null, r[0]),
+            _sideH('span', { style: { fontWeight: 600, whiteSpace: 'nowrap', color: col, textAlign: 'right' } }, r[2])),
+          _sideH('div', { style: { color: SIDE_C.mu, fontSize: 12 } }, r[4] || ''));
+      }))) : null,
+
+    // Pie
+    _sideH('div', { key: 'pie', style: { borderTop: '1px solid ' + SIDE_C.bd, marginTop: 22, paddingTop: 14, display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap' } },
+      _sideH('button', { onClick: function () { traer(); }, style: {
+        background: SIDE_C.tx, color: SIDE_C.bg, border: 'none', borderRadius: 8,
+        padding: '9px 14px', fontSize: 12.5, fontWeight: 600, cursor: 'pointer'
+      } }, cargando ? 'Actualizando…' : 'Actualizar'),
+      _sideH('span', { style: { color: SIDE_C.mu, fontSize: 11.5 } },
+        err ? ('Sin conexion con el worker: estas viendo lo guardado. ' + err)
+            : (leido ? 'Leido ' + new Date(leido).toLocaleString() : '')))
+  ]);
+}
+
 var SearchScreen = function(_ref_s){
   var data=_ref_s.data,navigate=_ref_s.navigate;
   var _s1=useState(''),_s2=_slicedToArray(_s1,2),q=_s2[0],setQ=_s2[1];
@@ -22282,7 +22636,7 @@ var App = function App() {
     items: [['home', '🏠', 'Dashboard'], ['chat', '💬', 'Asistente'], ['profile', '👤', 'My Profile']]
   }, {
     label: '💼 Business',
-    items: [['goals', '🎯', 'Goals & Vision'], ['clients', '👥', 'Client Hub'], ['finance', '💰', 'Financial Overview'], ['businessplan', '📋', 'Business Plan'], ['documents', '📂', 'Documents']]
+    items: [['goals', '🎯', 'Goals & Vision'], ['clients', '👥', 'Client Hub'], ['finance', '💰', 'Financial Overview'], ['side', '🚀', 'Side Hustles'], ['businessplan', '📋', 'Business Plan'], ['documents', '📂', 'Documents']]
   }, {
     label: '📅 Planners',
     items: [['projects', '📁', 'Project Manager'], ['tasks', '✅', 'Tasks & Time Sheet'], ['meetings', '📅', 'Meetings & Events'], ['routines', '🔁', 'Daily Routines'], ['resources', '🔧', 'Resources & Tools'], ['calendar', '📅', 'Unified Calendar'], ['focus', '🎯', 'Focus Mode'], ['imports', '📦', 'Ship']]
@@ -22419,6 +22773,8 @@ var App = function App() {
         return /*#__PURE__*/React.createElement(FocusScreen, props);
       case 'brainstorm':
         return /*#__PURE__*/React.createElement(BrainstormScreen, props);
+      case 'side':
+        return /*#__PURE__*/React.createElement(SideScreen, props);
       case 'search':
         return /*#__PURE__*/React.createElement(SearchScreen, props);
       default:

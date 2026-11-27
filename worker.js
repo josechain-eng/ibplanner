@@ -80,6 +80,37 @@ async function handleRequest(request, env) {
       return json(info || { error: 'no data yet' });
     }
 
+    // GET /side?key=  ->  tablero de los side hustles (productos digitales,
+    // dropshipping y micro apps) que la app pinta en la pantalla Side Hustles.
+    // Pide la sync key: son numeros del negocio, no datos publicos.
+    if (p === '/side' && request.method === 'GET') {
+      const syncKey = url.searchParams.get('key') || '';
+      if (!syncKey) return json({ error: 'Falta key' }, 400);
+      if (!(await _syncKeyValida(env, syncKey))) return json({ error: 'Key no valida' });
+      const base = JSON.parse(await env.LBP_KV.get('side_base') || 'null');
+      if (!base || !Array.isArray(base.productos)) return json({ error: 'Todavia no hay tablero cargado' });
+      const guardadas = JSON.parse(await env.LBP_KV.get('side_hotmart') || '[]');
+      return json(_sideArmar(base, Array.isArray(guardadas) ? guardadas : []));
+    }
+
+    // POST /side/hotmart  ->  postback de Hotmart. Se valida la cabecera
+    // X-HOTMART-HOTTOK contra el secreto HOTMART_HOTTOK; sin eso cualquiera
+    // podria inventar ventas en el tablero.
+    if (p === '/side/hotmart' && request.method === 'POST') {
+      const esperado = env.HOTMART_HOTTOK;
+      const dado = request.headers.get('X-HOTMART-HOTTOK') || '';
+      if (!esperado || !_igualConstante(dado, String(esperado))) return json({ error: 'unauthorized' }, 401);
+      let cuerpo = null;
+      try { cuerpo = JSON.parse(await request.text()); } catch (e) { return json({ error: 'json invalido' }, 400); }
+      const v = _sideVentaDesdeHotmart(cuerpo);
+      // Hotmart manda eventos que no son una compra (una prueba del panel, por
+      // ejemplo). Se responde 200 para que no los reintente toda la noche.
+      if (!v) return json({ ok: true, guardado: false, motivo: 'evento sin transaccion' });
+      const guardadas = JSON.parse(await env.LBP_KV.get('side_hotmart') || '[]');
+      await env.LBP_KV.put('side_hotmart', JSON.stringify(_sideGuardarVenta(guardadas, v)));
+      return json({ ok: true, guardado: true, estado: v.estado, evento: v.evento });
+    }
+
     // GET /tc-probe  ->  prueba CADA fuente del tipo de cambio por separado, sin
     // escribir en KV. Dice cual fuente esta viva, que valor da y de que fecha es,
     // mas lo que hay guardado en cache. Es el probe de conexiones de este dato.
@@ -1525,6 +1556,120 @@ function _mktVigencia(c, hoyMs) {
   if (ini !== null && !isNaN(ini) && ini > hoyMs) return 'PLANIFICADA';
   if (ini === null && fin === null) return c.status || 'ACTIVA';
   return 'ACTIVA';
+}
+
+// ================= TABLERO DE SIDE HUSTLES =================
+// La base (productos, precios, costos, pauta, sugerencias) la mantengo yo en el
+// KV `side_base`. Las ventas de Hotmart llegan solas por POST /side/hotmart y se
+// guardan en `side_hotmart`. GET /side suma las dos cosas; la app solo pinta.
+
+// Redondeo a centavos. Sumar flotantes deja 61.760000000000005 y esto muestra
+// plata: el redondeo va en cada paso, no solo al final.
+function _side2(n) { return Math.round((Number(n) || 0) * 100) / 100; }
+
+// Eventos de Hotmart que mueven el tablero. Cualquier otro se guarda como
+// 'otro': queda el rastro, pero no suma un cliente.
+const SIDE_APROBADA = { PURCHASE_APPROVED: 1, PURCHASE_COMPLETE: 1 };
+const SIDE_DEVUELTA = {
+  PURCHASE_REFUNDED: 1, PURCHASE_CANCELED: 1, PURCHASE_CHARGEBACK: 1,
+  PURCHASE_PROTEST: 1, PURCHASE_EXPIRED: 1,
+};
+
+// Saca del postback SOLO lo que el tablero necesita. Nunca el correo, el nombre
+// ni el telefono del comprador: eso no tiene por que vivir en este KV.
+function _sideVentaDesdeHotmart(c) {
+  const d = (c && c.data) || {};
+  const compra = d.purchase || {};
+  const trans = String(compra.transaction || compra.transaction_id || (c && c.transaction) || '').trim();
+  if (!trans) return null;
+  const ev = String((c && c.event) || '').toUpperCase().trim();
+  let estado = 'otro';
+  if (Object.prototype.hasOwnProperty.call(SIDE_APROBADA, ev)) estado = 'aprobada';
+  else if (Object.prototype.hasOwnProperty.call(SIDE_DEVUELTA, ev)) estado = 'devuelta';
+  // Lo que de verdad le queda a Pepe es la comision del PRODUCTOR. El precio que
+  // pago el cliente lleva impuesto y comision de Hotmart, asi que no sirve para
+  // el tablero (se guarda igual, para poder mirarlo).
+  let neto = 0;
+  const com = Array.isArray(d.commissions) ? d.commissions : [];
+  for (const x of com) {
+    if (String((x && x.source) || '').toUpperCase().indexOf('PRODUCER') >= 0) neto = Number(x.value) || 0;
+  }
+  const precio = compra.price && Number(compra.price.value);
+  return {
+    transaccion: trans,
+    producto: String((d.product && d.product.id) || ''),
+    estado: estado,
+    evento: ev,
+    neto: _side2(neto),
+    precio: _side2(precio),
+    moneda: String((compra.price && compra.price.currency_value) || ''),
+    oferta: String((compra.offer && compra.offer.code) || ''),
+    sck: String(compra.sckPaymentLink || compra.sck || ''),
+    ts: Date.now(),
+  };
+}
+
+// Mete una venta en la lista guardada. Devuelve la lista nueva.
+// Reglas: una transaccion = una fila; la devolucion manda sobre la aprobada; una
+// aprobada repetida NO se cuenta dos veces (Hotmart reintenta los postbacks).
+function _sideGuardarVenta(lista, v) {
+  const out = Array.isArray(lista) ? lista.slice() : [];
+  let i = -1;
+  for (let k = 0; k < out.length; k++) if (out[k] && out[k].transaccion === v.transaccion) { i = k; break; }
+  if (i < 0) out.push(v);
+  else if (v.estado === 'devuelta') { out[i].estado = 'devuelta'; out[i].evento = v.evento; out[i].ts = v.ts; }
+  else if (out[i].estado === 'otro' && v.estado === 'aprobada') out[i] = v;
+  // Tope duro: esto no es un libro de ventas, es un tablero. Se recorta por el
+  // final para no perder NUNCA la que acaba de entrar.
+  return out.slice(-200);
+}
+
+// Arma el tablero: a cada producto de la base le suma sus ventas de Hotmart.
+function _sideArmar(base, ventas) {
+  const conocidos = {};
+  for (const p of base.productos) if (p && p.hotmart) conocidos[String(p.hotmart)] = true;
+  const porProd = {};
+  let sinUbicar = 0;
+  for (const v of ventas) {
+    if (!v || v.estado !== 'aprobada') continue;
+    const id = String(v.producto || '');
+    if (!conocidos[id]) { sinUbicar++; continue; }
+    if (!porProd[id]) porProd[id] = { n: 0, neto: 0 };
+    porProd[id].n += 1;
+    porProd[id].neto += Number(v.neto) || 0;
+  }
+  const productos = [];
+  const tot = { clientes: 0, ingreso: 0, marketing: 0, otros: 0, resultado: 0 };
+  for (const p of base.productos) {
+    const ex = porProd[String(p.hotmart || '')] || { n: 0, neto: 0 };
+    const clientes = (Number(p.ventasBase) || 0) + ex.n;
+    // Si el postback no trajo la comision del productor, se usa lo que la base
+    // dice que deja ese producto: una estimacion marcada vale mas que un cero.
+    const neto = ex.neto > 0 ? ex.neto : ex.n * (Number(p.dejaPorVenta) || 0);
+    const ingreso = _side2((Number(p.ingresoBase) || 0) + neto);
+    const marketing = _side2(p.marketing);
+    const otros = _side2(p.otros);
+    productos.push(Object.assign({}, p, {
+      clientes: clientes,
+      ventasNuevas: ex.n,
+      ingreso: ingreso,
+      marketing: marketing,
+      otros: otros,
+      resultado: _side2(ingreso - marketing - otros),
+    }));
+    tot.clientes += clientes;
+    tot.ingreso = _side2(tot.ingreso + ingreso);
+    tot.marketing = _side2(tot.marketing + marketing);
+    tot.otros = _side2(tot.otros + otros);
+  }
+  tot.resultado = _side2(tot.ingreso - tot.marketing - tot.otros);
+  return Object.assign({}, base, {
+    productos: productos,
+    totales: tot,
+    sinUbicar: sinUbicar,
+    ventasHotmart: (ventas || []).length,
+    servido: new Date().toISOString(),
+  });
 }
 
 async function _syncKeyValida(env, syncKey) {
